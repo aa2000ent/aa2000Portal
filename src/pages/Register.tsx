@@ -158,7 +158,11 @@ export default function Register() {
   const handleSearchPlace = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
     const q = locQuery.trim()
-    if (!q) return
+    if (!q) {
+      setLocResults([])
+      setLocError(null)
+      return
+    }
     setLocError(null)
     setLocLoading(true)
     try {
@@ -172,6 +176,31 @@ export default function Register() {
       setLocLoading(false)
     }
   }
+
+  // Auto-search as user types (debounced)
+  useEffect(() => {
+    const q = locQuery.trim()
+    if (q.length < 2) {
+      setLocResults([])
+      setLocError(null)
+      return
+    }
+    const t = setTimeout(() => {
+      setLocError(null)
+      setLocLoading(true)
+      searchPlaces(q)
+        .then((mapped) => {
+          setLocResults(mapped)
+          if (!mapped.length) setLocError('No places found. Try a more specific search.')
+        })
+        .catch((err) => {
+          setLocError(err instanceof Error ? err.message : 'Failed to search for that place.')
+          setLocResults([])
+        })
+        .finally(() => setLocLoading(false))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [locQuery])
 
   useEffect(() => {
     if (!hasApiBase()) {
@@ -437,7 +466,7 @@ export default function Register() {
                     value={locQuery}
                     onChange={(e) => setLocQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchPlace())}
-                    placeholder="Search place, street, city..."
+                    placeholder="Type to search place, street, city..."
                     className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900"
                   />
                   <button
@@ -461,7 +490,7 @@ export default function Register() {
                           setLocResults([])
                           await applyReverseGeocode(r.lat, r.lon)
                         }}
-                        className="w-full text-left px-2 py-1 rounded-md hover:bg-slate-100"
+                        className="w-full text-left px-2 py-1 rounded-md hover:bg-slate-100 outline-none border-0 focus:outline-none focus:ring-0"
                       >
                         {r.displayName}
                       </button>

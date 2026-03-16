@@ -93,7 +93,7 @@ export default function AdminEmployees() {
 
   const [newRoleName, setNewRoleName] = useState('')
   const [addRoleBusy, setAddRoleBusy] = useState(false)
-  const [newUser, setNewUser] = useState<{ name: string; email: string; role: string; status: 'Active' | 'Inactive'; password: string; address: string; contact: string }>({ name: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+  const [newUser, setNewUser] = useState<{ fname: string; mname: string; lname: string; email: string; role: string; status: 'Active' | 'Inactive'; password: string; address: string; contact: string }>({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
   const [location, setLocation] = useState<LatLon | null>(DEFAULT_LOCATION)
   const [locLoading, setLocLoading] = useState(false)
   const [locError, setLocError] = useState<string | null>(null)
@@ -151,7 +151,11 @@ export default function AdminEmployees() {
   const handleSearchPlace = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
     const q = locQuery.trim()
-    if (!q) return
+    if (!q) {
+      setLocResults([])
+      setLocError(null)
+      return
+    }
     setLocError(null)
     setLocLoading(true)
     try {
@@ -165,6 +169,31 @@ export default function AdminEmployees() {
       setLocLoading(false)
     }
   }
+
+  // Auto-search as user types (debounced)
+  useEffect(() => {
+    const q = locQuery.trim()
+    if (q.length < 2) {
+      setLocResults([])
+      setLocError(null)
+      return
+    }
+    const t = setTimeout(() => {
+      setLocError(null)
+      setLocLoading(true)
+      searchPlaces(q)
+        .then((mapped) => {
+          setLocResults(mapped)
+          if (!mapped.length) setLocError('No places found. Try a more specific search.')
+        })
+        .catch((err) => {
+          setLocError(err instanceof Error ? err.message : 'Failed to search for that place.')
+          setLocResults([])
+        })
+        .finally(() => setLocLoading(false))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [locQuery])
 
   const [confirm, setConfirm] = useState<{
     open: boolean
@@ -218,15 +247,16 @@ export default function AdminEmployees() {
 
   const handleAddUser = (e: React.FormEvent) => {
     e.preventDefault()
-    const { name, email, role, status, password, address, contact } = newUser
-    if (!name.trim() || !email.trim()) return
+    const { fname, mname, lname, email, role, status, password, address, contact } = newUser
+    const name = [fname, mname, lname].filter(Boolean).join(' ').trim()
+    if (!name || !email.trim()) return
     const id = Math.max(0, ...employees.map((emp) => emp.id)) + 1
-    const newEmp: Employee = { id, name: name.trim(), email: email.trim(), role, status, password: password || DEFAULT_PASSWORD }
+    const newEmp: Employee = { id, name, email: email.trim(), role, status, password: password || DEFAULT_PASSWORD }
     if (address.trim()) newEmp.address = address.trim()
     if (contact.trim()) newEmp.contact = contact.trim()
     setEmployees((prev) => [...prev, newEmp])
     addEntry({ action: 'user_added', actor: 'Admin', target: newEmp.name, details: `Role: ${role}` })
-    setNewUser({ name: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+    setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
     setLocation(DEFAULT_LOCATION)
     setAddressParts(null)
     setLocQuery('')
@@ -238,24 +268,39 @@ export default function AdminEmployees() {
   const handleEditUser = (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingEmployee) return
-    const { name, email, role, status, password, address, contact } = newUser
-    if (!name.trim() || !email.trim()) return
+    const { fname, mname, lname, email, role, status, password, address, contact } = newUser
+    const name = [fname, mname, lname].filter(Boolean).join(' ').trim()
+    if (!name || !email.trim()) return
     const details = editingEmployee.role !== role ? `Role: ${editingEmployee.role} → ${role}` : 'Profile updated'
     setEmployees((prev) =>
       prev.map((emp) =>
         emp.id === editingEmployee.id
-          ? { ...emp, name: name.trim(), email: email.trim(), role, status, password: password || DEFAULT_PASSWORD, address: address?.trim() || undefined, contact: contact?.trim() || undefined }
+          ? { ...emp, name, email: email.trim(), role, status, password: password || DEFAULT_PASSWORD, address: address?.trim() || undefined, contact: contact?.trim() || undefined }
           : emp
       )
     )
-    addEntry({ action: 'user_updated', actor: 'Admin', target: name.trim(), details })
+    addEntry({ action: 'user_updated', actor: 'Admin', target: name, details })
     setEditingEmployee(null)
-    setNewUser({ name: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+    setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+  }
+
+  function parseNameToParts(fullName: string): { fname: string; mname: string; lname: string } {
+    const parts = fullName.trim().split(/\s+/).filter(Boolean)
+    if (parts.length === 0) return { fname: '', mname: '', lname: '' }
+    if (parts.length === 1) return { fname: parts[0] ?? '', mname: '', lname: '' }
+    return {
+      fname: parts[0] ?? '',
+      lname: parts[parts.length - 1] ?? '',
+      mname: parts.slice(1, -1).join(' '),
+    }
   }
 
   const openEditModal = (emp: Employee) => {
+    const { fname, mname, lname } = parseNameToParts(emp.name)
     setNewUser({
-      name: emp.name,
+      fname,
+      mname,
+      lname,
       email: emp.email,
       role: emp.role,
       status: emp.status,
@@ -365,7 +410,7 @@ export default function AdminEmployees() {
                 type="button"
                 className="employees-btn employees-btn-primary"
                 onClick={() => {
-                  setNewUser({ name: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+                  setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
                   setShowAddPassword(false)
                   setLocation(DEFAULT_LOCATION)
                   setAddressParts(null)
@@ -596,14 +641,37 @@ export default function AdminEmployees() {
             </div>
             <form onSubmit={handleAddUser}>
               <div className="modal-field">
-                <label htmlFor="user-name" className="modal-label">Name</label>
+                <label htmlFor="user-fname" className="modal-label">First name</label>
                 <input
-                  id="user-name"
+                  id="user-fname"
                   type="text"
                   className="modal-input"
-                  placeholder="Full name"
-                  value={newUser.name}
-                  onChange={(e) => setNewUser((u) => ({ ...u, name: e.target.value }))}
+                  placeholder="First name"
+                  value={newUser.fname}
+                  onChange={(e) => setNewUser((u) => ({ ...u, fname: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="modal-field">
+                <label htmlFor="user-mname" className="modal-label">Middle name</label>
+                <input
+                  id="user-mname"
+                  type="text"
+                  className="modal-input"
+                  placeholder="Middle name"
+                  value={newUser.mname}
+                  onChange={(e) => setNewUser((u) => ({ ...u, mname: e.target.value }))}
+                />
+              </div>
+              <div className="modal-field">
+                <label htmlFor="user-lname" className="modal-label">Last name</label>
+                <input
+                  id="user-lname"
+                  type="text"
+                  className="modal-input"
+                  placeholder="Last name"
+                  value={newUser.lname}
+                  onChange={(e) => setNewUser((u) => ({ ...u, lname: e.target.value }))}
                   required
                 />
               </div>
@@ -724,7 +792,7 @@ export default function AdminEmployees() {
                         value={locQuery}
                         onChange={(e) => setLocQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchPlace())}
-                        placeholder="Search place, street, city..."
+                        placeholder="Type to search place, street, city..."
                         className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm text-slate-900"
                       />
                       <button
@@ -748,7 +816,7 @@ export default function AdminEmployees() {
                               setLocResults([])
                               await applyReverseGeocode(r.lat, r.lon)
                             }}
-                            className="w-full text-left px-2 py-1 rounded-md hover:bg-slate-100"
+                            className="w-full text-left px-2 py-1 rounded-md hover:bg-slate-100 outline-none border-0 focus:outline-none focus:ring-0"
                           >
                             {r.displayName}
                           </button>
@@ -788,7 +856,7 @@ export default function AdminEmployees() {
           className="modal-overlay"
           onClick={() => {
             setEditingEmployee(null)
-            setNewUser({ name: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+            setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
           }}
           role="dialog"
           aria-modal="true"
@@ -802,7 +870,7 @@ export default function AdminEmployees() {
                 className="modal-close"
                 onClick={() => {
                   setEditingEmployee(null)
-                  setNewUser({ name: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+                  setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
                 }}
                 aria-label="Close"
               >
@@ -814,14 +882,37 @@ export default function AdminEmployees() {
             </div>
             <form onSubmit={handleEditUser}>
               <div className="modal-field">
-                <label htmlFor="edit-user-name" className="modal-label">Name</label>
+                <label htmlFor="edit-user-fname" className="modal-label">First name</label>
                 <input
-                  id="edit-user-name"
+                  id="edit-user-fname"
                   type="text"
                   className="modal-input"
-                  placeholder="Full name"
-                  value={newUser.name}
-                  onChange={(e) => setNewUser((u) => ({ ...u, name: e.target.value }))}
+                  placeholder="First name"
+                  value={newUser.fname}
+                  onChange={(e) => setNewUser((u) => ({ ...u, fname: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="modal-field">
+                <label htmlFor="edit-user-mname" className="modal-label">Middle name</label>
+                <input
+                  id="edit-user-mname"
+                  type="text"
+                  className="modal-input"
+                  placeholder="Middle name"
+                  value={newUser.mname}
+                  onChange={(e) => setNewUser((u) => ({ ...u, mname: e.target.value }))}
+                />
+              </div>
+              <div className="modal-field">
+                <label htmlFor="edit-user-lname" className="modal-label">Last name</label>
+                <input
+                  id="edit-user-lname"
+                  type="text"
+                  className="modal-input"
+                  placeholder="Last name"
+                  value={newUser.lname}
+                  onChange={(e) => setNewUser((u) => ({ ...u, lname: e.target.value }))}
                   required
                 />
               </div>
@@ -942,7 +1033,7 @@ export default function AdminEmployees() {
                         value={locQuery}
                         onChange={(e) => setLocQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchPlace())}
-                        placeholder="Search place, street, city..."
+                        placeholder="Type to search place, street, city..."
                         className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm text-slate-900"
                       />
                       <button
@@ -966,7 +1057,7 @@ export default function AdminEmployees() {
                               setLocResults([])
                               await applyReverseGeocode(r.lat, r.lon)
                             }}
-                            className="w-full text-left px-2 py-1 rounded-md hover:bg-slate-100"
+                            className="w-full text-left px-2 py-1 rounded-md hover:bg-slate-100 outline-none border-0 focus:outline-none focus:ring-0"
                           >
                             {r.displayName}
                           </button>
@@ -1005,7 +1096,7 @@ export default function AdminEmployees() {
                   className="employees-btn employees-btn-secondary"
                   onClick={() => {
                     setEditingEmployee(null)
-                    setNewUser({ name: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+                    setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
                   }}
                 >
                   Cancel

@@ -6,6 +6,7 @@ import { EmployeesProvider } from '../contexts/EmployeesContext'
 const adminNavItems = [
   { to: '/admin', label: 'Dashboard', end: true, icon: 'dashboard' },
   { to: '/admin/employees', label: 'Employees', end: false, icon: 'employees' },
+  { to: '/admin/customer', label: 'Customer', end: false, icon: 'customer' },
   { to: '/admin/applications', label: 'Applications', end: false, icon: 'applications' },
   { to: '/admin/approvals', label: 'Approvals', end: false, icon: 'approvals' },
   { to: '/admin/history', label: 'Activity logs', end: false, icon: 'history' },

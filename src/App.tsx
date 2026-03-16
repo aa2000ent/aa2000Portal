@@ -14,6 +14,7 @@ import AdminProfile from './pages/admin/AdminProfile'
 import AdminApplications from './pages/admin/AdminApplications'
 import AdminHistory from './pages/admin/AdminHistory'
 import AdminApprovals from './pages/admin/AdminApprovals'
+import AdminCustomers from './pages/admin/AdminCustomers'
 import Marketing from './pages/Marketing'
 import Finance from './pages/Finance'
 import Engineering from './pages/Engineering'
@@ -34,6 +35,7 @@ function App() {
               <Route path="admin" element={<AdminLayout />}>
                 <Route index element={<AdminDashboard />} />
                 <Route path="employees" element={<AdminEmployees />} />
+                <Route path="customer" element={<AdminCustomers />} />
                 <Route path="profile" element={<AdminProfile />} />
                 <Route path="applications" element={<AdminApplications />} />
                 <Route path="approvals" element={<AdminApprovals />} />

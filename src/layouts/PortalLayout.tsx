@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import SidebarLayout from './SidebarLayout'
 
 const PORTAL_NAV_ITEMS: Record<string, { to: string; label: string; end: boolean; icon: string }[]> = {
@@ -23,9 +23,5 @@ export default function PortalLayout() {
   const location = useLocation()
   const segment = location.pathname.replace(/^\//, '').split('/')[0] as keyof typeof PORTAL_NAV_ITEMS
   const navItems = PORTAL_NAV_ITEMS[segment] ?? []
-  return (
-    <SidebarLayout navItems={navItems}>
-      <Outlet />
-    </SidebarLayout>
-  )
+  return <SidebarLayout navItems={navItems} />
 }

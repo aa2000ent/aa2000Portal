@@ -14,6 +14,11 @@ export type ActionType =
   | 'sign_in'
   | 'sign_out'
   | 'page_visited'
+  | 'profile_updated'
+  | 'password_changed'
+  | '2fa_enabled'
+  | '2fa_disabled'
+  | 'session_revoked'
 
 export type HistoryEntry = {
   id: number

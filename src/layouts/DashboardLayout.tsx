@@ -6,7 +6,7 @@ function DashboardMainWithScroll() {
   const { scrollContainerRef } = useSidebar()
   return (
     <main
-      ref={scrollContainerRef as React.RefObject<HTMLMainElement>}
+      ref={scrollContainerRef as React.RefObject<HTMLElement>}
       className="dashboard-main flex-1 min-h-0 flex flex-col overflow-y-auto overflow-x-hidden"
     >
       <Outlet />

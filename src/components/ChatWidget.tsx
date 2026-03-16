@@ -59,7 +59,7 @@ export default function ChatWidget({ variant = 'floating' }: ChatWidgetProps) {
     e.preventDefault()
     const text = inputValue.trim()
     if (!text) return
-    addMessage(currentSender, text)
+    addMessage(path, currentSender, text)
     setInputValue('')
   }
 
@@ -68,7 +68,7 @@ export default function ChatWidget({ variant = 'floating' }: ChatWidgetProps) {
       {!isNav && (
         <button
           type="button"
-          onClick={() => setOpen((o: boolean) => !o)}
+          onClick={() => setOpen(!open)}
           className="chat-widget-trigger"
           aria-label={open ? 'Close chat' : 'Open chat'}
           aria-expanded={open}

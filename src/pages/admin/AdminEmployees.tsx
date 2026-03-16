@@ -99,7 +99,7 @@ export default function AdminEmployees() {
   const [locError, setLocError] = useState<string | null>(null)
   const [locQuery, setLocQuery] = useState('')
   const [locResults, setLocResults] = useState<{ displayName: string; lat: number; lon: number }[]>([])
-  const [addressParts, setAddressParts] = useState<{ street: string; municipality: string; province: string; postal: string } | null>(null)
+  const [, setAddressParts] = useState<{ street: string; municipality: string; province: string; postal: string } | null>(null)
 
   const applyReverseGeocode = async (lat: number, lon: number) => {
     try {

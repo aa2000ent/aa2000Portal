@@ -16,6 +16,11 @@ const ACTION_LABELS: Record<ActionType, string> = {
   sign_in: 'Sign in',
   sign_out: 'Sign out',
   page_visited: 'Page visited',
+  profile_updated: 'Profile updated',
+  password_changed: 'Password changed',
+  '2fa_enabled': '2FA enabled',
+  '2fa_disabled': '2FA disabled',
+  session_revoked: 'Session revoked',
 }
 
 const ACTION_OPTIONS: { value: string; label: string }[] = [

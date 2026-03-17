@@ -7,6 +7,7 @@ const ACTION_LABELS: Record<ActionType, string> = {
   user_updated: 'User updated',
   user_disabled: 'User disabled',
   app_added: 'Application added',
+  app_updated: 'Application updated',
   app_deleted: 'Application deleted',
   app_launched: 'Application launched',
   signup_approved: 'Sign-up approved',

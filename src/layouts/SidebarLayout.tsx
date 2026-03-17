@@ -5,6 +5,7 @@ import { useActivityLog } from '../contexts/ActivityLogContext'
 import { useChat } from '../contexts/ChatContext'
 import { useSidebar } from '../contexts/SidebarContext'
 import { clearAuthToken, clearSessionId } from '../api/client'
+import { prefetchRoute } from '../prefetchRoutes'
 
 type NavItem = { to: string; label: string; end: boolean; icon?: string }
 
@@ -199,6 +200,8 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
                   ${showCollapsed ? 'md:justify-center md:px-0' : ''}
                   ${isActive && !showCollapsed ? 'shadow-[inset_3px_0_0_0_var(--aa-blue)]' : ''}`
                 }
+                onMouseEnter={() => prefetchRoute(to)}
+                onFocus={() => prefetchRoute(to)}
                 onClick={() => window.innerWidth <= 768 && setSidebarOpen(false)}
                 title={showCollapsed ? label : undefined}
               >

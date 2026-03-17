@@ -5,6 +5,7 @@ export type ActionType =
   | 'user_updated'
   | 'user_disabled'
   | 'app_added'
+  | 'app_updated'
   | 'app_deleted'
   | 'app_launched'
   | 'signup_approved'

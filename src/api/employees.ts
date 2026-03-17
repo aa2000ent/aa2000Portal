@@ -132,3 +132,77 @@ export async function fetchEmployees(roleOptions?: RoleOption[]): Promise<Employ
     return []
   }
 }
+
+type EmployeeCreateInput = {
+  fname: string
+  mname?: string
+  lname: string
+  email: string
+  roleName: string
+  roleId?: number
+  contact?: string
+  address?: string
+  password?: string
+}
+
+function employeeToBackendPayload(input: EmployeeCreateInput): Record<string, unknown> {
+  const roleValue = typeof input.roleId === 'number' && input.roleId > 0 ? input.roleId : input.roleName
+  const out: Record<string, unknown> = {
+    Emp_fname: input.fname,
+    Emp_lname: input.lname,
+    Emp_email: input.email,
+    Emp_role: roleValue,
+  }
+  if (input.mname) out.Emp_mname = input.mname
+  if (input.contact) out.Emp_cnum = input.contact
+  if (input.address) out.Emp_address = input.address
+  if (input.password) out.password = input.password
+  return out
+}
+
+async function tryCreateEmployeeAtPath(
+  path: string,
+  body: Record<string, unknown>,
+  roleOptions?: RoleOption[],
+): Promise<Employee | null> {
+  try {
+    const res = await apiRequest<unknown>(path, { method: 'POST', body: JSON.stringify(body) })
+    if (res != null && typeof res === 'object') {
+      const r = res as Record<string, unknown>
+      const row = (r.employee ?? r.data ?? r) as unknown
+      return normalizeRow(row, roleOptions)
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+export async function createEmployee(
+  input: EmployeeCreateInput,
+  roleOptions?: RoleOption[],
+): Promise<Employee | null> {
+  const trimmedEmail = input.email.trim()
+  const trimmedName = input.fname.trim() || input.lname.trim()
+  if (!trimmedEmail || !trimmedName) return null
+
+  const payload = employeeToBackendPayload(input)
+
+  if (isConfiguredForExternalApi()) {
+    const primary = await tryCreateEmployeeAtPath('/employees/add/employee', payload, roleOptions)
+    if (primary) return primary
+    const alt = await tryCreateEmployeeAtPath('/employees/add/employees', payload, roleOptions)
+    if (alt) return alt
+  }
+
+  // Local API or generic fallback
+  const local = await tryCreateEmployeeAtPath('/employees', {
+    name: [input.fname, input.mname, input.lname].filter(Boolean).join(' '),
+    email: trimmedEmail,
+    role: input.roleName,
+    contact: input.contact,
+    address: input.address,
+    password: input.password,
+  }, roleOptions)
+  return local
+}

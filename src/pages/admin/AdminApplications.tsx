@@ -4,6 +4,7 @@ import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useApplications, type App } from '../../contexts/ApplicationsContext'
 import ConfirmDialog, { type ConfirmVariant } from '../../components/ConfirmDialog'
 import CustomSelect from '../../components/CustomSelect'
+import { createApplication, deleteApplication, fetchApplications, updateApplication } from '../../api/applications'
 
 const MIN_PER_PAGE = 1
 const MAX_PER_PAGE = 500
@@ -20,6 +21,9 @@ export default function AdminApplications() {
   const [perPage, setPerPage] = useState(10)
   const [addAppOpen, setAddAppOpen] = useState(false)
   const [newApp, setNewApp] = useState(DEFAULT_NEW_APP)
+  const [editAppOpen, setEditAppOpen] = useState(false)
+  const [editingApp, setEditingApp] = useState<App | null>(null)
+  const [editForm, setEditForm] = useState(DEFAULT_NEW_APP)
   const [confirm, setConfirm] = useState<{
     open: boolean
     title: string
@@ -80,8 +84,13 @@ export default function AdminApplications() {
       confirmLabel: 'Delete',
       variant: 'danger',
       onConfirm: () => {
-        addEntry({ action: 'app_deleted', actor: 'Admin', target: app.name, details: 'Removed from portal' })
-        setApps((prev) => prev.filter((a) => a.id !== app.id))
+        void (async () => {
+          const ok = await deleteApplication(app.id)
+          if (ok) {
+            addEntry({ action: 'app_deleted', actor: 'Admin', target: app.name, details: 'Removed from portal' })
+            setApps((prev) => prev.filter((a) => a.id !== app.id))
+          }
+        })()
         setConfirm((c) => ({ ...c, open: false }))
       },
     })
@@ -94,21 +103,117 @@ export default function AdminApplications() {
     }))
   }
 
-  const handleAddApp = (e: React.FormEvent) => {
+  const toggleEditVisibleTo = (level: string) => {
+    setEditForm((prev) => ({
+      ...prev,
+      visibleTo: prev.visibleTo.includes(level) ? prev.visibleTo.filter((l) => l !== level) : [...prev.visibleTo, level],
+    }))
+  }
+
+  const openEditModal = (app: App) => {
+    setEditingApp(app)
+    setEditForm({
+      name: app.name,
+      description: app.description || '',
+      domain: app.domain || '',
+      visibleTo: [...(app.visibleTo || [])],
+    })
+    setEditAppOpen(true)
+  }
+
+  const closeEditModal = () => {
+    setEditAppOpen(false)
+    setEditingApp(null)
+    setEditForm(DEFAULT_NEW_APP)
+  }
+
+  const handleEditApp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingApp) return
+    const name = editForm.name.trim()
+    if (!name) return
+    const domainRaw = editForm.domain.trim()
+    const domain = domainRaw
+      ? domainRaw.startsWith('http')
+        ? domainRaw
+        : `https://${domainRaw}`
+      : ''
+    const description = editForm.description.trim() || 'Version 1.0.0'
+    const visibleTo = editForm.visibleTo.length ? editForm.visibleTo : (roles.length ? [roles[0]] : [])
+
+    const payload = {
+      name,
+      description,
+      domain: domain || name,
+      visibleTo,
+    }
+
+    const updated = await updateApplication(editingApp.id, payload)
+    const appId = editingApp.id
+
+    setApps((prev) =>
+      prev.map((a) => (a.id === appId ? (updated ? { ...updated, ...payload } : { ...a, ...payload }) : a))
+    )
+    addEntry({
+      action: 'app_updated',
+      actor: 'Admin',
+      target: name,
+      details: updated ? 'Application updated' : 'Application updated (local)',
+    })
+    closeEditModal()
+    const fromServer = await fetchApplications()
+    if (fromServer.length >= 0) setApps(fromServer)
+  }
+
+  const handleAddApp = async (e: React.FormEvent) => {
     e.preventDefault()
     const name = newApp.name.trim()
     if (!name) return
-    const id = Math.max(0, ...apps.map((a) => a.id)) + 1
-    const domain = newApp.domain.trim()
-    const app: App = {
-      id,
-      name,
-      description: newApp.description.trim(),
-      domain: domain.startsWith('http') ? domain : domain ? `https://${domain}` : '',
-      visibleTo: [...newApp.visibleTo],
+    const domainRaw = newApp.domain.trim()
+    const domain = domainRaw
+      ? domainRaw.startsWith('http')
+        ? domainRaw
+        : `https://${domainRaw}`
+      : ''
+    const version = '1.0.0'
+    const description = newApp.description.trim()
+
+    const departments = newApp.visibleTo.length ? newApp.visibleTo : (roles.length ? roles : ['Admin'])
+    const createdApps: App[] = []
+
+    for (const dept of departments) {
+      const created = await createApplication({
+        name,
+        routes: domain || name,
+        role: dept,
+        version,
+      })
+      if (created) {
+        createdApps.push(created)
+      }
     }
-    setApps((prev) => [...prev, app])
-    addEntry({ action: 'app_added', actor: 'Admin', target: name, details: newApp.visibleTo.length ? `Added to ${newApp.visibleTo.join(', ')}` : undefined })
+
+    if (createdApps.length > 0) {
+      setApps((prev) => [...createdApps, ...prev])
+    } else {
+      // Backend 404 o hindi pa naka-mount – idagdag pa rin sa UI para gumana ang Add
+      const nextId = Math.max(0, ...apps.map((a) => a.id)) + 1
+      const fallbackApps: App[] = departments.map((dept, idx) => ({
+        id: nextId + idx,
+        name,
+        description: description || `Version ${version}`,
+        domain,
+        visibleTo: [dept],
+      }))
+      setApps((prev) => [...fallbackApps, ...prev])
+    }
+
+    addEntry({
+      action: 'app_added',
+      actor: 'Admin',
+      target: name,
+      details: departments.length ? `Added to ${departments.join(', ')}` : undefined,
+    })
     setNewApp(DEFAULT_NEW_APP)
     setAddAppOpen(false)
   }
@@ -204,6 +309,15 @@ export default function AdminApplications() {
                         </button>
                         <button
                           type="button"
+                          className="employees-btn employees-btn-secondary"
+                          title="Edit"
+                          onClick={() => openEditModal(app)}
+                          style={{ marginLeft: '0.25rem' }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
                           className="app-card-delete"
                           title="Delete"
                           onClick={() => handleDeleteApp(app)}
@@ -272,6 +386,95 @@ export default function AdminApplications() {
         </section>
       </div>
 
+      {editAppOpen && editingApp && (
+        <div
+          className="modal-overlay"
+          onClick={closeEditModal}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-app-title"
+        >
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="edit-app-title" className="modal-title">Edit application</h2>
+              <button type="button" className="modal-close" onClick={closeEditModal} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <form
+              onSubmit={handleEditApp}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                const t = e.target as HTMLElement
+                const isSubmitBtn = t.tagName === 'BUTTON' && (t as HTMLButtonElement).type === 'submit'
+                if (!isSubmitBtn) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }
+              }}
+            >
+              <div className="modal-field">
+                <label htmlFor="edit-app-name" className="modal-label">App name</label>
+                <input
+                  id="edit-app-name"
+                  type="text"
+                  className="modal-input"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g. Cash Lifeline"
+                  required
+                />
+              </div>
+              <div className="modal-field">
+                <label htmlFor="edit-app-description" className="modal-label">Description</label>
+                <input
+                  id="edit-app-description"
+                  type="text"
+                  className="modal-input"
+                  value={editForm.description}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="Brief description or version"
+                />
+              </div>
+              <div className="modal-field">
+                <label htmlFor="edit-app-domain" className="modal-label">Domain / URL</label>
+                <input
+                  id="edit-app-domain"
+                  type="text"
+                  className="modal-input"
+                  value={editForm.domain}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, domain: e.target.value }))}
+                  placeholder="https://app.example.com or app name"
+                />
+              </div>
+              <div className="modal-field">
+                <span className="modal-label">Departments (who can see this app)</span>
+                <div className="modal-roles-list" style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {roles.map((dept) => (
+                    <label key={dept} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={editForm.visibleTo.includes(dept)}
+                        onChange={() => toggleEditVisibleTo(dept)}
+                      />
+                      <span>{dept}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="employees-btn employees-btn-secondary" onClick={closeEditModal}>
+                  Cancel
+                </button>
+                <button type="submit" className="employees-btn employees-btn-primary">
+                  Save changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {addAppOpen && (
         <div
           className="modal-overlay"
@@ -287,7 +490,18 @@ export default function AdminApplications() {
                 ×
               </button>
             </div>
-            <form onSubmit={handleAddApp}>
+            <form
+              onSubmit={handleAddApp}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                const t = e.target as HTMLElement
+                const isSubmitBtn = t.tagName === 'BUTTON' && (t as HTMLButtonElement).type === 'submit'
+                if (!isSubmitBtn) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }
+              }}
+            >
               <div className="modal-field">
                 <label htmlFor="app-name" className="modal-label">App name</label>
                 <input
@@ -312,14 +526,14 @@ export default function AdminApplications() {
                 />
               </div>
               <div className="modal-field">
-                <label htmlFor="app-domain" className="modal-label">Domain</label>
+                <label htmlFor="app-domain" className="modal-label">Domain / URL</label>
                 <input
                   id="app-domain"
-                  type="url"
+                  type="text"
                   className="modal-input"
                   value={newApp.domain}
                   onChange={(e) => setNewApp((prev) => ({ ...prev, domain: e.target.value }))}
-                  placeholder="https://app.example.com"
+                  placeholder="https://app.example.com or app name"
                 />
               </div>
               <div className="modal-field">

@@ -1,4 +1,6 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { hasApiBase } from '../api/client'
+import { fetchApplications } from '../api/applications'
 
 export type App = {
   id: number
@@ -17,6 +19,12 @@ const ApplicationsContext = createContext<ApplicationsContextValue | null>(null)
 
 export function ApplicationsProvider({ children }: { children: ReactNode }) {
   const [apps, setApps] = useState<App[]>([])
+  useEffect(() => {
+    if (!hasApiBase()) return
+    fetchApplications()
+      .then((list) => setApps(list))
+      .catch(() => setApps([]))
+  }, [])
   return (
     <ApplicationsContext.Provider value={{ apps, setApps }}>
       {children}

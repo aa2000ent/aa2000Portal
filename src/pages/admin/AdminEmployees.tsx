@@ -8,6 +8,7 @@ import { useEmployees, type Employee, DEFAULT_PASSWORD } from '../../contexts/Em
 import ConfirmDialog, { type ConfirmVariant } from '../../components/ConfirmDialog'
 import CustomSelect from '../../components/CustomSelect'
 import { reverseGeocode, searchPlaces } from '../../api/geo'
+import { createEmployee } from '../../api/employees'
 
 const MIN_PER_PAGE = 1
 const DEFAULT_LOCATION = { lat: 14.5995, lon: 120.9842 }
@@ -245,17 +246,51 @@ export default function AdminEmployees() {
     }
   }
 
-  const handleAddUser = (e: React.FormEvent) => {
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault()
     const { fname, mname, lname, email, role, status, password, address, contact } = newUser
     const name = [fname, mname, lname].filter(Boolean).join(' ').trim()
     if (!name || !email.trim()) return
-    const id = Math.max(0, ...employees.map((emp) => emp.id)) + 1
-    const newEmp: Employee = { id, name, email: email.trim(), role, status, password: password || DEFAULT_PASSWORD }
-    if (address.trim()) newEmp.address = address.trim()
-    if (contact.trim()) newEmp.contact = contact.trim()
-    setEmployees((prev) => [...prev, newEmp])
-    addEntry({ action: 'user_added', actor: 'Admin', target: newEmp.name, details: `Role: ${role}` })
+    let created: Employee | null = null
+    const matchedRole = roleOptions.find((r) => r.role_name === role)
+    try {
+      created = await createEmployee(
+        {
+          fname: fname.trim(),
+          mname: mname.trim() || undefined,
+          lname: lname.trim(),
+          email: email.trim(),
+          roleName: role,
+          roleId: matchedRole?.role_ID,
+          contact: contact.trim() || undefined,
+          address: address.trim() || undefined,
+          password: password?.trim() || DEFAULT_PASSWORD,
+        },
+        roleOptions,
+      )
+    } catch {
+      created = null
+    }
+
+    const nextEmp: Employee =
+      created ??
+      (() => {
+        const id = Math.max(0, ...employees.map((emp) => emp.id)) + 1
+        const fallback: Employee = {
+          id,
+          name,
+          email: email.trim(),
+          role,
+          status,
+          password: password || DEFAULT_PASSWORD,
+        }
+        if (address.trim()) fallback.address = address.trim()
+        if (contact.trim()) fallback.contact = contact.trim()
+        return fallback
+      })()
+
+    setEmployees((prev) => [...prev, nextEmp])
+    addEntry({ action: 'user_added', actor: 'Admin', target: nextEmp.name, details: `Role: ${role}` })
     setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
     setLocation(DEFAULT_LOCATION)
     setAddressParts(null)
@@ -450,7 +485,6 @@ export default function AdminEmployees() {
                       <div className="employees-card-title">
                         <div className="employees-card-name">{emp.name}</div>
                         <div className="employees-card-sub">
-                          <span className="employees-card-id">ID: {String(emp.id).padStart(5, '0')}</span>
                           <span className="employees-badge">{emp.role}</span>
                         </div>
                       </div>

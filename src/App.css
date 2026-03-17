@@ -3718,6 +3718,25 @@
   animation: confirm-overlay-in 0.2s ease;
 }
 
+/* Confirm overlay: cover content area only (not sidebar + header) when inside dashboard layout */
+.dashboard-with-sidebar .confirm-dialog-overlay {
+  left: 240px;
+  top: var(--dashboard-header-h, 4rem);
+  right: 0;
+  bottom: 0;
+}
+
+.dashboard-with-sidebar.sidebar-collapsed .confirm-dialog-overlay {
+  left: 76px;
+}
+
+@media (max-width: 768px) {
+  .dashboard-with-sidebar .confirm-dialog-overlay {
+    left: 0;
+    top: 0;
+  }
+}
+
 @keyframes confirm-overlay-in {
   from {
     opacity: 0;

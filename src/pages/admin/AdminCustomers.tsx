@@ -436,9 +436,7 @@ export default function AdminCustomers() {
                         </div>
                         <div className="employees-card-title">
                           <div className="employees-card-name">{displayName}</div>
-                          <div className="employees-card-sub">
-                            <span className="employees-card-id">ID: {String(c.id).padStart(5, '0')}</span>
-                          </div>
+                          <div className="employees-card-sub" />
                         </div>
                       </div>
                       <div className="employees-card-actions">

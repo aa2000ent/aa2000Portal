@@ -179,33 +179,28 @@ export default function AdminApplications() {
     const description = newApp.description.trim()
 
     const departments = newApp.visibleTo.length ? newApp.visibleTo : (roles.length ? roles : ['Admin'])
-    const createdApps: App[] = []
+    const role = departments[0] ?? 'Admin'
 
-    for (const dept of departments) {
-      const created = await createApplication({
-        name,
-        routes: domain || name,
-        role: dept,
-        version,
-      })
-      if (created) {
-        createdApps.push(created)
-      }
-    }
+    const created = await createApplication({
+      name,
+      routes: domain || name,
+      role,
+      version,
+    })
 
-    if (createdApps.length > 0) {
-      setApps((prev) => [...createdApps, ...prev])
+    if (created) {
+      const oneCard = { ...created, visibleTo: departments }
+      setApps((prev) => [oneCard, ...prev])
     } else {
-      // Backend 404 o hindi pa naka-mount – idagdag pa rin sa UI para gumana ang Add
       const nextId = Math.max(0, ...apps.map((a) => a.id)) + 1
-      const fallbackApps: App[] = departments.map((dept, idx) => ({
-        id: nextId + idx,
+      const oneCard: App = {
+        id: nextId,
         name,
-        description: description || `Version ${version}`,
-        domain,
-        visibleTo: [dept],
-      }))
-      setApps((prev) => [...fallbackApps, ...prev])
+        description: description || 'Version 1.0.0',
+        domain: domain || name,
+        visibleTo: departments,
+      }
+      setApps((prev) => [oneCard, ...prev])
     }
 
     addEntry({

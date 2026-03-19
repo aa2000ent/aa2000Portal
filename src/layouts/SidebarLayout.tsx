@@ -166,7 +166,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
     >
       {isSidebarOpen && isMobile && (
         <div
-          className="fixed inset-x-0 bottom-0 top-16 bg-black/30 z-[999] transition-opacity duration-300"
+          className="fixed inset-x-0 bottom-0 top-[var(--dashboard-header-h)] bg-black/30 z-[999] transition-opacity duration-300"
           onClick={() => setSidebarOpen(false)}
           aria-hidden
         />
@@ -174,14 +174,14 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
       <aside
         ref={sidebarRef}
         className={`sidebar-panel
-          flex flex-col bg-white border-r border-slate-200 px-4 pt-6 pb-3 shadow-[1px_0_0_0_rgba(0,0,0,0.02)]
-          md:fixed md:top-16 md:left-0 md:bottom-0 md:z-40
+          flex flex-col px-4 pt-6 pb-3
+          md:fixed md:top-[var(--dashboard-header-h)] md:left-0 md:bottom-0 md:z-40
           md:transition-[transform,width,min-width] md:duration-300 md:ease-[cubic-bezier(0.4,0,0.2,1)]
           w-[240px] min-w-[240px]
           md:[contain:layout_style] md:translate-z-0
           ${isTransitioning ? 'md:will-change-[width,min-width]' : ''}
           ${showCollapsed ? 'md:w-[76px] md:min-w-[76px] md:overflow-visible' : ''}
-          max-md:fixed max-md:left-0 max-md:top-16 max-md:bottom-0 max-md:w-[200px] max-md:min-w-[200px] max-md:p-3 max-md:pt-4 max-md:pb-0
+          max-md:fixed max-md:left-0 max-md:top-[var(--dashboard-header-h)] max-md:bottom-0 max-md:w-[200px] max-md:min-w-[200px] max-md:p-3 max-md:pt-4 max-md:pb-0
           max-md:-translate-x-full max-md:transition-transform max-md:duration-300 max-md:ease-[cubic-bezier(0.4,0,0.2,1)] max-md:z-[1001] max-md:flex max-md:flex-col max-md:overflow-hidden
           ${isSidebarOpen && isMobile ? 'max-md:translate-x-0 max-md:shadow-xl' : ''}
         `}
@@ -195,10 +195,10 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
                 to={to}
                 end={end}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 py-3 px-3 min-h-[44px] rounded-lg no-underline text-sm font-medium transition-colors
-                  ${isActive ? 'bg-[var(--aa-bg-light)] text-[var(--aa-blue-dark)]' : 'text-[var(--aa-slate-dark)] hover:bg-[var(--aa-bg-light)] hover:text-[var(--aa-navy)]'}
+                  `sidebar-nav-link flex items-center gap-3 py-3 px-3 min-h-[44px] rounded-lg no-underline text-sm font-medium
+                  ${isActive ? 'active' : ''}
                   ${showCollapsed ? 'md:justify-center md:px-0' : ''}
-                  ${isActive && !showCollapsed ? 'shadow-[inset_3px_0_0_0_var(--aa-blue)]' : ''}`
+                  `
                 }
                 onMouseEnter={() => prefetchRoute(to)}
                 onFocus={() => prefetchRoute(to)}
@@ -227,10 +227,10 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
             <div className="py-3 px-3 text-sm font-semibold text-slate-500">{roleLabel}</div>
           )}
         </nav>
-        <div className="pt-4 mt-3 px-2 border-t border-slate-200 flex flex-col gap-1.5 shrink-0 pb-2">
+        <div className="sidebar-footer pt-4 mt-3 px-2 border-t flex flex-col gap-1.5 shrink-0 pb-2">
           <button
             type="button"
-            className={`hidden md:flex items-center gap-3 w-full py-3 min-h-[44px] border-none rounded-lg bg-transparent text-slate-700 text-sm font-semibold cursor-pointer transition-colors hover:bg-slate-100 hover:text-slate-900 ${showCollapsed ? 'justify-center px-0' : 'justify-start px-3'}`}
+            className={`sidebar-footer-btn hidden md:flex items-center gap-3 w-full py-3 min-h-[44px] border-none rounded-lg bg-transparent text-sm font-semibold cursor-pointer transition-colors ${showCollapsed ? 'justify-center px-0' : 'justify-start px-3'}`}
             onClick={handleCollapseClick}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-hidden={isMobile}
@@ -251,7 +251,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
           </button>
           <button
             type="button"
-            className={`flex items-center gap-3 w-full py-3 min-h-[44px] border-none rounded-lg bg-transparent text-slate-700 text-sm font-semibold cursor-pointer transition-colors hover:bg-red-50 hover:text-red-600 ${showCollapsed ? 'justify-center px-0' : 'justify-start px-3'}`}
+            className={`sidebar-footer-btn sidebar-footer-btn--danger flex items-center gap-3 w-full py-3 min-h-[44px] border-none rounded-lg bg-transparent text-sm font-semibold cursor-pointer transition-colors ${showCollapsed ? 'justify-center px-0' : 'justify-start px-3'}`}
             onClick={handleSignOutClick}
             title="Sign out"
           >

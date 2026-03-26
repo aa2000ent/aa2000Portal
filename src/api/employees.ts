@@ -24,6 +24,22 @@ const EMP_ROLE_LABELS: Record<number, string> = {
   6: 'Manager',
 }
 
+function getAddressLineFromEmployeeRow(row: Record<string, unknown>): string {
+  const addr = row.Address as Record<string, unknown> | undefined
+  if (addr && typeof addr === 'object' && !Array.isArray(addr)) {
+    const parts = [
+      addr.Addrss_street ?? addr.addrss_street ?? addr.street,
+      addr.Addrss_municipality ?? addr.addrss_municipality ?? addr.municipality ?? addr.city,
+      addr.Addrss_province ?? addr.addrss_province ?? addr.province ?? addr.state,
+      addr.Addrss_postal ?? addr.addrss_postal ?? addr.postal ?? addr.postcode,
+    ]
+      .filter(Boolean)
+      .map(String)
+    if (parts.length) return parts.join(', ')
+  }
+  return ''
+}
+
 function getIncludedRoleName(row: Record<string, unknown>): string | undefined {
   const roleObj = row.Role ?? row.role
   if (roleObj != null && typeof roleObj === 'object' && !Array.isArray(roleObj)) {
@@ -76,6 +92,8 @@ function mapBackendEmployee(row: Record<string, unknown>, roleOptions?: RoleOpti
     roleFromDb ??
     EMP_ROLE_LABELS[roleId] ??
     (roleId ? `Role ${roleId}` : (row.role as string) ?? '')
+  const addressId = row.Emp_AddressID != null ? Number(row.Emp_AddressID) : undefined
+  const addressFromJoin = getAddressLineFromEmployeeRow(row)
   return {
     id: empId,
     name,
@@ -83,9 +101,13 @@ function mapBackendEmployee(row: Record<string, unknown>, roleOptions?: RoleOpti
     role,
     status: 'Active',
     password: (row.password as string) ?? undefined,
-    address: (row.Emp_address ?? row.emp_address ?? row.address ?? '') as string,
+    address:
+      addressFromJoin ||
+      ((row.Emp_address ?? row.emp_address ?? row.address ?? '') as string) ||
+      '',
     contact: (row.Emp_cnum ?? row.emp_cnum ?? row.contact ?? row.phone ?? '') as string,
     photoUrl,
+    addressId: Number.isFinite(addressId) && (addressId as number) > 0 ? addressId : undefined,
   }
 }
 
@@ -149,6 +171,9 @@ type EmployeeCreateInput = {
   contact?: string
   address?: string
   password?: string
+  /** Existing Address row PK when you already have Emp_AddressID */
+  empAddressId?: number
+  accId?: number
 }
 
 function attachLocationFieldsToBody(body: Record<string, unknown>, addressPayload?: CustomerAddressPayload): void {
@@ -160,7 +185,6 @@ function attachLocationFieldsToBody(body: Record<string, unknown>, addressPayloa
   body.municipality = municipality
   body.province = province
   body.postal = postal
-  // Sequelize Address model (same pattern as suppliers / backend examples)
   body.Addrss_lat = latitude ?? null
   body.Addrss_long = longitude ?? null
   body.Addrss_street = street ?? ''
@@ -169,35 +193,125 @@ function attachLocationFieldsToBody(body: Record<string, unknown>, addressPayloa
   body.Addrss_postal = postal ?? ''
 }
 
-function employeeToBackendPayload(input: EmployeeCreateInput): Record<string, unknown> {
+function defaultEmpAddressId(): number | undefined {
+  const n = parseInt(String(import.meta.env.VITE_DEFAULT_EMP_ADDRESS_ID ?? ''), 10)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+function defaultAccId(): number | undefined {
+  const n = parseInt(String(import.meta.env.VITE_DEFAULT_ACC_ID ?? ''), 10)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+/** Try to create an Address row (same JSON shapes as customer/supplier) and return Addrss_ID. */
+async function tryCreateAddressRow(payload: CustomerAddressPayload): Promise<number | null> {
+  const body: Record<string, unknown> = {
+    latitude: payload.latitude,
+    longitude: payload.longitude,
+    street: payload.street,
+    municipality: payload.municipality,
+    province: payload.province,
+    postal: payload.postal,
+    Addrss_lat: payload.latitude ?? null,
+    Addrss_long: payload.longitude ?? null,
+    Addrss_street: payload.street ?? '',
+    Addrss_municipality: payload.municipality ?? '',
+    Addrss_province: payload.province ?? '',
+    Addrss_postal: payload.postal ?? '',
+  }
+  const paths = ['/addresses/add/address', '/addresses/add/addresses', '/address/add/address', '/api/addresses']
+  for (const path of paths) {
+    try {
+      const res = await apiRequest<unknown>(path, { method: 'POST', body: JSON.stringify(body) })
+      if (res == null || typeof res !== 'object' || Array.isArray(res)) continue
+      const r = res as Record<string, unknown>
+      const inner = (r.data ?? r.address ?? r) as Record<string, unknown>
+      const id = Number(inner.Addrss_ID ?? inner.addrss_ID ?? r.Addrss_ID ?? inner.id ?? 0)
+      if (id > 0) return id
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+async function resolveEmpAddressIdForCreate(
+  input: EmployeeCreateInput,
+  addressPayload?: CustomerAddressPayload,
+): Promise<number | undefined> {
+  if (input.empAddressId != null && input.empAddressId > 0) return input.empAddressId
+  if (addressPayload) {
+    const id = await tryCreateAddressRow(addressPayload)
+    if (id != null && id > 0) return id
+  }
+  return defaultEmpAddressId()
+}
+
+async function resolveEmpAddressIdForUpdate(
+  input: EmployeeUpdateInput,
+  addressPayload?: CustomerAddressPayload,
+): Promise<number | undefined> {
+  if (addressPayload) {
+    const id = await tryCreateAddressRow(addressPayload)
+    if (id != null && id > 0) return id
+  }
+  if (input.empAddressId != null && input.empAddressId > 0) return input.empAddressId
+  return defaultEmpAddressId()
+}
+
+/**
+ * Express employee routes expect: Emp_fname, Emp_lname, Emp_mname?, Emp_cnum?, Emp_email?,
+ * Emp_AddressID (required), Emp_role, acc_ID on create (matches Sequelize model).
+ */
+function employeeToExpressPayload(
+  input: EmployeeCreateInput,
+  empAddressId: number,
+  opts: { accId?: number },
+): Record<string, unknown> {
   const roleValue = typeof input.roleId === 'number' && input.roleId > 0 ? input.roleId : input.roleName
   const out: Record<string, unknown> = {
     Emp_fname: input.fname,
     Emp_lname: input.lname,
     Emp_email: input.email,
+    Emp_AddressID: empAddressId,
     Emp_role: roleValue,
   }
-  if (input.mname) out.Emp_mname = input.mname
+  if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
   if (input.contact) out.Emp_cnum = input.contact
-  if (input.address) out.Emp_address = input.address
-  if (input.password) out.password = input.password
+  if (opts.accId != null) out.acc_ID = opts.accId
   return out
 }
 
-export type EmployeeUpdateInput = EmployeeCreateInput & {
+export type EmployeeUpdateInput = Omit<EmployeeCreateInput, 'empAddressId'> & {
   id: number
   status?: 'Active' | 'Inactive'
+  /** Current Emp_AddressID when editing without changing map */
+  empAddressId?: number
 }
 
-function employeeUpdateToPayload(input: EmployeeUpdateInput): Record<string, unknown> {
-  return {
-    ...employeeToBackendPayload(input),
-    Emp_ID: input.id,
-    emp_ID: input.id,
+function employeeUpdateToExpressPayload(
+  input: EmployeeUpdateInput,
+  empAddressId: number,
+): Record<string, unknown> {
+  const roleValue = typeof input.roleId === 'number' && input.roleId > 0 ? input.roleId : input.roleName
+  const out: Record<string, unknown> = {
+    Emp_fname: input.fname,
+    Emp_lname: input.lname,
+    Emp_email: input.email,
+    Emp_AddressID: empAddressId,
+    Emp_role: roleValue,
   }
+  if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
+  if (input.contact) out.Emp_cnum = input.contact
+  return out
 }
 
-function buildFallbackEmployeeFromUpdate(id: number, input: EmployeeUpdateInput, roleOptions?: RoleOption[]): Employee {
+function buildFallbackEmployeeFromUpdate(
+  id: number,
+  input: EmployeeUpdateInput,
+  empAddressId: number,
+  roleOptions?: RoleOption[],
+): Employee {
   const row: Record<string, unknown> = {
     Emp_ID: id,
     Emp_fname: input.fname,
@@ -205,7 +319,7 @@ function buildFallbackEmployeeFromUpdate(id: number, input: EmployeeUpdateInput,
     Emp_lname: input.lname,
     Emp_email: input.email.trim(),
     Emp_cnum: input.contact ?? '',
-    Emp_address: input.address ?? '',
+    Emp_AddressID: empAddressId,
   }
   const matched = roleOptions?.find((r) => r.role_name === input.roleName)
   const roleId = input.roleId ?? matched?.role_ID
@@ -213,6 +327,7 @@ function buildFallbackEmployeeFromUpdate(id: number, input: EmployeeUpdateInput,
   else row.Emp_role = input.roleName
   const emp = mapBackendEmployee(row, roleOptions)
   emp.status = input.status ?? emp.status
+  emp.address = input.address?.trim() || emp.address
   if (input.password) emp.password = input.password
   return emp
 }
@@ -254,6 +369,7 @@ async function tryUpdateEmployeeAtPath(
   roleOptions: RoleOption[] | undefined,
   method: 'PUT' | 'PATCH',
   input: EmployeeUpdateInput,
+  empAddressId: number,
 ): Promise<Employee | null> {
   try {
     const res = await apiRequest<unknown>(path, { method, body: JSON.stringify(body) })
@@ -261,7 +377,7 @@ async function tryUpdateEmployeeAtPath(
       const parsed = pickEmployeeRowFromResponse(res as Record<string, unknown>, roleOptions)
       if (parsed) return parsed
     }
-    if (res === undefined) return buildFallbackEmployeeFromUpdate(id, input, roleOptions)
+    if (res === undefined) return buildFallbackEmployeeFromUpdate(id, input, empAddressId, roleOptions)
     return null
   } catch {
     return null
@@ -280,7 +396,13 @@ export async function updateEmployee(
   const trimmedEmail = input.email.trim()
   if (!Number.isFinite(id) || id < 1 || !trimmedEmail) return null
 
-  const payload = employeeUpdateToPayload({ ...input, email: trimmedEmail })
+  const empAddressIdResolved = await resolveEmpAddressIdForUpdate({ ...input, email: trimmedEmail }, addressPayload)
+  if (!empAddressIdResolved || empAddressIdResolved < 1) {
+    console.warn('[Portal] Employee update needs Emp_AddressID (map pin / env / existing row)')
+    return null
+  }
+
+  const payload = employeeUpdateToExpressPayload({ ...input, email: trimmedEmail }, empAddressIdResolved)
   attachLocationFieldsToBody(payload, addressPayload)
   const paths = [
     `/employees/update/employee/${id}`,
@@ -293,9 +415,25 @@ export async function updateEmployee(
 
   if (hasApiBase()) {
     for (const path of paths) {
-      let updated = await tryUpdateEmployeeAtPath(path, payload, id, roleOptions, 'PUT', input)
+      let updated = await tryUpdateEmployeeAtPath(
+        path,
+        payload,
+        id,
+        roleOptions,
+        'PUT',
+        { ...input, email: trimmedEmail },
+        empAddressIdResolved,
+      )
       if (updated) return mergeStatusPassword(updated, input)
-      updated = await tryUpdateEmployeeAtPath(path, payload, id, roleOptions, 'PATCH', input)
+      updated = await tryUpdateEmployeeAtPath(
+        path,
+        payload,
+        id,
+        roleOptions,
+        'PATCH',
+        { ...input, email: trimmedEmail },
+        empAddressIdResolved,
+      )
       if (updated) return mergeStatusPassword(updated, input)
     }
   }
@@ -311,9 +449,25 @@ export async function updateEmployee(
     status: input.status,
   }
   attachLocationFieldsToBody(localBody, addressPayload)
-  let local = await tryUpdateEmployeeAtPath(`/api/employees/${id}`, localBody, id, roleOptions, 'PUT', input)
+  let local = await tryUpdateEmployeeAtPath(
+    `/api/employees/${id}`,
+    localBody,
+    id,
+    roleOptions,
+    'PUT',
+    { ...input, email: trimmedEmail },
+    empAddressIdResolved,
+  )
   if (local) return mergeStatusPassword(local, input)
-  local = await tryUpdateEmployeeAtPath(`/api/employees/${id}`, localBody, id, roleOptions, 'PATCH', input)
+  local = await tryUpdateEmployeeAtPath(
+    `/api/employees/${id}`,
+    localBody,
+    id,
+    roleOptions,
+    'PATCH',
+    { ...input, email: trimmedEmail },
+    empAddressIdResolved,
+  )
   if (local) return mergeStatusPassword(local, input)
 
   return null
@@ -345,7 +499,16 @@ export async function createEmployee(
   const trimmedName = input.fname.trim() || input.lname.trim()
   if (!trimmedEmail || !trimmedName) return null
 
-  const payload = employeeToBackendPayload(input)
+  const empAddressId = await resolveEmpAddressIdForCreate(input, addressPayload)
+  if (!empAddressId || empAddressId < 1) {
+    console.warn(
+      '[Portal] Employee create needs Emp_AddressID: create an Address row (API), use map + /addresses, or set VITE_DEFAULT_EMP_ADDRESS_ID in .env',
+    )
+    return null
+  }
+
+  const accId = input.accId ?? defaultAccId()
+  const payload = employeeToExpressPayload(input, empAddressId, accId != null ? { accId } : {})
   attachLocationFieldsToBody(payload, addressPayload)
 
   if (hasApiBase()) {
@@ -355,7 +518,6 @@ export async function createEmployee(
     if (alt) return alt
   }
 
-  // Local API or generic fallback (no external base / last resort)
   const localBody: Record<string, unknown> = {
     name: [input.fname, input.mname, input.lname].filter(Boolean).join(' '),
     email: trimmedEmail,
@@ -363,8 +525,34 @@ export async function createEmployee(
     contact: input.contact,
     address: input.address,
     password: input.password,
+    Emp_fname: input.fname,
+    Emp_lname: input.lname,
+    Emp_email: trimmedEmail,
+    Emp_AddressID: empAddressId,
+    Emp_role: typeof input.roleId === 'number' && input.roleId > 0 ? input.roleId : input.roleName,
+    ...(accId != null ? { acc_ID: accId } : {}),
   }
   attachLocationFieldsToBody(localBody, addressPayload)
   const local = await tryCreateEmployeeAtPath('/employees', localBody, roleOptions)
   return local
+}
+
+export async function deleteEmployee(id: number): Promise<boolean> {
+  const n = Number(id)
+  if (!Number.isFinite(n) || n < 1) return false
+  const paths = [
+    `/employees/delete/employee/${n}`,
+    `/employees/delete/employees/${n}`,
+    `/employees/${n}`,
+    `/api/employees/${n}`,
+  ]
+  for (const path of paths) {
+    try {
+      await apiRequest(path, { method: 'DELETE' })
+      return true
+    } catch {
+      continue
+    }
+  }
+  return false
 }

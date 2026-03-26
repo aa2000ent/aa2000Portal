@@ -1,6 +1,18 @@
 import { apiRequest } from './client'
 import { isConfiguredForExternalApi } from './config'
 
+function extractCustomerList(data: unknown): unknown[] | null {
+  if (Array.isArray(data)) return data
+  if (data != null && typeof data === 'object' && !Array.isArray(data)) {
+    const d = data as Record<string, unknown>
+    for (const key of ['data', 'customers', 'results', 'rows']) {
+      const v = d[key]
+      if (Array.isArray(v)) return v
+    }
+  }
+  return null
+}
+
 export interface Customer {
   id: number
   name: string
@@ -40,20 +52,33 @@ function getAddressFromRow(row: Record<string, unknown>): string {
 }
 
 export function mapBackendCustomer(row: Record<string, unknown>): Customer {
-  const id = Number(row.cus_ID ?? row.cus_id ?? row.id ?? 0)
-  const fname = String(row.cus_fname ?? row.cus_Fname ?? row.fname ?? '').trim()
-  const mname = String(row.cus_mname ?? row.cus_Mname ?? row.mname ?? '').trim()
-  const lname = String(row.cus_lname ?? row.cus_Lname ?? row.lname ?? '').trim()
+  const id = Number(
+    row.cus_ID ?? row.Cus_ID ?? row.cus_id ?? row.CUS_ID ?? row.id ?? row.ID ?? 0
+  )
+  const fname = String(
+    row.cus_fname ?? row.Cus_fname ?? row.cus_Fname ?? row.fname ?? row.Fname ?? ''
+  ).trim()
+  const mname = String(
+    row.cus_mname ?? row.Cus_mname ?? row.cus_Mname ?? row.mname ?? row.Mname ?? ''
+  ).trim()
+  const lname = String(
+    row.cus_lname ?? row.Cus_lname ?? row.cus_Lname ?? row.lname ?? row.Lname ?? ''
+  ).trim()
   const name = [fname, mname, lname].filter(Boolean).join(' ').trim() || '—'
+  const addressIdRaw = row.cus_AddressID ?? row.Cus_AddressID ?? row.cus_addressID
   return {
     id,
     name,
     fname: fname || undefined,
     mname: mname || undefined,
     lname: lname || undefined,
-    email: String(row.cus_email ?? row.cus_Email ?? row.email ?? '').trim(),
-    phone: String(row.cus_cnum ?? row.cus_Cnum ?? row.c_num ?? row.phone ?? '').trim(),
-    addressId: row.cus_AddressID != null ? Number(row.cus_AddressID) : undefined,
+    email: String(
+      row.cus_email ?? row.Cus_email ?? row.cus_Email ?? row.email ?? row.Email ?? ''
+    ).trim(),
+    phone: String(
+      row.cus_cnum ?? row.Cus_cnum ?? row.cus_Cnum ?? row.c_num ?? row.phone ?? row.Phone ?? row.cnum ?? ''
+    ).trim(),
+    addressId: addressIdRaw != null ? Number(addressIdRaw) : undefined,
     address: getAddressFromRow(row) || (row.address as string) || '',
     createdAt: row.createdAt != null ? String(row.createdAt) : undefined,
   }
@@ -72,22 +97,22 @@ export function customerToBackendPayload(customer: Partial<Customer>, forUpdateI
 }
 
 export async function fetchCustomers(): Promise<Customer[]> {
-  try {
-    const path = isConfiguredForExternalApi() ? '/customers/get/customers' : '/api/customers'
-    const data = await apiRequest<unknown>(path)
-    const list = Array.isArray(data) ? data : (data as { data?: unknown[] })?.data
-    if (!Array.isArray(list)) return []
-    return list.map((row) => {
-      if (row != null && typeof row === 'object' && !Array.isArray(row)) {
-        const r = row as Record<string, unknown>
-        if (r.cus_ID != null || r.cus_fname != null || r.cus_email != null) return mapBackendCustomer(r)
-        return mapBackendCustomer({ ...r, cus_ID: r.id, cus_fname: r.fname, cus_mname: r.mname, cus_lname: r.lname, cus_email: r.email, cus_cnum: r.phone, cus_AddressID: r.addressId, address: r.address })
-      }
-      return mapBackendCustomer({})
-    })
-  } catch {
-    return []
+  const paths = ['/customers/get/customers', '/customers', '/api/customers']
+  for (const path of paths) {
+    try {
+      const data = await apiRequest<unknown>(path)
+      const list = extractCustomerList(data)
+      if (!Array.isArray(list)) continue
+      return list.map((row) =>
+        row != null && typeof row === 'object' && !Array.isArray(row)
+          ? mapBackendCustomer(row as Record<string, unknown>)
+          : mapBackendCustomer({})
+      )
+    } catch {
+      continue
+    }
   }
+  return []
 }
 
 async function tryCreateAtPath(path: string, body: Record<string, unknown>): Promise<Customer | null> {

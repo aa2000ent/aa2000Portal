@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { leafletDefaultIcon } from '../../lib/leafletDefaultIcon'
 import { MapPin, Crosshair, Pencil, Trash2 } from 'lucide-react'
 import ConfirmDialog, { type ConfirmVariant } from '../../components/ConfirmDialog'
 import {
@@ -26,18 +27,11 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return
-    const icon = L.icon({
-      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-      iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-      shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      iconSize: [25, 41],
-      iconAnchor: [12, 41],
-    })
     const map = L.map(mapRef.current).setView([location.lat, location.lon], 16)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map)
-    const marker = L.marker([location.lat, location.lon], { draggable: true, icon }).addTo(map)
+    const marker = L.marker([location.lat, location.lon], { draggable: true, icon: leafletDefaultIcon }).addTo(map)
     marker.on('dragend', () => {
       const pos = marker.getLatLng()
       onChange({ lat: pos.lat, lon: pos.lng })
@@ -398,7 +392,7 @@ export default function AdminCustomers() {
             {error}
           </div>
         )}
-        <section className="dashboard-card employees-card">
+        <section className="dashboard-card employees-card customers-admin-card">
           <div className="employees-toolbar">
             <div className="employees-search-wrap">
               <svg className="employees-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>

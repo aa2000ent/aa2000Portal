@@ -3332,6 +3332,25 @@
     order: 0;
   }
 
+  /* Admin Customers: search at Add Customer magkatabi sa mobile */
+  .customers-admin-card .employees-toolbar {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .customers-admin-card .employees-search-wrap {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .customers-admin-card .employees-toolbar > .employees-btn {
+    flex-shrink: 0;
+    width: auto;
+    align-self: center;
+  }
+
   .employees-search {
     min-height: 42px;
     font-size: 16px; /* avoid iOS zoom on focus */
@@ -3648,6 +3667,13 @@
     min-height: 40px;
     padding: 0.5rem 0.875rem;
     font-size: 0.8125rem;
+  }
+
+  .customers-admin-card .employees-toolbar > .employees-btn {
+    width: auto;
+    min-width: 0;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
   }
 
   .employees-toolbar {

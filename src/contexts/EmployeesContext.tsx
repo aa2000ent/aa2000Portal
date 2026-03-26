@@ -13,6 +13,8 @@ export type Employee = {
   address?: string
   contact?: string
   photoUrl?: string
+  /** FK to Address row (Employee.Emp_AddressID) when API returns it */
+  addressId?: number
 }
 
 const DEFAULT_PASSWORD = '0000'

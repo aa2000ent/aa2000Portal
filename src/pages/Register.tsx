@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { leafletDefaultIcon } from '../lib/leafletDefaultIcon'
 import { MapPin, Crosshair } from 'lucide-react'
 import logoImg from '../assets/logo/logo.avif'
 import { registerAccount } from '../api/auth'
@@ -22,18 +23,11 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return
-    const icon = L.icon({
-      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-      iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-      shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      iconSize: [25, 41],
-      iconAnchor: [12, 41],
-    })
     const map = L.map(mapRef.current).setView([location.lat, location.lon], 16)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map)
-    const marker = L.marker([location.lat, location.lon], { draggable: true, icon }).addTo(map)
+    const marker = L.marker([location.lat, location.lon], { draggable: true, icon: leafletDefaultIcon }).addTo(map)
     marker.on('dragend', () => {
       const pos = marker.getLatLng()
       onChange({ lat: pos.lat, lon: pos.lng })

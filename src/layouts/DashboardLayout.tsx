@@ -34,7 +34,7 @@ function DashboardHeader() {
       <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
         <button
           type="button"
-          className="dashboard-header-burger md:hidden flex items-center justify-center w-10 h-10 min-w-10 min-h-10 rounded-lg border-0 bg-transparent text-white/85 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:ring-inset"
+          className="dashboard-header-burger md:hidden flex items-center justify-center w-10 h-10 min-w-10 min-h-10 rounded-lg border-0 bg-transparent text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:ring-inset"
           onClick={toggle}
           aria-label={isOpen ? 'Close menu' : 'Open menu'}
           aria-expanded={isOpen}
@@ -46,15 +46,15 @@ function DashboardHeader() {
           </svg>
         </button>
         <img src={logoImg} alt="AA2000" className="h-9 w-auto object-contain flex-shrink-0" />
-        <span className="font-semibold text-base tracking-tight text-white hidden sm:inline">Portal</span>
-        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-white/10 text-white/85 border border-white/15">
+        <span className="font-semibold text-base tracking-tight text-slate-800 hidden sm:inline">Portal</span>
+        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
           {roleLabel}
         </span>
       </div>
       <div className="flex items-center justify-end gap-2 flex-1 min-w-0 shrink-0">
         <Link
           to={profileTo}
-          className="dashboard-app-header-profile flex items-center justify-center w-10 h-10 rounded-full border border-white/15 bg-white/10 text-white/85 no-underline transition-all duration-200 hover:bg-white/15 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2 focus:ring-offset-[var(--aa-navy)]"
+          className="dashboard-app-header-profile flex items-center justify-center w-10 h-10 rounded-full border border-slate-200 bg-white text-slate-500 no-underline transition-all duration-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:ring-offset-2"
           title="Profile"
           aria-label="Profile"
         >

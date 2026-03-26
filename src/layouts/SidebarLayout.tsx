@@ -282,7 +282,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
         onCancel={() => setSignOutConfirmOpen(false)}
       />
       <div
-        className="flex-1 min-w-0 min-h-0 pt-4 pb-7 px-8 max-md:pt-4 max-md:pb-5 max-md:px-5 max-md:block md:transition-[margin-left] md:duration-300 md:ease-[cubic-bezier(0.4,0,0.2,1)]"
+        className="flex-1 min-w-0 pt-4 pb-10 px-8 max-md:pt-4 max-md:pb-8 max-md:px-5 max-md:block md:transition-[margin-left] md:duration-300 md:ease-[cubic-bezier(0.4,0,0.2,1)] overflow-y-auto overflow-x-hidden"
         style={!isMobile ? { marginLeft: isSidebarOpen ? (showCollapsed ? 76 : 240) : 0 } : undefined}
       >
         <Outlet />

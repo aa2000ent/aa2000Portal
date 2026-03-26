@@ -88,8 +88,9 @@ export default function AdminApplications() {
           const ok = await deleteApplication(app.id)
           if (ok) {
             addEntry({ action: 'app_deleted', actor: 'Admin', target: app.name, details: 'Removed from portal' })
-            setApps((prev) => prev.filter((a) => a.id !== app.id))
           }
+          const fromServer = await fetchApplications()
+          if (fromServer.length >= 0) setApps(fromServer)
         })()
         setConfirm((c) => ({ ...c, open: false }))
       },
@@ -181,12 +182,17 @@ export default function AdminApplications() {
     const departments = newApp.visibleTo.length ? newApp.visibleTo : (roles.length ? roles : ['Admin'])
     const role = departments[0] ?? 'Admin'
 
-    const created = await createApplication({
-      name,
-      routes: domain || name,
-      role,
-      version,
-    })
+    let created: App | null = null
+    try {
+      created = await createApplication({
+        name,
+        routes: domain || name,
+        role,
+        version,
+      })
+    } catch {
+      created = null
+    }
 
     if (created) {
       const oneCard = { ...created, visibleTo: departments }
@@ -263,28 +269,33 @@ export default function AdminApplications() {
               <div className="app-grid-empty">No apps match your search or filters.</div>
             ) : (
               <ul className="app-grid" aria-label="Application list">
-                {paginated.map((app) => {
-                  const visibleDepts = app.visibleTo.filter((r) => roles.includes(r))
-                  return (
+                {paginated.map((app) => (
                     <li key={app.id} className="app-card">
-                      <div className="app-card-icon" aria-hidden>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="3" width="7" height="7" rx="1" />
-                          <rect x="14" y="3" width="7" height="7" rx="1" />
-                          <rect x="14" y="14" width="7" height="7" rx="1" />
-                          <rect x="3" y="14" width="7" height="7" rx="1" />
-                        </svg>
+                      <div className="app-card-header">
+                        <div className="app-card-icon" aria-hidden>
+                          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="3" y="3" width="7" height="7" rx="1" />
+                            <rect x="14" y="3" width="7" height="7" rx="1" />
+                            <rect x="14" y="14" width="7" height="7" rx="1" />
+                            <rect x="3" y="14" width="7" height="7" rx="1" />
+                          </svg>
+                        </div>
+                        <div className="app-card-title-group">
+                          <h3 className="app-card-name">{app.name}</h3>
+                          {app.domain ? (
+                            <p className="app-card-domain" title={app.domain}>{app.domain.replace(/^https?:\/\//, '')}</p>
+                          ) : null}
+                        </div>
                       </div>
-                      <h3 className="app-card-name">{app.name}</h3>
-                      <p className="app-card-desc">{app.description || '—'}</p>
-                      {app.domain ? (
-                        <p className="app-card-domain" title={app.domain}>{app.domain.replace(/^https?:\/\//, '')}</p>
-                      ) : null}
-                      {visibleDepts.length > 0 ? (
+                      {app.description ? <p className="app-card-desc">{app.description}</p> : null}
+                      {app.visibleTo.length > 0 ? (
                         <div className="app-card-depts">
-                          {visibleDepts.map((d) => (
-                            <span key={d} className="app-card-dept-tag">{d}</span>
-                          ))}
+                          <span className="app-card-depts-label">Departments:</span>
+                          <div className="app-card-depts-list">
+                            {app.visibleTo.map((d) => (
+                              <span key={d} className="app-card-dept-tag">{d}</span>
+                            ))}
+                          </div>
                         </div>
                       ) : null}
                       <div className="app-card-actions">
@@ -295,20 +306,22 @@ export default function AdminApplications() {
                           onClick={() => handleLaunch(app)}
                           disabled={!app.domain}
                         >
-                          Launch
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                             <polyline points="15 3 21 3 21 9" />
                             <line x1="10" y1="14" x2="21" y2="3" />
                           </svg>
+                          Launch
                         </button>
                         <button
                           type="button"
-                          className="employees-btn employees-btn-secondary"
+                          className="app-card-edit"
                           title="Edit"
                           onClick={() => openEditModal(app)}
-                          style={{ marginLeft: '0.25rem' }}
                         >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                          </svg>
                           Edit
                         </button>
                         <button
@@ -317,12 +330,15 @@ export default function AdminApplications() {
                           title="Delete"
                           onClick={() => handleDeleteApp(app)}
                         >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
                           Delete
                         </button>
                       </div>
                     </li>
-                  )
-                })}
+                ))}
               </ul>
             )}
           </div>

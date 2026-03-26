@@ -1,7 +1,7 @@
 import SidebarLayout from './SidebarLayout'
 import { RolesProvider } from '../contexts/RolesContext'
-import { ApprovalsProvider } from '../contexts/ApprovalsContext'
 import { EmployeesProvider } from '../contexts/EmployeesContext'
+import { ApprovalsProvider } from '../contexts/ApprovalsContext'
 
 const adminNavItems = [
   { to: '/admin', label: 'Dashboard', end: true, icon: 'dashboard' },

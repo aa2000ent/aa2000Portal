@@ -180,18 +180,39 @@ export async function updateApplication(
   return tryUpdateAtPath(`/api/applications/${id}`, body, id, 'PUT')
 }
 
+async function tryDeleteAt(path: string): Promise<boolean> {
+  try {
+    await apiRequest(path, { method: 'DELETE' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Tries several DELETE URL shapes so deletes work across Express route variants
+ * (e.g. /application/delete/..., /applications/:id, /api/... proxy).
+ */
 export async function deleteApplication(id: number): Promise<boolean> {
-  const paths = isConfiguredForExternalApi()
-    ? [`/applications/delete/application/${id}`, `/delete/application/${id}`]
-    : [`/api/applications/${id}`]
+  const n = Number(id)
+  if (!Number.isFinite(n) || n < 1) return false
+
+  const paths = [
+    `/application/delete/application/${n}`,
+    `/applications/delete/application/${n}`,
+    `/application/delete/applications/${n}`,
+    `/applications/delete/applications/${n}`,
+    `/delete/application/${n}`,
+    `/delete/applications/${n}`,
+    `/applications/delete/${n}`,
+    `/application/delete/${n}`,
+    `/applications/${n}`,
+    `/application/${n}`,
+    `/api/applications/${n}`,
+  ]
 
   for (const path of paths) {
-    try {
-      await apiRequest(path, { method: 'DELETE' })
-      return true
-    } catch {
-      // try next
-    }
+    if (await tryDeleteAt(path)) return true
   }
   return false
 }

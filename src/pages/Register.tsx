@@ -467,7 +467,7 @@ export default function Register() {
                     onChange={(e) => setLocQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchPlace())}
                     placeholder="Type to search place, street, city..."
-                    className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900"
+                    className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:outline-none focus:ring-0 focus:border-blue-400"
                   />
                   <button
                     type="button"

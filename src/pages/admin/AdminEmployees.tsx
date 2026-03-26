@@ -8,7 +8,8 @@ import { useEmployees, type Employee, DEFAULT_PASSWORD } from '../../contexts/Em
 import ConfirmDialog, { type ConfirmVariant } from '../../components/ConfirmDialog'
 import CustomSelect from '../../components/CustomSelect'
 import { reverseGeocode, searchPlaces } from '../../api/geo'
-import { createEmployee } from '../../api/employees'
+import { createEmployee, fetchEmployees, updateEmployee } from '../../api/employees'
+import type { CustomerAddressPayload } from '../../api/customers'
 
 const MIN_PER_PAGE = 1
 const DEFAULT_LOCATION = { lat: 14.5995, lon: 120.9842 }
@@ -100,9 +101,12 @@ export default function AdminEmployees() {
   const [locError, setLocError] = useState<string | null>(null)
   const [locQuery, setLocQuery] = useState('')
   const [locResults, setLocResults] = useState<{ displayName: string; lat: number; lon: number }[]>([])
-  const [, setAddressParts] = useState<{ street: string; municipality: string; province: string; postal: string } | null>(null)
+  const [addressParts, setAddressParts] = useState<{ street: string; municipality: string; province: string; postal: string } | null>(null)
+  /** True after user moved pin / search / GPS so we send lat/lon even if reverse geocode has no street/city. */
+  const [pinAdjusted, setPinAdjusted] = useState(false)
 
   const applyReverseGeocode = async (lat: number, lon: number) => {
+    setPinAdjusted(true)
     try {
       const addr = await reverseGeocode(lat, lon)
       const street = addr.street ?? ''
@@ -115,11 +119,45 @@ export default function AdminEmployees() {
         setNewUser((prev) => ({ ...prev, address: pieces.join(', ') }))
         return
       }
+      setNewUser((prev) => ({ ...prev, address: `${lat.toFixed(5)}, ${lon.toFixed(5)}` }))
     } catch {
-      // ignore
+      setAddressParts(null)
+      setNewUser((prev) => ({ ...prev, address: `${lat.toFixed(5)}, ${lon.toFixed(5)}` }))
     }
-    setAddressParts((prev) => prev || { street: '', municipality: '', province: '', postal: '' })
-    setNewUser((prev) => ({ ...prev, address: `${lat.toFixed(5)}, ${lon.toFixed(5)}` }))
+  }
+
+  /**
+   * Same contract as customer/supplier: lat/lon + structured fields for Address row + FK on employee.
+   * If the pin moved (pinAdjusted) but geocode failed, still send coordinates and optional address line as street.
+   */
+  function getAddressPayload(): CustomerAddressPayload | undefined {
+    const loc = location ?? DEFAULT_LOCATION
+    const street = addressParts?.street ?? ''
+    const municipality = addressParts?.municipality ?? ''
+    const province = addressParts?.province ?? ''
+    const postal = addressParts?.postal ?? ''
+    if (street || municipality || province) {
+      return {
+        latitude: loc.lat,
+        longitude: loc.lon,
+        street,
+        municipality,
+        province,
+        postal,
+      }
+    }
+    if (pinAdjusted) {
+      const line = newUser.address.trim()
+      return {
+        latitude: loc.lat,
+        longitude: loc.lon,
+        street: line || '',
+        municipality: '',
+        province: '',
+        postal: '',
+      }
+    }
+    return undefined
   }
 
   const handleUseCurrentLocation = () => {
@@ -253,6 +291,7 @@ export default function AdminEmployees() {
     if (!name || !email.trim()) return
     let created: Employee | null = null
     const matchedRole = roleOptions.find((r) => r.role_name === role)
+    const addressPayload = getAddressPayload()
     try {
       created = await createEmployee(
         {
@@ -267,6 +306,7 @@ export default function AdminEmployees() {
           password: password?.trim() || DEFAULT_PASSWORD,
         },
         roleOptions,
+        addressPayload,
       )
     } catch {
       created = null
@@ -294,29 +334,103 @@ export default function AdminEmployees() {
     setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
     setLocation(DEFAULT_LOCATION)
     setAddressParts(null)
+    setPinAdjusted(false)
     setLocQuery('')
     setLocResults([])
     setLocError(null)
     setAddUserOpen(false)
+
+    try {
+      const list = await fetchEmployees(roleOptions)
+      if (list.length >= 0) setEmployees(list)
+    } catch {
+      // Modal already closed; list keeps optimistic row until next refresh
+    }
   }
 
-  const handleEditUser = (e: React.FormEvent) => {
+  const handleEditUser = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingEmployee) return
     const { fname, mname, lname, email, role, status, password, address, contact } = newUser
     const name = [fname, mname, lname].filter(Boolean).join(' ').trim()
     if (!name || !email.trim()) return
-    const details = editingEmployee.role !== role ? `Role: ${editingEmployee.role} → ${role}` : 'Profile updated'
-    setEmployees((prev) =>
-      prev.map((emp) =>
-        emp.id === editingEmployee.id
-          ? { ...emp, name, email: email.trim(), role, status, password: password || DEFAULT_PASSWORD, address: address?.trim() || undefined, contact: contact?.trim() || undefined }
-          : emp
+    const matchedRole = roleOptions.find((r) => r.role_name === role)
+    const pwd = password?.trim() || DEFAULT_PASSWORD
+    const origPwd = editingEmployee.password ?? DEFAULT_PASSWORD
+    const passwordForApi = pwd !== origPwd ? pwd : undefined
+
+    let updated: Employee | null = null
+    const addressPayload = getAddressPayload()
+    try {
+      updated = await updateEmployee(
+        {
+          id: editingEmployee.id,
+          fname: fname.trim(),
+          mname: mname.trim() || undefined,
+          lname: lname.trim(),
+          email: email.trim(),
+          roleName: role,
+          roleId: matchedRole?.role_ID,
+          contact: contact.trim() || undefined,
+          address: address.trim() || undefined,
+          password: passwordForApi,
+          status,
+        },
+        roleOptions,
+        addressPayload,
       )
-    )
+    } catch {
+      updated = null
+    }
+
+    const merged: Employee = updated
+      ? {
+          ...updated,
+          status,
+          password: pwd,
+          photoUrl: updated.photoUrl ?? editingEmployee.photoUrl,
+        }
+      : {
+          ...editingEmployee,
+          name,
+          email: email.trim(),
+          role,
+          status,
+          password: pwd,
+          address: address.trim() || undefined,
+          contact: contact.trim() || undefined,
+        }
+
+    const details =
+      editingEmployee.role !== role
+        ? `Role: ${editingEmployee.role} → ${role}`
+        : updated
+          ? 'Profile updated'
+          : 'Profile updated (local — server did not confirm)'
+
+    setEmployees((prev) => prev.map((emp) => (emp.id === editingEmployee.id ? merged : emp)))
     addEntry({ action: 'user_updated', actor: 'Admin', target: name, details })
     setEditingEmployee(null)
-    setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+    setNewUser({
+      fname: '',
+      mname: '',
+      lname: '',
+      email: '',
+      role: roles[0] ?? 'Admin',
+      status: 'Active',
+      password: DEFAULT_PASSWORD,
+      address: '',
+      contact: '',
+    })
+    setLocation(DEFAULT_LOCATION)
+    setLocQuery('')
+    setLocResults([])
+    setLocError(null)
+    setAddressParts(null)
+    setPinAdjusted(false)
+
+    const list = await fetchEmployees(roleOptions)
+    if (list.length >= 0) setEmployees(list)
   }
 
   function parseNameToParts(fullName: string): { fname: string; mname: string; lname: string } {
@@ -345,6 +459,8 @@ export default function AdminEmployees() {
     })
     setShowEditPassword(false)
     setLocation(DEFAULT_LOCATION)
+    setAddressParts(null)
+    setPinAdjusted(false)
     setLocQuery('')
     setLocResults([])
     setLocError(null)
@@ -449,6 +565,7 @@ export default function AdminEmployees() {
                   setShowAddPassword(false)
                   setLocation(DEFAULT_LOCATION)
                   setAddressParts(null)
+                  setPinAdjusted(false)
                   setLocQuery('')
                   setLocResults([])
                   setLocError(null)
@@ -662,11 +779,28 @@ export default function AdminEmployees() {
 
       {/* Add User Modal */}
       {addUserOpen && (
-        <div className="modal-overlay" onClick={() => setAddUserOpen(false)} role="dialog" aria-modal="true" aria-labelledby="add-user-title">
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            setPinAdjusted(false)
+            setAddUserOpen(false)
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-user-title"
+        >
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="add-user-title" className="modal-title">Add user</h2>
-              <button type="button" className="modal-close" onClick={() => setAddUserOpen(false)} aria-label="Close">
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => {
+                  setPinAdjusted(false)
+                  setAddUserOpen(false)
+                }}
+                aria-label="Close"
+              >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
@@ -827,7 +961,7 @@ export default function AdminEmployees() {
                         onChange={(e) => setLocQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchPlace())}
                         placeholder="Type to search place, street, city..."
-                        className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm text-slate-900"
+                        className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm text-slate-900 outline-none focus:outline-none focus:ring-0 focus:border-blue-400"
                       />
                       <button
                         type="button"
@@ -872,7 +1006,14 @@ export default function AdminEmployees() {
                 {locError && <p className="text-xs text-red-600">{locError}</p>}
               </div>
               <div className="modal-actions">
-                <button type="button" className="employees-btn employees-btn-secondary" onClick={() => setAddUserOpen(false)}>
+                <button
+                  type="button"
+                  className="employees-btn employees-btn-secondary"
+                  onClick={() => {
+                    setPinAdjusted(false)
+                    setAddUserOpen(false)
+                  }}
+                >
                   Cancel
                 </button>
                 <button type="submit" className="employees-btn employees-btn-primary">
@@ -890,6 +1031,7 @@ export default function AdminEmployees() {
           className="modal-overlay"
           onClick={() => {
             setEditingEmployee(null)
+            setPinAdjusted(false)
             setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
           }}
           role="dialog"
@@ -904,6 +1046,7 @@ export default function AdminEmployees() {
                 className="modal-close"
                 onClick={() => {
                   setEditingEmployee(null)
+                  setPinAdjusted(false)
                   setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
                 }}
                 aria-label="Close"
@@ -914,7 +1057,19 @@ export default function AdminEmployees() {
                 </svg>
               </button>
             </div>
-            <form onSubmit={handleEditUser}>
+            <form
+              onSubmit={handleEditUser}
+              onKeyDown={(ev) => {
+                if (ev.key !== 'Enter') return
+                const t = ev.target as HTMLElement
+                if (t.closest('button[type="submit"]')) return
+                if (t.tagName === 'TEXTAREA') return
+                if (t.tagName === 'INPUT') {
+                  const inp = t as HTMLInputElement
+                  if (inp.type !== 'submit' && inp.type !== 'button') ev.preventDefault()
+                }
+              }}
+            >
               <div className="modal-field">
                 <label htmlFor="edit-user-fname" className="modal-label">First name</label>
                 <input
@@ -1068,7 +1223,7 @@ export default function AdminEmployees() {
                         onChange={(e) => setLocQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchPlace())}
                         placeholder="Type to search place, street, city..."
-                        className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm text-slate-900"
+                        className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm text-slate-900 outline-none focus:outline-none focus:ring-0 focus:border-blue-400"
                       />
                       <button
                         type="button"
@@ -1130,6 +1285,7 @@ export default function AdminEmployees() {
                   className="employees-btn employees-btn-secondary"
                   onClick={() => {
                     setEditingEmployee(null)
+                    setPinAdjusted(false)
                     setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
                   }}
                 >

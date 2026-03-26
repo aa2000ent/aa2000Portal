@@ -348,8 +348,8 @@ export default function AdminCustomers() {
           } else {
             await createCustomer(payload, addressPayload)
           }
-          await load()
           closeForm()
+          await load()
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Request failed')
         } finally {
@@ -608,7 +608,7 @@ export default function AdminCustomers() {
                         onChange={(e) => setLocQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchPlace())}
                         placeholder="Type to search place, street, city..."
-                        className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm text-slate-900"
+                        className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm text-slate-900 outline-none focus:outline-none focus:ring-0 focus:border-blue-400"
                       />
                       <button type="button" onClick={() => handleSearchPlace()} disabled={locLoading} className="px-3 py-1.5 rounded-lg bg-[var(--aa-blue)] text-xs text-white font-medium disabled:opacity-60">
                         {locLoading ? 'Searching…' : 'Search'}

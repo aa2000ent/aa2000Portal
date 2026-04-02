@@ -9,9 +9,9 @@ import { registerAccount } from '../api/auth'
 import { hasApiBase } from '../api/client'
 import { fetchRoles, type RoleOption } from '../api/roles'
 import { reverseGeocode, searchPlaces } from '../api/geo'
+import AuthThemeToggle from '../components/AuthThemeToggle'
 
-const inputClass =
-  'w-full h-12 min-h-12 px-4 text-base text-slate-900 bg-slate-50 border border-slate-200 rounded-lg transition-colors hover:bg-slate-100 hover:border-slate-300 focus:outline-none focus:border-[var(--aa-blue-dark)] focus:ring-2 focus:ring-[color:var(--aa-blue)]/20 placeholder:text-slate-400'
+const inputClass = 'auth-input'
 
 const DEFAULT_LOCATION = { lat: 14.5995, lon: 120.9842 }
 type LatLon = { lat: number; lon: number }
@@ -55,7 +55,7 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
   }, [location.lat, location.lon])
 
   return (
-    <div className="w-full h-56 rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
+    <div className="auth-map-shell w-full h-56">
       <div ref={mapRef} className="w-full h-full" />
     </div>
   )
@@ -255,11 +255,12 @@ export default function Register() {
 
   return (
     <div className="aa-app-shell h-screen h-dvh flex items-center justify-center p-4 sm:p-6 md:p-8 overflow-hidden">
-      <div className="login-card w-full max-w-[440px] xl:max-w-[480px] relative z-10 bg-white border border-slate-200/80 rounded-xl shadow-[0_4px_24px_rgba(15,23,42,0.06)] p-6 sm:p-8 md:p-9 max-h-[90dvh] overflow-y-auto">
+      <AuthThemeToggle />
+      <div className="login-card auth-card w-full max-w-[440px] xl:max-w-[480px] relative z-10 p-6 sm:p-8 md:p-9 max-h-[90dvh] overflow-y-auto">
         <div className="text-center mb-6">
           <img src={logoImg} alt="AA2000" className="block mx-auto mb-2 max-h-[120px] w-auto object-contain" />
-          <h1 className="m-0 text-xl md:text-[1.375rem] font-semibold text-slate-900 tracking-tight leading-tight">Portal</h1>
-          <p className="mt-1.5 text-sm text-slate-500">Create your account</p>
+          <h1 className="auth-text-primary m-0 text-xl md:text-[1.375rem] font-semibold tracking-tight leading-tight">Portal</h1>
+          <p className="auth-text-muted mt-1.5 text-sm">Create your account</p>
         </div>
 
         <form className="flex flex-col gap-4 overflow-visible" onSubmit={handleSubmit} autoComplete="off">
@@ -281,7 +282,7 @@ export default function Register() {
               id="reg-password"
               name="password"
               type={passwordVisible ? 'text' : 'password'}
-              className={`login-password-input ${inputClass} pr-12`}
+              className={`login-password-input ${inputClass} pr-12 placeholder:text-slate-400`}
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -291,7 +292,7 @@ export default function Register() {
             />
             <button
               type="button"
-              className="login-password-toggle absolute right-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center min-w-10 min-h-10 p-0 text-slate-500 bg-transparent border-none rounded-lg cursor-pointer hover:text-[var(--aa-blue-dark)] hover:bg-[var(--aa-bg-light)]"
+              className="login-password-toggle auth-password-toggle absolute right-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center min-w-10 min-h-10 p-0 bg-transparent border-none rounded-lg cursor-pointer"
               onClick={() => setPasswordVisible((v) => !v)}
               title={passwordVisible ? 'Hide password' : 'Show password'}
               aria-label={passwordVisible ? 'Hide password' : 'Show password'}
@@ -322,7 +323,7 @@ export default function Register() {
             aria-label="Confirm password"
           />
 
-          <label className="block text-sm font-medium text-slate-600 mt-1">Account role</label>
+          <label className="auth-text-muted block text-sm font-medium mt-1">Account role</label>
           <select
             id="reg-role"
             value={role_ID}
@@ -405,7 +406,7 @@ export default function Register() {
           />
 
           <div className="space-y-1">
-            <label htmlFor="reg-address" className="block text-sm font-medium text-slate-600">Address</label>
+            <label htmlFor="reg-address" className="auth-text-muted block text-sm font-medium">Address</label>
             <input
               id="reg-address"
               type="text"
@@ -416,7 +417,7 @@ export default function Register() {
               aria-label="Address"
             />
             {location && (
-              <p className="text-xs text-slate-500">
+              <p className="auth-text-muted text-xs">
                 Latitude: {location.lat.toFixed(6)}, Longitude: {location.lon.toFixed(6)}
               </p>
             )}
@@ -424,8 +425,8 @@ export default function Register() {
 
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-sm text-slate-600">
-                <MapPin className="h-4 w-4 text-blue-600" aria-hidden />
+              <div className="auth-text-muted flex items-center gap-2 text-sm">
+                <MapPin className="h-4 w-4 text-[var(--aa-blue)] shrink-0" aria-hidden />
                 <span>Pin your location (optional)</span>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -433,7 +434,7 @@ export default function Register() {
                   type="button"
                   onClick={handleUseCurrentLocation}
                   disabled={locLoading}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                  className="auth-btn-outline"
                 >
                   <Crosshair className="h-3.5 w-3.5" aria-hidden />
                   {locLoading ? 'Locating…' : 'Use current location'}
@@ -441,7 +442,7 @@ export default function Register() {
                 <button
                   type="button"
                   onClick={handleRecenter}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm text-slate-700 hover:bg-slate-50"
+                  className="auth-btn-outline"
                 >
                   Recenter map
                 </button>
@@ -456,7 +457,7 @@ export default function Register() {
                     onChange={(e) => setLocQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchPlace())}
                     placeholder="Type to search place, street, city..."
-                    className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:outline-none focus:ring-0 focus:border-blue-400"
+                    className="auth-loc-search"
                   />
                   <button
                     type="button"
@@ -468,7 +469,7 @@ export default function Register() {
                   </button>
                 </div>
                 {locResults.length > 0 && (
-                  <div className="space-y-1 text-[11px] text-slate-600">
+                  <div className="space-y-1 text-[11px] auth-text-muted">
                     {locResults.map((r, idx) => (
                       <button
                         key={`${r.lat}-${r.lon}-${idx}`}
@@ -479,7 +480,7 @@ export default function Register() {
                           setLocResults([])
                           await applyReverseGeocode(r.lat, r.lon)
                         }}
-                        className="w-full text-left px-2 py-1 rounded-md hover:bg-slate-100 outline-none border-0 focus:outline-none focus:ring-0"
+                        className="auth-loc-result-btn w-full text-left px-2 py-1 rounded-md outline-none border-0 focus:outline-none focus:ring-0"
                       >
                         {r.displayName}
                       </button>
@@ -493,16 +494,16 @@ export default function Register() {
                     await applyReverseGeocode(loc.lat, loc.lon)
                   }}
                 />
-                <p className="text-[11px] text-slate-400">
+                <p className="auth-map-hint text-[11px] text-slate-400">
                   Drag the pin or click on the map. Address above updates automatically.
                 </p>
               </div>
             )}
-            {locError && <p className="text-xs text-red-600">{locError}</p>}
+            {locError && <p className="auth-loc-error">{locError}</p>}
           </div>
 
           {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3" role="alert">
+            <div className="auth-alert--error" role="alert">
               {error}
             </div>
           )}
@@ -517,10 +518,10 @@ export default function Register() {
           </button>
         </form>
 
-        <p className="mt-6 pt-5 border-t border-slate-100 text-center text-sm text-slate-500">
+        <p className="auth-footer auth-text-muted mt-6 pt-5 text-center text-sm">
           Already have an account? <Link to="/" className="font-medium text-[var(--aa-blue-dark)] no-underline hover:text-[var(--aa-blue)] hover:underline">Sign in</Link>
         </p>
-        <p className="mt-3 pt-2 text-center text-xs text-slate-500 opacity-85">© 2025 AA2000 Security and Technology Solutions Inc.</p>
+        <p className="auth-text-muted mt-3 pt-2 text-center text-xs opacity-85">© 2025 AA2000 Security and Technology Solutions Inc.</p>
       </div>
     </div>
   )

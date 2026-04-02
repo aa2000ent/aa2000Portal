@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { getCurrentSession, type ActiveSession } from '../utils/sessionUtils'
+import ProfileThemeToggle from '../components/ProfileThemeToggle'
 
 const ROLE_LABELS: Record<string, string> = {
   marketing: 'Marketing',
@@ -107,6 +108,12 @@ export default function PortalProfile() {
               <span className="profile-hero-role">{roleLabel}</span>
               <p className="profile-hero-email">{email}</p>
             </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2 className="dashboard-card-title">Appearance</h2>
+            <p className="dashboard-card-desc">Light or dark interface for the whole portal.</p>
+            <ProfileThemeToggle />
           </section>
 
           <section className="dashboard-card">

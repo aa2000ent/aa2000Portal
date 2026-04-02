@@ -4,6 +4,7 @@ import logoImg from '../assets/logo/logo.avif'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { loginVerification, sessionToRoute } from '../api/auth'
 import { hasApiBase } from '../api/client'
+import AuthThemeToggle from '../components/AuthThemeToggle'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -57,11 +58,12 @@ export default function Login() {
 
   return (
     <div className="aa-app-shell h-screen h-dvh flex items-center justify-center p-4 sm:p-6 md:p-8 overflow-hidden">
-      <div className="login-card w-full max-w-[400px] xl:max-w-[440px] relative z-10 bg-white border border-slate-200/80 rounded-xl shadow-[0_4px_24px_rgba(15,23,42,0.06)] p-6 sm:p-8 md:p-9">
+      <AuthThemeToggle />
+      <div className="login-card auth-card w-full max-w-[400px] xl:max-w-[440px] relative z-10 p-6 sm:p-8 md:p-9">
         <div className="text-center mb-7">
           <img src={logoImg} alt="AA2000" className="block mx-auto mb-2 max-h-[140px] w-auto object-contain" />
-          <h1 className="m-0 text-xl md:text-[1.375rem] font-semibold text-slate-900 tracking-tight leading-tight">Portal</h1>
-          <p className="mt-1.5 text-sm text-slate-500 inline-flex items-center justify-center gap-1.5 flex-wrap">
+          <h1 className="auth-text-primary m-0 text-xl md:text-[1.375rem] font-semibold tracking-tight leading-tight">Portal</h1>
+          <p className="auth-text-muted mt-1.5 text-sm inline-flex items-center justify-center gap-1.5 flex-wrap">
             <span className="inline-flex items-center text-[var(--aa-blue-dark)] shrink-0" aria-hidden>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -79,7 +81,7 @@ export default function Login() {
               name="username"
               type="text"
               autoComplete="off"
-              className="w-full h-12 min-h-12 px-4 text-base text-slate-900 bg-slate-50 border border-slate-200 rounded-lg transition-colors hover:bg-slate-100 hover:border-slate-300 focus:outline-none focus:border-[var(--aa-blue-dark)] focus:ring-2 focus:ring-[color:var(--aa-blue)]/20 placeholder:text-slate-400"
+              className="auth-input placeholder:text-slate-400"
               placeholder="Username or email"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -93,7 +95,7 @@ export default function Login() {
               id="password"
               name="password"
               type={passwordVisible ? 'text' : 'password'}
-              className="login-password-input w-full h-12 min-h-12 px-4 pr-12 text-base text-slate-900 bg-slate-50 border border-slate-200 rounded-lg transition-colors hover:bg-slate-100 hover:border-slate-300 focus:outline-none focus:border-[var(--aa-blue-dark)] focus:ring-2 focus:ring-[color:var(--aa-blue)]/20 placeholder:text-slate-400"
+              className="login-password-input auth-input pr-12 placeholder:text-slate-400"
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -103,7 +105,7 @@ export default function Login() {
             />
             <button
               type="button"
-              className="login-password-toggle absolute right-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center min-w-11 min-h-11 w-10 h-10 p-0 text-slate-500 bg-transparent border-none rounded-lg cursor-pointer transition-colors hover:text-[var(--aa-blue-dark)] hover:bg-[var(--aa-bg-light)]"
+              className="login-password-toggle auth-password-toggle absolute right-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center min-w-11 min-h-11 w-10 h-10 p-0 bg-transparent border-none rounded-lg cursor-pointer transition-colors"
               onClick={() => setPasswordVisible((v) => !v)}
               title={passwordVisible ? 'Hide password' : 'Show password'}
               aria-label={passwordVisible ? 'Hide password' : 'Show password'}
@@ -125,13 +127,13 @@ export default function Login() {
           </div>
 
           {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3" role="alert">
+            <div className="auth-alert--error" role="alert">
               {error}
             </div>
           )}
 
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <label className="inline-flex items-center gap-2 text-sm text-slate-500 cursor-pointer select-none" htmlFor="remember">
+            <label className="auth-text-muted inline-flex items-center gap-2 text-sm cursor-pointer select-none" htmlFor="remember">
               <input
                 id="remember"
                 name="remember"
@@ -140,7 +142,7 @@ export default function Login() {
                 onChange={(e) => setRemember(e.target.checked)}
                 className="peer sr-only"
               />
-              <span className="w-[1.125rem] h-[1.125rem] shrink-0 border-2 border-slate-200 rounded bg-white inline-block relative transition-colors peer-checked:bg-[var(--aa-blue)] peer-checked:border-[var(--aa-blue)] after:absolute after:left-[5px] after:top-0.5 after:w-[5px] after:h-[9px] after:border-2 after:border-white after:border-l-0 after:border-t-0 after:rotate-45 after:content-[''] after:opacity-0 peer-checked:after:opacity-100" aria-hidden />
+              <span className="auth-checkbox-box w-[1.125rem] h-[1.125rem] shrink-0 border-2 border-slate-200 rounded bg-white inline-block relative transition-colors peer-checked:bg-[var(--aa-blue)] peer-checked:border-[var(--aa-blue)] after:absolute after:left-[5px] after:top-0.5 after:w-[5px] after:h-[9px] after:border-2 after:border-white after:border-l-0 after:border-t-0 after:rotate-45 after:content-[''] after:opacity-0 peer-checked:after:opacity-100" aria-hidden />
               <span>Remember me</span>
             </label>
             <a href="#" className="text-sm font-medium text-[var(--aa-blue-dark)] no-underline transition-colors hover:text-[var(--aa-blue)] hover:underline">Forgot password?</a>
@@ -156,10 +158,10 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="mt-7 pt-6 border-t border-slate-100 text-center text-sm text-slate-500">
+        <p className="auth-footer auth-text-muted mt-7 pt-6 text-center text-sm">
           Don't have an account? <Link to="/register" className="font-medium text-[var(--aa-blue-dark)] no-underline hover:text-[var(--aa-blue)] hover:underline">Register</Link>
         </p>
-        <p className="mt-4 pt-3 text-center text-xs text-slate-500 opacity-85">© 2025 AA2000 Security and Technology Solutions Inc.</p>
+        <p className="auth-text-muted mt-4 pt-3 text-center text-xs opacity-85">© 2025 AA2000 Security and Technology Solutions Inc.</p>
       </div>
     </div>
   )

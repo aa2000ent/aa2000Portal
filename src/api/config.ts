@@ -63,3 +63,17 @@ export function getApiBaseUrlForDisplay(): string {
   } catch {}
   return ''
 }
+
+/**
+ * Paths to try for POST logout (first match wins). Override if your Express route differs.
+ * `VITE_LOGOUT_PATH=/my/path` → only that path (must start with `/` or it is added).
+ * If unset: `/security/logout` then `/security/login/logout`.
+ */
+export function getLogoutCandidatePaths(): string[] {
+  const raw = import.meta.env.VITE_LOGOUT_PATH
+  if (typeof raw === 'string' && raw.trim()) {
+    const p = raw.trim().replace(/\/$/, '')
+    return [p.startsWith('/') ? p : `/${p}`]
+  }
+  return ['/security/logout', '/security/login/logout']
+}

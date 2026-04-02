@@ -5,6 +5,7 @@ export function hasApiBase(): boolean {
 }
 
 const SESSION_ID_KEY = 'portal_session_id'
+const PORTAL_USERNAME_KEY = 'portal_username'
 
 function getToken(): string | null {
   try {
@@ -38,10 +39,41 @@ export function clearSessionId(): void {
   }
 }
 
+/** Signed-in username (for `/security/logout` body). Set on successful login. */
+export function getPortalUsername(): string | null {
+  try {
+    return localStorage.getItem(PORTAL_USERNAME_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setPortalUsername(username: string): void {
+  try {
+    localStorage.setItem(PORTAL_USERNAME_KEY, username.trim())
+  } catch {
+    // ignore
+  }
+}
+
+export function clearPortalUsername(): void {
+  try {
+    localStorage.removeItem(PORTAL_USERNAME_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+/** `portal.suppressFailureLog` — skip `console.error` on failed response (e.g. trying alternate paths). */
+export type ApiRequestOptions = RequestInit & {
+  portal?: { suppressFailureLog?: boolean }
+}
+
 export async function apiRequest<T = unknown>(
   path: string,
-  options: RequestInit = {}
+  options: ApiRequestOptions = {}
 ): Promise<T> {
+  const { portal, ...fetchInit } = options
   const p = path.startsWith('/') ? path : `/${path}`
   const bases = getBaseUrls()
   const token = getToken()
@@ -50,7 +82,7 @@ export async function apiRequest<T = unknown>(
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(sessionId ? { 'X-Session-Id': sessionId } : {}),
-    ...(options.headers as Record<string, string>),
+    ...(fetchInit.headers as Record<string, string>),
   }
   let lastError: unknown = null
 
@@ -59,7 +91,7 @@ export async function apiRequest<T = unknown>(
     const url = `${base}${API_PREFIX}${p}`
     let res: Response
     try {
-      res = await fetch(url, { ...options, headers })
+      res = await fetch(url, { ...fetchInit, headers })
     } catch (networkErr) {
       lastError = networkErr
       console.error('[Portal API] Network error:', { url, error: networkErr })
@@ -70,25 +102,42 @@ export async function apiRequest<T = unknown>(
       const text = await res.text()
       let message: string
       try {
-        const j = JSON.parse(text)
-        message = j?.message ?? j?.error ?? ''
+        const j = JSON.parse(text) as Record<string, unknown>
+        const pick = (v: unknown): string =>
+          typeof v === 'string' && v.trim() ? v.trim() : ''
+        message =
+          pick(j.message) ||
+          pick(j.error) ||
+          pick(j.detail as string) ||
+          (Array.isArray(j.errors)
+            ? j.errors
+                .map((e: unknown) =>
+                  typeof e === 'string' ? e : (e as { msg?: string; message?: string })?.msg ?? (e as { message?: string }).message ?? ''
+                )
+                .filter(Boolean)
+                .join('; ')
+            : '')
       } catch {
         message = ''
       }
       if (!message || text.trimStart().startsWith('<!')) {
         message = res.status === 404
           ? 'Endpoint not found (404). Check that the server route matches.'
-          : `Request failed: ${res.status} ${res.statusText || ''}`.trim()
+          : res.status >= 500
+            ? `Server error (${res.status}). The API could not complete the request — check the backend service and logs, and that VITE_API_BASE_URL in .env points to the correct server.`
+            : `Request failed: ${res.status} ${res.statusText || ''}`.trim()
       }
 
       const err = new Error(message)
-      console.error('[Portal API] Request failed:', {
-        url,
-        status: res.status,
-        statusText: res.statusText,
-        message,
-        responseBody: text.slice(0, 500),
-      })
+      if (!portal?.suppressFailureLog) {
+        console.error('[Portal API] Request failed:', {
+          url,
+          status: res.status,
+          statusText: res.statusText,
+          message,
+          responseBody: text.slice(0, 500),
+        })
+      }
 
       // Retry next server on common failover statuses.
       const isRetryableHttp = res.status === 404 || res.status === 408 || res.status === 429 || res.status >= 500

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import logoImg from '../assets/logo/logo.avif'
 import { useActivityLog } from '../contexts/ActivityLogContext'
-import { loginVerification, sessionToRoute } from '../api/auth'
+import { loginVerification, resolvePortalRouteFromAccount } from '../api/auth'
 import { hasApiBase } from '../api/client'
 import AuthThemeToggle from '../components/AuthThemeToggle'
 
@@ -44,8 +44,8 @@ export default function Login() {
         throw new Error('API is not configured. Set VITE_API_BASE_URLS or VITE_API_BASE_URL in .env and restart the dev server.')
       }
       const res = await loginVerification({ username: username.trim(), password })
-      const route = sessionToRoute(res.session)
-      const roleLabel = res.session || res.account?.username || route
+      const route = await resolvePortalRouteFromAccount(res.account)
+      const roleLabel = res.account.username
       addEntry({ action: 'sign_in', actor: roleLabel, target: 'Portal', details: `${roleLabel} dashboard` })
       navigate(`/${route}`, { replace: true })
     } catch (err) {

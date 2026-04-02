@@ -1,4 +1,6 @@
-import { apiRequest, getSessionId, setSessionId } from './client'
+import { apiRequest, getSessionId, setPortalUsername, setSessionId } from './client'
+import { getLogoutCandidatePaths } from './config'
+import { fetchRoles } from './roles'
 
 export type LoginVerificationPayload = {
   username: string
@@ -6,15 +8,30 @@ export type LoginVerificationPayload = {
   s_name?: string
 }
 
+/**
+ * POST `/security/login/verification` — success body (Express security router):
+ *
+ * - `message` — e.g. "Login successful. Session created."
+ * - `account` — `{ acc_ID, username, role_ID, status, acc_sessionID }`
+ * - `session` — **DB session row**, not a role name: `{ s_ID, s_name, createdAt }`
+ *   - Store **`session.s_name`** as the client session token (64-char hex).
+ *
+ * Errors: `401` invalid credentials; `500` server error.
+ */
 export type LoginVerificationResponse = {
   message: string
   account: {
+    acc_ID: number
     username: string
     role_ID: number
     status: string
+    acc_sessionID?: number
   }
-  session: string
-  s_name?: string
+  session: {
+    s_ID: number
+    s_name: string
+    createdAt?: string
+  }
 }
 
 export async function loginVerification(
@@ -30,13 +47,64 @@ export async function loginVerification(
     method: 'POST',
     body: JSON.stringify(body),
   })
-  if (res.s_name) setSessionId(res.s_name)
+  if (res.session?.s_name) setSessionId(res.session.s_name)
+  if (res.account?.username) setPortalUsername(res.account.username)
   return res
 }
 
-export function sessionToRoute(session: string): string {
-  const s = (session || '').toLowerCase().trim()
-  if (['admin', 'marketing', 'finance', 'engineering'].includes(s)) return s
+export type LogoutResponse = {
+  message: string
+}
+
+/**
+ * POST body: `{ username }`. Paths from `getLogoutCandidatePaths()` (see `VITE_LOGOUT_PATH` in `.env.example`).
+ * All attempts use quiet logging; local sign-out still runs if the server has no route.
+ */
+export async function logoutSecurity(username: string | null | undefined): Promise<void> {
+  const u = (username ?? '').trim()
+  if (!u) return
+  const paths = getLogoutCandidatePaths()
+  const body = JSON.stringify({ username: u })
+  let lastErr: unknown
+
+  for (const path of paths) {
+    try {
+      await apiRequest<LogoutResponse>(path, {
+        method: 'POST',
+        body,
+        portal: { suppressFailureLog: true },
+      })
+      return
+    } catch (e) {
+      lastErr = e
+    }
+  }
+
+  const msg = lastErr instanceof Error ? lastErr.message : String(lastErr ?? '')
+  if (msg.includes('404') || msg.includes('not found')) {
+    console.info(
+      '[Portal] Server has no logout route (404). Local session cleared. Deploy POST /security/logout on your API or set VITE_LOGOUT_PATH to match your Express route.'
+    )
+    return
+  }
+  console.warn('[Portal] Logout API failed (continuing with local sign-out):', lastErr)
+}
+
+/** Map role display name from DB → first path segment (`/admin`, `/marketing`, …). */
+export function roleNameToRoute(roleName: string): string {
+  const n = (roleName || '').toLowerCase().trim()
+  if (n.includes('marketing')) return 'marketing'
+  if (n.includes('finance')) return 'finance'
+  if (n.includes('engineer')) return 'engineering'
+  if (n.includes('admin')) return 'admin'
+  return 'admin'
+}
+
+/** Resolve dashboard route from `account.role_ID` using `/roles` data. */
+export async function resolvePortalRouteFromAccount(account: { role_ID: number }): Promise<string> {
+  const roles = await fetchRoles()
+  const match = roles.find((r) => r.role_ID === account.role_ID)
+  if (match?.role_name) return roleNameToRoute(match.role_name)
   return 'admin'
 }
 

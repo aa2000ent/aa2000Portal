@@ -4,7 +4,8 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { useChat } from '../contexts/ChatContext'
 import { useSidebar } from '../contexts/SidebarContext'
-import { clearAuthToken, clearSessionId } from '../api/client'
+import { clearAuthToken, clearPortalUsername, clearSessionId, getPortalUsername } from '../api/client'
+import { logoutSecurity } from '../api/auth'
 import { prefetchRoute } from '../prefetchRoutes'
 
 type NavItem = { to: string; label: string; end: boolean; icon?: string }
@@ -113,12 +114,22 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
 
   const handleLogoutConfirm = () => {
     setSignOutConfirmOpen(false)
-    clearAuthToken()
-    clearSessionId()
-    const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
-    const roleLabel = ROLE_LABELS[path] ?? path
-    addEntry({ action: 'sign_out', actor: roleLabel, target: 'Portal', details: 'Session ended' })
-    navigate('/', { replace: true })
+    void (async () => {
+      const username = getPortalUsername()
+      await logoutSecurity(username)
+      clearAuthToken()
+      clearSessionId()
+      clearPortalUsername()
+      const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
+      const roleLabel = ROLE_LABELS[path] ?? path
+      addEntry({
+        action: 'sign_out',
+        actor: username ?? roleLabel,
+        target: 'Portal',
+        details: 'Session ended',
+      })
+      navigate('/', { replace: true })
+    })()
   }
 
   const handleCollapseClick = () => {

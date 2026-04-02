@@ -50,6 +50,71 @@ function getIncludedRoleName(row: Record<string, unknown>): string | undefined {
   return undefined
 }
 
+function isLikelyBase64(s: string): boolean {
+  const t = s.trim().replace(/\s/g, '')
+  if (!t.length) return false
+  if (t.length < 10) return false
+  if (t.includes(':')) return false // likely a full data URL / scheme
+  if (t.startsWith('http')) return false
+
+  // Accept both standard and base64url chars.
+  const normalized = t.replace(/-/g, '+').replace(/_/g, '/')
+  // Basic sanity check: allowed chars + optional padding.
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(normalized)
+}
+
+function detectImageMimeFromBase64(base64: string): string {
+  // Detect common signatures from decoded bytes.
+  // Note: if detection fails, we fall back to JPEG.
+  try {
+    const bin = atob(base64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+
+    // JPEG: FF D8 FF
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (
+      bytes.length >= 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47 &&
+      bytes[4] === 0x0d &&
+      bytes[5] === 0x0a &&
+      bytes[6] === 0x1a &&
+      bytes[7] === 0x0a
+    ) {
+      return 'image/png'
+    }
+
+    // GIF: 47 49 46 38
+    if (bytes.length >= 4 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) {
+      return 'image/gif'
+    }
+
+    // WebP: RIFF....WEBP (ASCII)
+    if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+      const ascii = (start: number) =>
+        String.fromCharCode(bytes[start], bytes[start + 1], bytes[start + 2], bytes[start + 3])
+      if (ascii(8) === 'WEBP') return 'image/webp'
+    }
+  } catch {
+    // ignore
+  }
+
+  return 'image/jpeg'
+}
+
+function base64ToDataUrl(base64: string): string {
+  let normalized = base64.trim().replace(/\s/g, '').replace(/^data:[^,]+,/, '')
+  // Convert base64url -> standard base64.
+  normalized = normalized.replace(/-/g, '+').replace(/_/g, '/')
+  const mime = detectImageMimeFromBase64(normalized)
+  return `data:${mime};base64,${normalized}`
+}
+
 function getEmployeePhotoUrl(row: Record<string, unknown>): string | undefined {
   const raw =
     row.Emp_photo ??
@@ -70,10 +135,86 @@ function getEmployeePhotoUrl(row: Record<string, unknown>): string | undefined {
     row.image ??
     row.photo ??
     row.profile_picture ??
-    row.profilePicture
-  if (typeof raw !== 'string') return undefined
+    row.profilePicture ??
+    row.Emp_imageBase64 ??
+    row.emp_imageBase64 ??
+    row.Emp_imagebase64 ??
+    row.empImageBase64 ??
+    row.Emp_image_base64 ??
+    row.emp_image_base64
+
+  function bytesToBase64(bytes: Uint8Array): string {
+    let binary = ''
+    const chunkSize = 0x8000
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const sub = bytes.subarray(i, i + chunkSize)
+      binary += String.fromCharCode(...sub)
+    }
+    return btoa(binary)
+  }
+
+  function base64FromBufferLike(v: unknown): string | undefined {
+    // Sequelize sometimes returns BLOB as a Buffer-like object:
+    // { type: 'Buffer', data: [...] } or directly as an array/typed array.
+    if (v == null) return undefined
+
+    if (typeof v === 'object') {
+      const maybe = v as Record<string, unknown>
+      const type = maybe.type
+      const data = maybe.data
+      if (type === 'Buffer' && Array.isArray(data)) {
+        const bytes = new Uint8Array(data as number[])
+        return bytesToBase64(bytes)
+      }
+      if (Array.isArray(data)) {
+        const bytes = new Uint8Array(data as number[])
+        return bytesToBase64(bytes)
+      }
+      // If it's already a typed array, handle it.
+      if (v instanceof Uint8Array) return bytesToBase64(v)
+    }
+
+    if (Array.isArray(v)) {
+      const bytes = new Uint8Array(v)
+      return bytesToBase64(bytes)
+    }
+
+    return undefined
+  }
+
+  if (typeof raw !== 'string') {
+    // Fallback: some backends may return different capitalization for the base64 column.
+    for (const [k, v] of Object.entries(row)) {
+      if (typeof v !== 'string') {
+        // Try Buffer-like conversion for image payloads.
+        if (/image.*base64/i.test(k)) {
+          const b64 = base64FromBufferLike(v)
+          if (b64) return base64ToDataUrl(b64)
+        }
+        continue
+      }
+      if (!/image.*base64/i.test(k)) continue
+      const candidate = v.trim()
+      if (candidate) {
+        if (isLikelyBase64(candidate)) return base64ToDataUrl(candidate)
+        // If it's already a data url, return it as-is.
+        if (candidate.startsWith('data:')) return candidate
+        return candidate
+      }
+    }
+    return undefined
+  }
   const s = raw.trim()
-  return s.length ? s : undefined
+  if (!s.length) return undefined
+
+  // If we already store as a data URL, we can render directly.
+  if (s.startsWith('data:')) return s
+
+  // If backend stored raw base64 only, convert to a safe data URL for rendering.
+  if (isLikelyBase64(s)) return base64ToDataUrl(s)
+
+  // Otherwise return as-is (could be an external URL).
+  return s
 }
 
 function mapBackendEmployee(row: Record<string, unknown>, roleOptions?: RoleOption[]): Employee {
@@ -153,7 +294,28 @@ export async function fetchEmployees(roleOptions?: RoleOption[]): Promise<Employ
       const data = await apiRequest<unknown>(path)
       const list = Array.isArray(data) ? data : (data as { data?: unknown[] })?.data
       if (!Array.isArray(list)) continue
-      return list.map((row) => normalizeRow(row, roleOptions))
+      const mapped = list.map((row) => normalizeRow(row, roleOptions))
+      // Some backends can return duplicate rows due to joins; ensure stable UI by deduping.
+      // Prefer `id` (when valid). If `id` is missing/invalid, fall back to email+role (and name as last resort).
+      const byKey = new Map<string, Employee>()
+      for (const emp of mapped) {
+        const id = Number(emp.id)
+        const email = String(emp.email ?? '').trim().toLowerCase()
+        const name = String(emp.name ?? '').trim().toLowerCase()
+        const role = String(emp.role ?? '').trim().toLowerCase()
+
+        const key =
+          Number.isFinite(id) && id > 0
+            ? `id:${id}`
+            : email
+              ? `email:${email}|role:${role}`
+              : `name:${name}|role:${role}`
+
+        if (!byKey.has(key)) byKey.set(key, emp)
+      }
+
+      // Preserve original order as much as possible (first occurrence wins).
+      return Array.from(byKey.values())
     } catch {
       continue
     }
@@ -171,6 +333,11 @@ type EmployeeCreateInput = {
   contact?: string
   address?: string
   password?: string
+  /**
+   * Stored in Sequelize column `Emp_imageBase64`.
+   * Frontend should send a data URL or raw base64.
+   */
+  empImageBase64?: string | null
   /** Existing Address row PK when you already have Emp_AddressID */
   empAddressId?: number
   accId?: number
@@ -278,6 +445,7 @@ function employeeToExpressPayload(
   }
   if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
   if (input.contact) out.Emp_cnum = input.contact
+  if (input.empImageBase64 !== undefined) out.Emp_imageBase64 = input.empImageBase64
   if (opts.accId != null) out.acc_ID = opts.accId
   return out
 }
@@ -303,6 +471,7 @@ function employeeUpdateToExpressPayload(
   }
   if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
   if (input.contact) out.Emp_cnum = input.contact
+  if (input.empImageBase64 !== undefined) out.Emp_imageBase64 = input.empImageBase64
   return out
 }
 
@@ -321,6 +490,7 @@ function buildFallbackEmployeeFromUpdate(
     Emp_cnum: input.contact ?? '',
     Emp_AddressID: empAddressId,
   }
+  if (input.empImageBase64 != null && String(input.empImageBase64).trim()) row.Emp_imageBase64 = input.empImageBase64
   const matched = roleOptions?.find((r) => r.role_name === input.roleName)
   const roleId = input.roleId ?? matched?.role_ID
   if (typeof roleId === 'number' && roleId > 0) row.Emp_role = roleId
@@ -530,6 +700,7 @@ export async function createEmployee(
     Emp_email: trimmedEmail,
     Emp_AddressID: empAddressId,
     Emp_role: typeof input.roleId === 'number' && input.roleId > 0 ? input.roleId : input.roleName,
+    ...(input.empImageBase64 !== undefined ? { Emp_imageBase64: input.empImageBase64 } : {}),
     ...(accId != null ? { acc_ID: accId } : {}),
   }
   attachLocationFieldsToBody(localBody, addressPayload)

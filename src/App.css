@@ -990,6 +990,19 @@ html[data-theme="dark"] .auth-map-shell {
 
 /* Sidebar: hide when closed (burger menu) on desktop */
 @media (min-width: 769px) {
+  /* Ensure sidebar open/close (transform + width) animates smoothly. */
+  .sidebar-panel {
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+      min-width 0.28s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+      padding 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+    backface-visibility: hidden;
+  }
+
+  .dashboard-with-sidebar.sidebar-open .sidebar-panel {
+    transform: translateX(0);
+  }
+
   .dashboard-with-sidebar:not(.sidebar-open) .sidebar-panel {
     transform: translateX(-100%);
   }
@@ -3912,6 +3925,52 @@ html[data-theme='dark'] .chat-widget-input:focus {
   place-items: center;
 }
 
+.employee-photo-uploader-wrap {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.employee-photo-input {
+  display: none;
+}
+
+.employee-photo-uploader {
+  cursor: pointer;
+}
+
+.employee-photo-plus-icon {
+  color: var(--aa-blue);
+}
+
+.employee-photo-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--aa-content-border-strong);
+  background: rgba(15, 23, 42, 0.6);
+  color: var(--aa-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.employee-photo-remove:hover {
+  background: rgba(239, 68, 68, 0.18);
+}
+
+.modal-field.employee-photo-field {
+  margin-bottom: 0.25rem;
+}
+
 .employees-avatar-fallback {
   font-size: 0.875rem;
   font-weight: 800;
@@ -4896,6 +4955,35 @@ html[data-theme='dark'] .chat-widget-input:focus {
   overflow-y: auto;
   padding: 1.5rem 1.75rem;
   -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 769px) {
+  .modal-box {
+    /* Give forms more horizontal space so they don't stack vertically on desktop. */
+    max-width: 880px;
+  }
+
+  .employees-modal-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 1rem;
+    row-gap: 0.65rem;
+    align-items: start;
+  }
+
+  .employees-modal-form .modal-actions {
+    grid-column: 1 / -1;
+  }
+
+  /* Keep uploader in its own row on desktop. */
+  .employees-modal-form .employee-photo-field {
+    grid-column: 1 / -1;
+  }
+
+  /* Prevent double spacing: we already have `row-gap` in the grid. */
+  .employees-modal-form .modal-field {
+    margin-bottom: 0;
+  }
 }
 
 /* Modals match dark shell — same tokens as dashboard cards */

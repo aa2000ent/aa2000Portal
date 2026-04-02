@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { leafletDefaultIcon } from '../../lib/leafletDefaultIcon'
-import { MapPin, Crosshair, Pencil, Trash2 } from 'lucide-react'
+import { MapPin, Crosshair, Pencil, Trash2, Plus, X } from 'lucide-react'
 import { useRoles } from '../../contexts/RolesContext'
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useEmployees, type Employee, DEFAULT_PASSWORD } from '../../contexts/EmployeesContext'
@@ -64,7 +64,7 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
   }, [location.lat, location.lon])
 
   return (
-    <div className="w-full h-56 rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
+    <div className="w-full h-44 rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
       <div ref={mapRef} className="w-full h-full" />
     </div>
   )
@@ -89,7 +89,36 @@ export default function AdminEmployees() {
 
   const [newRoleName, setNewRoleName] = useState('')
   const [addRoleBusy, setAddRoleBusy] = useState(false)
-  const [newUser, setNewUser] = useState<{ fname: string; mname: string; lname: string; email: string; role: string; status: 'Active' | 'Inactive'; password: string; address: string; contact: string }>({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const pendingPhotoPromiseRef = useRef<Promise<void> | null>(null)
+  const pendingPhotoBase64ValueRef = useRef<string | undefined>(undefined)
+  const pendingPhotoRemovedValueRef = useRef<boolean>(false)
+  const [newUser, setNewUser] = useState<{
+    fname: string
+    mname: string
+    lname: string
+    email: string
+    role: string
+    status: 'Active' | 'Inactive'
+    password: string
+    address: string
+    contact: string
+    photoBase64?: string
+    /** When editing, user can remove the existing photo */
+    photoRemoved: boolean
+  }>({
+    fname: '',
+    mname: '',
+    lname: '',
+    email: '',
+    role: roles[0] ?? 'Admin',
+    status: 'Active',
+    password: DEFAULT_PASSWORD,
+    address: '',
+    contact: '',
+    photoBase64: undefined,
+    photoRemoved: false,
+  })
   const [location, setLocation] = useState<LatLon | null>(DEFAULT_LOCATION)
   const [locLoading, setLocLoading] = useState(false)
   const [locError, setLocError] = useState<string | null>(null)
@@ -238,6 +267,64 @@ export default function AdminEmployees() {
   }>({ open: false, title: '', message: '', confirmLabel: '', variant: 'primary', onConfirm: () => {} })
 
   const [brokenPhotos, setBrokenPhotos] = useState<Record<number, boolean>>({})
+  const editActivePhotoUrl = newUser.photoRemoved ? undefined : newUser.photoBase64 ?? editingEmployee?.photoUrl
+
+  function fileToDataUrl(file: File): Promise<string> {
+    // Compress/resize first to reduce base64 size (helps avoid backend truncation/body limits).
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const src = String(reader.result ?? '')
+        if (!src) {
+          reject(new Error('Empty image data'))
+          return
+        }
+
+        const img = new Image()
+        img.onload = () => {
+          const maxDim = 200
+          const w = img.width || 1
+          const h = img.height || 1
+          const scale = Math.min(1, maxDim / Math.max(w, h))
+          const outW = Math.max(1, Math.round(w * scale))
+          const outH = Math.max(1, Math.round(h * scale))
+
+          const canvas = document.createElement('canvas')
+          canvas.width = outW
+          canvas.height = outH
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            reject(new Error('No canvas context'))
+            return
+          }
+
+          ctx.drawImage(img, 0, 0, outW, outH)
+          // JPEG is smaller than PNG for typical photos.
+          const quality = 0.78
+          const dataUrl = canvas.toDataURL('image/jpeg', quality)
+          resolve(dataUrl)
+        }
+        img.onerror = () => reject(new Error('Failed to load image'))
+        img.src = src
+      }
+      reader.onerror = () => reject(new Error('Failed to read file'))
+      reader.readAsDataURL(file)
+    })
+  }
+
+  function toApiBase64(photo?: string, remove = false): string | null | undefined {
+    if (remove) return null
+    if (!photo) return undefined
+    const raw = String(photo).trim()
+    if (!raw) return undefined
+    if (raw.startsWith('data:')) {
+      const idx = raw.indexOf(',')
+      if (idx < 0) return undefined
+      const b64 = raw.slice(idx + 1).trim()
+      return b64 || undefined
+    }
+    return raw
+  }
 
   const roleFilterOptions = ['All roles', ...roles]
 
@@ -280,13 +367,16 @@ export default function AdminEmployees() {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { fname, mname, lname, email, role, status, password, address, contact } = newUser
+    if (pendingPhotoPromiseRef.current) await pendingPhotoPromiseRef.current
+    const { fname, mname, lname, email, role, status, password, address, contact, photoBase64: statePhotoBase64 } = newUser
+    const photoBase64 = pendingPhotoBase64ValueRef.current ?? statePhotoBase64
     const name = [fname, mname, lname].filter(Boolean).join(' ').trim()
     if (!name || !email.trim()) return
     let created: Employee | null = null
     const matchedRole = roleOptions.find((r) => r.role_name === role)
     const addressPayload = getAddressPayload()
     try {
+      const empImageBase64 = toApiBase64(photoBase64)
       created = await createEmployee(
         {
           fname: fname.trim(),
@@ -298,12 +388,22 @@ export default function AdminEmployees() {
           contact: contact.trim() || undefined,
           address: address.trim() || undefined,
           password: password?.trim() || DEFAULT_PASSWORD,
+          empImageBase64,
         },
         roleOptions,
         addressPayload,
       )
     } catch {
       created = null
+    }
+
+    if (!created && photoBase64) {
+      // If an image was selected but server create failed, avoid local-only fake success.
+      const empImageBase64 = toApiBase64(photoBase64)
+      if (empImageBase64 != null) console.error('[Portal] createEmployee returned null (image provided). base64_len=', String(empImageBase64).length)
+      else console.error('[Portal] createEmployee returned null (image provided) but empImageBase64 is null/empty')
+      console.error('[Portal] Employee photo upload failed: row not created on server.')
+      return
     }
 
     const nextEmp: Employee =
@@ -317,15 +417,27 @@ export default function AdminEmployees() {
           role,
           status,
           password: password || DEFAULT_PASSWORD,
+          photoUrl: photoBase64?.startsWith('data:') ? photoBase64 : undefined,
         }
         if (address.trim()) fallback.address = address.trim()
         if (contact.trim()) fallback.contact = contact.trim()
         return fallback
       })()
 
-    setEmployees((prev) => [...prev, nextEmp])
+    // Avoid duplicate cards when optimistic insert races with a refetch.
+    // If photo rendering previously failed, allow img re-render for this attempt.
+    if (photoBase64 || toApiBase64(photoBase64) !== undefined) setBrokenPhotos({})
+    setEmployees((prev) => {
+      const idx = prev.findIndex((p) => p.id === nextEmp.id && nextEmp.id > 0)
+      if (idx >= 0) {
+        const copy = [...prev]
+        copy[idx] = nextEmp
+        return copy
+      }
+      return [...prev, nextEmp]
+    })
     addEntry({ action: 'user_added', actor: 'Admin', target: nextEmp.name, details: `Role: ${role}` })
-    setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+    setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
     setLocation(DEFAULT_LOCATION)
     setAddressParts(null)
     setPinAdjusted(false)
@@ -336,7 +448,10 @@ export default function AdminEmployees() {
 
     try {
       const list = await fetchEmployees(roleOptions)
-      if (list.length >= 0) setEmployees(list)
+      if (list.length >= 0) {
+        setEmployees(list)
+        setBrokenPhotos({})
+      }
     } catch {
       // Modal already closed; list keeps optimistic row until next refresh
     }
@@ -345,13 +460,17 @@ export default function AdminEmployees() {
   const handleEditUser = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingEmployee) return
-    const { fname, mname, lname, email, role, status, password, address, contact } = newUser
+    if (pendingPhotoPromiseRef.current) await pendingPhotoPromiseRef.current
+    const { fname, mname, lname, email, role, status, password, address, contact, photoBase64: statePhotoBase64 } = newUser
+    const photoBase64 = pendingPhotoBase64ValueRef.current ?? statePhotoBase64
+    const photoRemoved = pendingPhotoRemovedValueRef.current
     const name = [fname, mname, lname].filter(Boolean).join(' ').trim()
     if (!name || !email.trim()) return
     const matchedRole = roleOptions.find((r) => r.role_name === role)
     const pwd = password?.trim() || DEFAULT_PASSWORD
     const origPwd = editingEmployee.password ?? DEFAULT_PASSWORD
     const passwordForApi = pwd !== origPwd ? pwd : undefined
+    const empImageBase64 = toApiBase64(photoBase64, photoRemoved)
 
     let updated: Employee | null = null
     const addressPayload = getAddressPayload()
@@ -370,6 +489,7 @@ export default function AdminEmployees() {
           password: passwordForApi,
           status,
           empAddressId: editingEmployee.addressId,
+          empImageBase64,
         },
         roleOptions,
         addressPayload,
@@ -378,12 +498,24 @@ export default function AdminEmployees() {
       updated = null
     }
 
+    if (!updated && (empImageBase64 !== undefined && empImageBase64 !== null)) {
+      console.error(
+        '[Portal] updateEmployee returned null (image provided). base64_len=',
+        String(empImageBase64).length,
+      )
+    }
+    if (!updated && empImageBase64 === null) {
+      console.error('[Portal] updateEmployee returned null (photo removal requested).')
+    }
+
     const merged: Employee = updated
       ? {
           ...updated,
           status,
           password: pwd,
-          photoUrl: updated.photoUrl ?? editingEmployee.photoUrl,
+          photoUrl: photoRemoved
+            ? undefined
+            : updated.photoUrl ?? (photoBase64?.startsWith('data:') ? photoBase64 : undefined) ?? editingEmployee.photoUrl,
         }
       : {
           ...editingEmployee,
@@ -394,6 +526,7 @@ export default function AdminEmployees() {
           password: pwd,
           address: address.trim() || undefined,
           contact: contact.trim() || undefined,
+          photoUrl: photoRemoved ? undefined : photoBase64?.startsWith('data:') ? photoBase64 : editingEmployee.photoUrl,
         }
 
     const details =
@@ -403,6 +536,8 @@ export default function AdminEmployees() {
           ? 'Profile updated'
           : 'Profile updated (local — server did not confirm)'
 
+    // Photo rendering could have failed earlier; clear broken flag so updated img can retry.
+    if (!photoRemoved) setBrokenPhotos({})
     setEmployees((prev) => prev.map((emp) => (emp.id === editingEmployee.id ? merged : emp)))
     addEntry({ action: 'user_updated', actor: 'Admin', target: name, details })
     setEditingEmployee(null)
@@ -416,6 +551,8 @@ export default function AdminEmployees() {
       password: DEFAULT_PASSWORD,
       address: '',
       contact: '',
+      photoBase64: undefined,
+      photoRemoved: false,
     })
     setLocation(DEFAULT_LOCATION)
     setLocQuery('')
@@ -425,7 +562,18 @@ export default function AdminEmployees() {
     setPinAdjusted(false)
 
     const list = await fetchEmployees(roleOptions)
-    if (list.length >= 0) setEmployees(list)
+    if (list.length >= 0) {
+      setEmployees(list)
+      setBrokenPhotos({})
+
+      // Debug: confirm photo presence after refetch when an image was part of the update.
+      if (empImageBase64 !== undefined) {
+        const after = list.find((e) => e.id === editingEmployee.id)
+        const present = Boolean(after?.photoUrl)
+        const len = after?.photoUrl?.startsWith('data:') ? after.photoUrl.length : after?.photoUrl?.length
+        console.log('[Portal] after refetch: photo present?', { id: editingEmployee.id, present, len, photoStartsWithDataUrl: after?.photoUrl?.startsWith?.('data:') })
+      }
+    }
   }
 
   function parseNameToParts(fullName: string): { fname: string; mname: string; lname: string } {
@@ -451,7 +599,11 @@ export default function AdminEmployees() {
       password: emp.password ?? DEFAULT_PASSWORD,
       address: emp.address ?? '',
       contact: emp.contact ?? '',
+      photoBase64: emp.photoUrl?.startsWith('data:') ? emp.photoUrl : undefined,
+      photoRemoved: false,
     })
+    pendingPhotoRemovedValueRef.current = false
+    pendingPhotoBase64ValueRef.current = undefined
     setShowEditPassword(false)
     setLocation(DEFAULT_LOCATION)
     setAddressParts(null)
@@ -556,7 +708,7 @@ export default function AdminEmployees() {
                 type="button"
                 className="employees-btn employees-btn-primary"
                 onClick={() => {
-                  setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+                  setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
                   setShowAddPassword(false)
                   setLocation(DEFAULT_LOCATION)
                   setAddressParts(null)
@@ -802,7 +954,70 @@ export default function AdminEmployees() {
                 </svg>
               </button>
             </div>
-            <form onSubmit={handleAddUser}>
+            <form onSubmit={handleAddUser} className="employees-modal-form">
+              <div className="modal-field employee-photo-field">
+                <div className="employee-photo-uploader-wrap">
+                  <input
+                    id="user-photo"
+                    type="file"
+                    accept="image/*"
+                    className="employee-photo-input"
+                    onChange={async (ev) => {
+                      const file = ev.currentTarget.files?.[0]
+                      if (!file) {
+                        pendingPhotoPromiseRef.current = null
+                        pendingPhotoBase64ValueRef.current = undefined
+                      pendingPhotoRemovedValueRef.current = false
+                        setNewUser((u) => ({ ...u, photoBase64: undefined, photoRemoved: false }))
+                        return
+                      }
+                      setPhotoBusy(true)
+                      const conversionPromise = (async () => {
+                        try {
+                          const dataUrl = await fileToDataUrl(file)
+                          pendingPhotoBase64ValueRef.current = dataUrl
+                        pendingPhotoRemovedValueRef.current = false
+                          setNewUser((u) => ({ ...u, photoBase64: dataUrl, photoRemoved: false }))
+                        } catch {
+                          pendingPhotoBase64ValueRef.current = undefined
+                        pendingPhotoRemovedValueRef.current = false
+                          setNewUser((u) => ({ ...u, photoBase64: undefined, photoRemoved: false }))
+                        }
+                      })()
+                      pendingPhotoPromiseRef.current = conversionPromise
+                      try {
+                        await conversionPromise
+                      } finally {
+                        setPhotoBusy(false)
+                        pendingPhotoPromiseRef.current = null
+                      }
+                    }}
+                  />
+                  <label htmlFor="user-photo" className="employees-avatar employee-photo-uploader" aria-label="Upload profile picture" title="Upload profile picture">
+                    {newUser.photoBase64 ? (
+                      <img className="employees-avatar-img" src={newUser.photoBase64} alt="Profile preview" />
+                    ) : (
+                      <Plus size={20} className="employee-photo-plus-icon" aria-hidden />
+                    )}
+                  </label>
+                  {newUser.photoBase64 && (
+                    <button
+                      type="button"
+                      className="employee-photo-remove"
+                      aria-label="Remove uploaded picture"
+                      disabled={photoBusy}
+                      onClick={(ev) => {
+                        ev.preventDefault()
+                        pendingPhotoPromiseRef.current = null
+                        pendingPhotoBase64ValueRef.current = undefined
+                        setNewUser((u) => ({ ...u, photoBase64: undefined, photoRemoved: false }))
+                      }}
+                    >
+                      <X size={14} aria-hidden />
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="modal-field">
                 <label htmlFor="user-fname" className="modal-label">First name</label>
                 <input
@@ -1011,8 +1226,8 @@ export default function AdminEmployees() {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="employees-btn employees-btn-primary">
-                  Add user
+                <button type="submit" className="employees-btn employees-btn-primary" disabled={photoBusy}>
+                  {photoBusy ? 'Processing image…' : 'Add user'}
                 </button>
               </div>
             </form>
@@ -1027,7 +1242,7 @@ export default function AdminEmployees() {
           onClick={() => {
             setEditingEmployee(null)
             setPinAdjusted(false)
-            setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+            setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
           }}
           role="dialog"
           aria-modal="true"
@@ -1042,7 +1257,7 @@ export default function AdminEmployees() {
                 onClick={() => {
                   setEditingEmployee(null)
                   setPinAdjusted(false)
-                  setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+                  setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
                 }}
                 aria-label="Close"
               >
@@ -1054,6 +1269,7 @@ export default function AdminEmployees() {
             </div>
             <form
               onSubmit={handleEditUser}
+              className="employees-modal-form"
               onKeyDown={(ev) => {
                 if (ev.key !== 'Enter') return
                 const t = ev.target as HTMLElement
@@ -1065,6 +1281,75 @@ export default function AdminEmployees() {
                 }
               }}
             >
+              <div className="modal-field employee-photo-field">
+                <div className="employee-photo-uploader-wrap">
+                  <input
+                    id="edit-user-photo"
+                    type="file"
+                    accept="image/*"
+                    className="employee-photo-input"
+                    onChange={async (ev) => {
+                      const file = ev.currentTarget.files?.[0]
+                      if (!file) {
+                        pendingPhotoPromiseRef.current = null
+                        pendingPhotoBase64ValueRef.current = undefined
+                        pendingPhotoRemovedValueRef.current = true
+                        setNewUser((u) => ({ ...u, photoBase64: undefined, photoRemoved: true }))
+                        return
+                      }
+                      setPhotoBusy(true)
+                      pendingPhotoRemovedValueRef.current = false
+                      const conversionPromise = (async () => {
+                        try {
+                          const dataUrl = await fileToDataUrl(file)
+                          pendingPhotoBase64ValueRef.current = dataUrl
+                          setNewUser((u) => ({ ...u, photoBase64: dataUrl, photoRemoved: false }))
+                        } catch {
+                          pendingPhotoBase64ValueRef.current = undefined
+                          pendingPhotoRemovedValueRef.current = true
+                          setNewUser((u) => ({ ...u, photoBase64: undefined, photoRemoved: true }))
+                        }
+                      })()
+                      pendingPhotoPromiseRef.current = conversionPromise
+                      try {
+                        await conversionPromise
+                      } finally {
+                        setPhotoBusy(false)
+                        pendingPhotoPromiseRef.current = null
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="edit-user-photo"
+                    className="employees-avatar employee-photo-uploader"
+                    aria-label="Upload profile picture"
+                    title="Upload profile picture"
+                  >
+                    {editActivePhotoUrl ? (
+                      <img className="employees-avatar-img" src={editActivePhotoUrl} alt="Profile preview" />
+                    ) : (
+                      <Plus size={20} className="employee-photo-plus-icon" aria-hidden />
+                    )}
+                  </label>
+                  {editActivePhotoUrl && (
+                    <button
+                      type="button"
+                      className="employee-photo-remove"
+                      aria-label="Remove uploaded picture"
+                      disabled={photoBusy}
+                      onClick={(ev) => {
+                        ev.preventDefault()
+                        pendingPhotoPromiseRef.current = null
+                        pendingPhotoBase64ValueRef.current = undefined
+                        pendingPhotoRemovedValueRef.current = true
+                        setNewUser((u) => ({ ...u, photoBase64: undefined, photoRemoved: true }))
+                      }}
+                    >
+                      <X size={14} aria-hidden />
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="modal-field">
                 <label htmlFor="edit-user-fname" className="modal-label">First name</label>
                 <input
@@ -1281,13 +1566,13 @@ export default function AdminEmployees() {
                   onClick={() => {
                     setEditingEmployee(null)
                     setPinAdjusted(false)
-                    setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '' })
+                    setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
                   }}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="employees-btn employees-btn-primary">
-                  Save changes
+                <button type="submit" className="employees-btn employees-btn-primary" disabled={photoBusy}>
+                  {photoBusy ? 'Processing image…' : 'Save changes'}
                 </button>
               </div>
             </form>

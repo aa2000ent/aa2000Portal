@@ -39,12 +39,25 @@ export function RolesProvider({ children }: { children: ReactNode }) {
   }, [fetchAndSet])
 
   const roles = useMemo(() => {
-    const fromDb = roleOptions.map((r) => r.role_name)
-    const combined = [...fromDb]
-    localOnlyRoles.forEach((name) => {
-      if (!combined.includes(name)) combined.push(name)
-    })
-    return combined
+    // Case-insensitive dedupe to avoid duplicate filter options like "Admin" vs "admin".
+    // Also normalize whitespace.
+    const map = new Map<string, string>() // key = lowercased role, value = first-seen display role
+
+    for (const r of roleOptions) {
+      const name = String(r.role_name ?? '').trim()
+      if (!name) continue
+      const key = name.toLowerCase()
+      if (!map.has(key)) map.set(key, name)
+    }
+
+    for (const nameRaw of localOnlyRoles) {
+      const name = String(nameRaw ?? '').trim()
+      if (!name) continue
+      const key = name.toLowerCase()
+      if (!map.has(key)) map.set(key, name)
+    }
+
+    return Array.from(map.values())
   }, [roleOptions, localOnlyRoles])
 
   const addRole = useCallback(async (name: string) => {

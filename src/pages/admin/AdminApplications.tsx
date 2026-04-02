@@ -180,22 +180,27 @@ export default function AdminApplications() {
     const description = newApp.description.trim()
 
     const departments = newApp.visibleTo.length ? newApp.visibleTo : (roles.length ? roles : ['Admin'])
-    const role = departments[0] ?? 'Admin'
 
     let created: App | null = null
     try {
       created = await createApplication({
         name,
         routes: domain || name,
-        role,
         version,
+        visibleTo: departments,
       })
     } catch {
       created = null
     }
 
     if (created) {
-      const oneCard = { ...created, visibleTo: departments }
+      const oneCard = {
+        ...created,
+        name,
+        description: description || created.description || 'Version 1.0.0',
+        domain: domain || created.domain || name,
+        visibleTo: departments,
+      }
       setApps((prev) => [oneCard, ...prev])
     } else {
       const nextId = Math.max(0, ...apps.map((a) => a.id)) + 1

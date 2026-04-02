@@ -1,29 +1,62 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useApplications, type App } from '../contexts/ApplicationsContext'
 import { useActivityLog } from '../contexts/ActivityLogContext'
+import { fetchApplications } from '../api/applications'
+import { hasApiBase } from '../api/client'
 
-const ROLE_LABELS: Record<string, string> = {
+/** URL segment → same labels used in Admin “Departments” checkboxes (DB role names). */
+const PORTAL_SEGMENT_TO_ROLE_LABEL: Record<string, string> = {
   marketing: 'Marketing',
   finance: 'Finance',
   engineering: 'Engineering',
+  'general-manager': 'General Manager',
+  admin: 'Admin',
+}
+
+function viewerRoleLabels(pathname: string): string[] {
+  const segment = pathname.replace(/^\//, '').split('/')[0] || ''
+  const mapped = PORTAL_SEGMENT_TO_ROLE_LABEL[segment]
+  if (mapped) return [mapped]
+  if (!segment) return []
+  const title = segment
+    .split('-')
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ''))
+    .join(' ')
+  return [title]
+}
+
+function appIsVisibleToViewer(app: App, pathname: string): boolean {
+  const vt = app.visibleTo ?? []
+  if (vt.length === 0) return false
+  const want = new Set(viewerRoleLabels(pathname).map((s) => s.trim().toLowerCase()))
+  return vt.some((r) => want.has(String(r).trim().toLowerCase()))
 }
 
 export default function PortalApplications() {
   const location = useLocation()
-  const { apps } = useApplications()
+  const { apps, setApps } = useApplications()
   const { addEntry } = useActivityLog()
   const [search, setSearch] = useState('')
 
-  const roleLabel = useMemo(() => {
-    const segment = location.pathname.replace(/^\//, '').split('/')[0]
-    return ROLE_LABELS[segment] ?? segment
-  }, [location.pathname])
+  const roleLabel = useMemo(() => viewerRoleLabels(location.pathname)[0] ?? 'Portal', [location.pathname])
+
+  useEffect(() => {
+    if (!hasApiBase()) return
+    let cancelled = false
+    fetchApplications()
+      .then((list) => {
+        if (!cancelled) setApps(list)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [setApps, location.pathname])
 
   const filtered = useMemo(() => {
     return apps.filter((app) => {
-      const visibleToMe = app.visibleTo.includes(roleLabel)
-      if (!visibleToMe) return false
+      if (!appIsVisibleToViewer(app, location.pathname)) return false
       const matchSearch =
         !search ||
         app.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -31,7 +64,7 @@ export default function PortalApplications() {
         app.domain.toLowerCase().includes(search.toLowerCase())
       return matchSearch
     })
-  }, [apps, roleLabel, search])
+  }, [apps, location.pathname, search])
 
   const handleLaunch = (app: App) => {
     if (app.domain) {
@@ -69,7 +102,7 @@ export default function PortalApplications() {
           <div className="app-grid-wrap">
             {filtered.length === 0 ? (
               <div className="app-grid-empty">
-                {apps.some((a) => a.visibleTo.includes(roleLabel))
+                {apps.some((a) => appIsVisibleToViewer(a, location.pathname))
                   ? 'No apps match your search.'
                   : 'No applications are assigned to your department yet.'}
               </div>
@@ -91,13 +124,6 @@ export default function PortalApplications() {
                       <p className="app-card-domain" title={app.domain}>
                         {app.domain.replace(/^https?:\/\//, '')}
                       </p>
-                    ) : null}
-                    {app.visibleTo.length > 0 ? (
-                      <div className="app-card-depts">
-                        {app.visibleTo.map((d) => (
-                          <span key={d} className="app-card-dept-tag">{d}</span>
-                        ))}
-                      </div>
                     ) : null}
                     <div className="app-card-actions">
                       <button

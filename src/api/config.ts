@@ -1,40 +1,65 @@
-const base = import.meta.env.VITE_API_BASE_URL
-export const API_BASE_URL = typeof base === 'string' && base.length > 0 ? base.replace(/\/$/, '') : ''
+function normalizeBaseUrl(raw: unknown): string {
+  if (!raw) return ''
+  const value = String(raw).trim()
+  if (!value) return ''
+  return value.replace(/\/$/, '')
+}
+
+function parseBaseUrls(rawList: unknown): string[] {
+  if (!rawList) return []
+  const parts = String(rawList)
+    .split(',')
+    .map((s) => normalizeBaseUrl(s))
+    .filter(Boolean)
+  return Array.from(new Set(parts))
+}
+
+function getConfiguredBaseUrls(): string[] {
+  const multi = parseBaseUrls(import.meta.env.VITE_API_BASE_URLS)
+  if (multi.length > 0) return multi
+  const single = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL)
+  return single ? [single] : []
+}
+
+export const API_BASE_URLS = getConfiguredBaseUrls()
+export const API_BASE_URL = API_BASE_URLS[0] ?? ''
 
 const prefix = import.meta.env.VITE_API_PREFIX
 export const API_PREFIX = typeof prefix === 'string' ? prefix.replace(/\/$/, '') : ''
 
 export const getApiBase = () => `${API_BASE_URL}${API_PREFIX}`
 
-export function getBaseUrl(): string {
-  const raw = import.meta.env.VITE_API_BASE_URL
-  if (raw && String(raw).trim()) {
-    const url = String(raw).replace(/\/$/, '')
+export function getBaseUrls(): string[] {
+  if (API_BASE_URLS.length > 0) {
     if (import.meta.env.DEV && typeof window !== 'undefined') {
       try {
-        const w = window as unknown as { __portalApiBaseLogged?: boolean }
-        if (!w.__portalApiBaseLogged) {
-          console.info('[Portal API] Base URL (VITE_API_BASE_URL):', url)
-          w.__portalApiBaseLogged = true
+        const w = window as unknown as { __portalApiBasesLogged?: boolean }
+        if (!w.__portalApiBasesLogged) {
+          console.info('[Portal API] Base URLs:', API_BASE_URLS)
+          w.__portalApiBasesLogged = true
         }
       } catch {}
     }
-    return url
+    return API_BASE_URLS
   }
   throw new Error(
-    'VITE_API_BASE_URL is required. Set it in .env (e.g. VITE_API_BASE_URL=https://your-backend.asse.devtunnels.ms).'
+    'API base URL is required. Set VITE_API_BASE_URLS (comma-separated) or VITE_API_BASE_URL in .env.'
   )
 }
 
+export function getBaseUrl(): string {
+  return getBaseUrls()[0]
+}
+
 export function isConfiguredForExternalApi(): boolean {
-  const raw = import.meta.env.VITE_API_BASE_URL && String(import.meta.env.VITE_API_BASE_URL)
-  return !!(raw && raw.includes('devtunnels'))
+  const externalHostHints = ['devtunnels', 'ngrok', 'localtunnel']
+  return getConfiguredBaseUrls().some((u) => externalHostHints.some((hint) => u.includes(hint)))
 }
 
 export function getApiBaseUrlForDisplay(): string {
   try {
-    const raw = import.meta.env.VITE_API_BASE_URL
-    if (raw && String(raw).trim()) return String(raw).replace(/\/$/, '')
+    const urls = getConfiguredBaseUrls()
+    if (urls.length > 0) return urls[0]
   } catch {}
   return ''
 }

@@ -14,16 +14,16 @@
   }
 
   *::-webkit-scrollbar-track {
-    background: #f1f5f9;
+    background: rgba(15, 23, 42, 0.35);
   }
 
   *::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background: rgba(148, 163, 184, 0.45);
     border-radius: 4px;
   }
 
   *::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+    background: rgba(203, 213, 225, 0.55);
   }
 
   @media (max-width: 768px) {

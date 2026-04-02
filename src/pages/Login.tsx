@@ -40,7 +40,7 @@ export default function Login() {
     setIsSubmitting(true)
     try {
       if (!hasApiBase()) {
-        throw new Error('API is not configured. Set VITE_API_BASE_URL in .env and restart the dev server.')
+        throw new Error('API is not configured. Set VITE_API_BASE_URLS or VITE_API_BASE_URL in .env and restart the dev server.')
       }
       const res = await loginVerification({ username: username.trim(), password })
       const route = sessionToRoute(res.session)
@@ -56,12 +56,7 @@ export default function Login() {
   }
 
   return (
-    <div className="h-screen h-dvh flex items-center justify-center p-4 sm:p-6 md:p-8 relative overflow-hidden bg-gradient-to-br from-[var(--aa-navy)] via-[var(--aa-navy-light)] to-[var(--aa-blue-dark)] bg-fixed">
-      <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
-        <div className="absolute w-[min(50vw,320px)] h-[min(50vw,320px)] -top-[10%] -left-[5%] rounded-full bg-[var(--aa-blue-dark)] blur-[100px] opacity-20" />
-        <div className="absolute w-[min(40vw,280px)] h-[min(40vw,280px)] -bottom-[10%] -right-[5%] rounded-full bg-[var(--aa-cyan)] blur-[100px] opacity-15" />
-      </div>
-
+    <div className="aa-app-shell h-screen h-dvh flex items-center justify-center p-4 sm:p-6 md:p-8 overflow-hidden">
       <div className="login-card w-full max-w-[400px] xl:max-w-[440px] relative z-10 bg-white border border-slate-200/80 rounded-xl shadow-[0_4px_24px_rgba(15,23,42,0.06)] p-6 sm:p-8 md:p-9">
         <div className="text-center mb-7">
           <img src={logoImg} alt="AA2000" className="block mx-auto mb-2 max-h-[140px] w-auto object-contain" />

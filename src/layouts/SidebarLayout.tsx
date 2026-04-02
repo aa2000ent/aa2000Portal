@@ -224,7 +224,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
               </NavLink>
             ))
           ) : (
-            <div className="py-3 px-3 text-sm font-semibold text-slate-500">{roleLabel}</div>
+            <div className="py-3 px-3 text-sm font-semibold text-slate-400">{roleLabel}</div>
           )}
         </nav>
         <div className="sidebar-footer pt-4 mt-3 px-2 border-t flex flex-col gap-1.5 shrink-0 pb-2">

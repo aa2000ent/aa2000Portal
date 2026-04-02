@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './App.css'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { ActivityLogProvider } from './contexts/ActivityLogContext'
 import { ApplicationsProvider } from './contexts/ApplicationsContext'
 import { ChatProvider } from './contexts/ChatContext'
@@ -34,6 +35,7 @@ function PageLoader() {
 
 function App() {
   return (
+    <ThemeProvider>
     <ActivityLogProvider>
       <ApplicationsProvider>
         <ChatProvider>
@@ -75,6 +77,7 @@ function App() {
         </ChatProvider>
       </ApplicationsProvider>
     </ActivityLogProvider>
+    </ThemeProvider>
   )
 }
 

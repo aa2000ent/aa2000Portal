@@ -80,6 +80,24 @@ export async function fetchRoles(): Promise<RoleOption[]> {
   }
 }
 
+/** Resolve one role by id when the bulk `/roles` list misses a row (common with large DBs). */
+export async function fetchRoleById(roleId: number): Promise<RoleOption | null> {
+  if (!Number.isFinite(roleId) || roleId <= 0) return null
+  const paths = [`/roles/${roleId}`, `/roles/get/role/${roleId}`, `/roles/role/${roleId}`]
+  for (const p of paths) {
+    try {
+      const data = await apiRequest<unknown>(p)
+      if (data != null && typeof data === 'object' && !Array.isArray(data)) {
+        const r = normalizeRole(data as Record<string, unknown>)
+        if (r.role_ID > 0 || r.role_name) return { role_ID: r.role_ID || roleId, role_name: r.role_name || `Role ${roleId}` }
+      }
+    } catch {
+      // try next path
+    }
+  }
+  return null
+}
+
 async function tryCreateRoleAtPath(path: string, name: string): Promise<RoleOption | null> {
   const payloads: Array<Record<string, unknown>> = [
     { role_name: name },

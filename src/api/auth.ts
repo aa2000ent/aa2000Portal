@@ -1,6 +1,6 @@
 import { apiRequest, getSessionId, setPortalUsername, setSessionId } from './client'
-import { getLogoutCandidatePaths } from './config'
-import { fetchRoles } from './roles'
+import { getExecutiveTitleDefaultRoute, getLogoutCandidatePaths, getRoleIdRouteOverride } from './config'
+import { fetchRoleById, fetchRoles } from './roles'
 
 export type LoginVerificationPayload = {
   username: string
@@ -26,6 +26,10 @@ export type LoginVerificationResponse = {
     role_ID: number
     status: string
     acc_sessionID?: number
+    /** If your API includes role label on login, routing uses this first */
+    role_name?: string
+    r_name?: string
+    role?: { role_name?: string; r_name?: string; role_ID?: number }
   }
   session: {
     s_ID: number
@@ -90,22 +94,75 @@ export async function logoutSecurity(username: string | null | undefined): Promi
   console.warn('[Portal] Logout API failed (continuing with local sign-out):', lastErr)
 }
 
-/** Map role display name from DB → first path segment (`/admin`, `/marketing`, …). */
+const PORTAL_ROUTE_KEYS = new Set(['admin', 'marketing', 'finance', 'engineering', 'general-manager'])
+
+function normalizeRouteSegment(seg: string): string {
+  const s = seg.trim().toLowerCase().replace(/^\/+/, '').split('/')[0] ?? ''
+  return PORTAL_ROUTE_KEYS.has(s) ? s : 'admin'
+}
+
+/**
+ * Map DB role label → React route first segment (`admin`, `marketing`, `finance`, `engineering`, `general-manager`).
+ */
 export function roleNameToRoute(roleName: string): string {
   const n = (roleName || '').toLowerCase().trim()
-  if (n.includes('marketing')) return 'marketing'
-  if (n.includes('finance')) return 'finance'
+  if (!n) return 'admin'
+
+  if (/(^|[^a-z])(market|sales|brand|promo)([^a-z]|$)/i.test(roleName)) return 'marketing'
+  if (/(financ|treasury|bookkeep|accountant|comptroller)/i.test(n)) return 'finance'
+  if (/(engineer|developer|technical|software|\bit\b|technician)/i.test(n)) return 'engineering'
+  if (/(^|[^a-z])admin([^a-z]|$)|supervisor|super user|director|human resource|\bhr\b|owner|executive/i.test(n)) return 'admin'
+
+  if (n.includes('market')) return 'marketing'
+  if (n.includes('finance') || n.includes('account')) return 'finance'
   if (n.includes('engineer')) return 'engineering'
   if (n.includes('admin')) return 'admin'
+
+  // Dedicated GM portal (/general-manager)
+  if (/\bgeneral manager\b|^gm$/i.test(roleName.trim())) {
+    return 'general-manager'
+  }
+
+  // Other executive titles → configurable (default admin)
+  if (/\bmanaging director\b|\bchief executive\b|\bchief operating\b|\bceo\b|\bcoo\b|\bvp\b|\bvice president\b/i.test(roleName.trim())) {
+    return getExecutiveTitleDefaultRoute()
+  }
+
   return 'admin'
 }
 
-/** Resolve dashboard route from `account.role_ID` using `/roles` data. */
-export async function resolvePortalRouteFromAccount(account: { role_ID: number }): Promise<string> {
+function roleLabelFromAccount(account: LoginVerificationResponse['account']): string | undefined {
+  const raw =
+    account.role_name ??
+    account.r_name ??
+    (typeof account.role === 'object' && account.role
+      ? String(account.role.role_name ?? account.role.r_name ?? '').trim()
+      : '')
+  const s = String(raw).trim()
+  return s || undefined
+}
+
+/**
+ * After login: send user to the area that matches their DB role (`role_ID` + role name).
+ * Order: env `VITE_ROLE_ROUTE_MAP` → API role fields on account → `/roles` list → GET role by id → keyword map.
+ */
+export async function resolvePortalRouteFromAccount(
+  account: LoginVerificationResponse['account']
+): Promise<string> {
+  const override = getRoleIdRouteOverride()[account.role_ID]
+  if (override) return normalizeRouteSegment(override)
+
+  const embedded = roleLabelFromAccount(account)
+  if (embedded) return roleNameToRoute(embedded)
+
   const roles = await fetchRoles()
-  const match = roles.find((r) => r.role_ID === account.role_ID)
+  let match = roles.find((r) => r.role_ID === account.role_ID)
+  if (!match) {
+    match = (await fetchRoleById(account.role_ID)) ?? undefined
+  }
   if (match?.role_name) return roleNameToRoute(match.role_name)
-  return 'admin'
+
+  return roleNameToRoute('')
 }
 
 export type RegisterPayload = {

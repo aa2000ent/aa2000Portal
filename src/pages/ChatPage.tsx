@@ -7,9 +7,11 @@ const ROLE_LABELS: Record<string, string> = {
   marketing: 'Marketing',
   finance: 'Finance',
   engineering: 'Engineering',
+  'general-manager': 'General Manager',
 }
 
-const ALL_USERS = ['Admin', 'Marketing', 'Finance', 'Engineering']
+/** All org chat identities (stable order for member list). */
+const ALL_USERS = ['Admin', 'General Manager', 'Marketing', 'Finance', 'Engineering']
 
 function formatChatTime(iso: string) {
   const d = new Date(iso)
@@ -20,13 +22,21 @@ function formatChatTime(iso: string) {
 }
 
 function getInitials(name: string) {
+  if (name === 'General Manager') return 'GM'
   return name.slice(0, 2).toUpperCase() || '?'
+}
+
+function formatPartyList(names: string[]): string {
+  if (names.length === 0) return 'other teams'
+  if (names.length === 1) return names[0]
+  if (names.length === 2) return `${names[0]} and ${names[1]}`
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
 }
 
 export default function ChatPage() {
   const location = useLocation()
   const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
-  const currentSender = ROLE_LABELS[path] ?? path
+  const currentSender = ROLE_LABELS[path] ?? path.replace(/-/g, ' ')
 
   const { getMessagesForConversation, getLastMessageForConversation, addMessage, getUnreadCount, markConversationRead } = useChat()
   const [inputValue, setInputValue] = useState('')
@@ -82,13 +92,12 @@ export default function ChatPage() {
     const last = getLastMessageForConversation(cid)
     if (!last) return 'No messages yet'
     const prefix = last.sender === currentSender ? 'You: ' : ''
-    const text = last.text.length > 35 ? last.text.slice(0, 35) + '…' : last.text
-    return prefix + text
+    const t = last.text.length > 35 ? last.text.slice(0, 35) + '…' : last.text
+    return prefix + t
   }
 
   return (
     <div className={`messenger ${selectedUser ? 'messenger-mobile-thread' : ''}`}>
-      {/* Left: User list + search */}
       <aside className="messenger-list" aria-hidden={!!selectedUser}>
         <div className="messenger-list-header">
           <h2 className="messenger-list-title">Chats</h2>
@@ -113,18 +122,10 @@ export default function ChatPage() {
           />
         </div>
         <div className="messenger-tabs">
-          <button
-            type="button"
-            className={`messenger-tab ${tab === 'all' ? 'active' : ''}`}
-            onClick={() => setTab('all')}
-          >
+          <button type="button" className={`messenger-tab ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')}>
             All
           </button>
-          <button
-            type="button"
-            className={`messenger-tab ${tab === 'unread' ? 'active' : ''}`}
-            onClick={() => setTab('unread')}
-          >
+          <button type="button" className={`messenger-tab ${tab === 'unread' ? 'active' : ''}`} onClick={() => setTab('unread')}>
             Unread
             {totalUnread > 0 && (
               <span className="messenger-tab-badge" aria-label={`${totalUnread} unread`}>
@@ -172,17 +173,11 @@ export default function ChatPage() {
         </div>
       </aside>
 
-      {/* Center: Active chat thread */}
       <main className="messenger-thread" aria-hidden={!selectedUser}>
         {selectedUser ? (
           <>
             <header className="messenger-thread-header">
-              <button
-                type="button"
-                className="messenger-thread-back"
-                onClick={() => setSelectedUser(null)}
-                aria-label="Back to chats"
-              >
+              <button type="button" className="messenger-thread-back" onClick={() => setSelectedUser(null)} aria-label="Back to chats">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
               </button>
               <span className="messenger-thread-avatar" aria-hidden>{getInitials(selectedUser)}</span>
@@ -249,7 +244,6 @@ export default function ChatPage() {
         )}
       </main>
 
-      {/* Right: Chat details panel */}
       <aside className="messenger-details">
         <div className="messenger-details-header">
           <span className="messenger-details-avatar" aria-hidden>
@@ -281,7 +275,10 @@ export default function ChatPage() {
               {ALL_USERS.map((role) => (
                 <li key={role} className="messenger-details-member">
                   <span className="messenger-conv-avatar">{getInitials(role)}</span>
-                  <span>{role}{role === currentSender ? ' (you)' : ''}</span>
+                  <span>
+                    {role}
+                    {role === currentSender ? ' (you)' : ''}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -291,7 +288,8 @@ export default function ChatPage() {
           <div className="messenger-details-panel">
             <p className="messenger-details-panel-title">Chat info</p>
             <p className="messenger-details-panel-text">
-              You are signed in as <strong>{currentSender}</strong>. You can chat with Admin, Marketing, Finance, and Engineering. Use the search above to find a user.
+              You are signed in as <strong>{currentSender}</strong> (from the URL path: <code className="messenger-path-code">/{path}</code>). You can
+              message {formatPartyList(otherUsers)}. Use the list on the left to open a thread.
             </p>
           </div>
         )}

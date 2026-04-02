@@ -6,7 +6,7 @@ import { leafletDefaultIcon } from '../lib/leafletDefaultIcon'
 import { MapPin, Crosshair } from 'lucide-react'
 import logoImg from '../assets/logo/logo.avif'
 import { registerAccount } from '../api/auth'
-import { hasApiBase } from '../api/client'
+import { getPortalHomeSegment, hasApiBase, isPortalSessionActive } from '../api/client'
 import { fetchRoles, type RoleOption } from '../api/roles'
 import { reverseGeocode, searchPlaces } from '../api/geo'
 import AuthThemeToggle from '../components/AuthThemeToggle'
@@ -84,6 +84,13 @@ export default function Register() {
   const [locError, setLocError] = useState<string | null>(null)
   const [locQuery, setLocQuery] = useState('')
   const [locResults, setLocResults] = useState<{ displayName: string; lat: number; lon: number }[]>([])
+
+  useEffect(() => {
+    const home = getPortalHomeSegment()
+    if (isPortalSessionActive() && home) {
+      navigate(`/${home}`, { replace: true })
+    }
+  }, [navigate])
 
   useEffect(() => {
     const html = document.documentElement

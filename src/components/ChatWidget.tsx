@@ -7,6 +7,7 @@ const ROLE_LABELS: Record<string, string> = {
   marketing: 'Marketing',
   finance: 'Finance',
   engineering: 'Engineering',
+  'general-manager': 'General Manager',
 }
 
 function formatChatTime(iso: string) {

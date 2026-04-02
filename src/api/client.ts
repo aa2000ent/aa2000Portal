@@ -6,6 +6,7 @@ export function hasApiBase(): boolean {
 
 const SESSION_ID_KEY = 'portal_session_id'
 const PORTAL_USERNAME_KEY = 'portal_username'
+const PORTAL_HOME_SEGMENT_KEY = 'portal_home_segment'
 
 function getToken(): string | null {
   try {
@@ -13,6 +14,16 @@ function getToken(): string | null {
   } catch {
     return null
   }
+}
+
+/** Current JWT from localStorage (same value sent as `Authorization`), if any. */
+export function getAuthToken(): string | null {
+  return getToken()
+}
+
+/** True when the client has a session or bearer token (signed-in state for routing). */
+export function isPortalSessionActive(): boolean {
+  return Boolean(getSessionId() || getToken())
 }
 
 export function getSessionId(): string | null {
@@ -59,6 +70,32 @@ export function setPortalUsername(username: string): void {
 export function clearPortalUsername(): void {
   try {
     localStorage.removeItem(PORTAL_USERNAME_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+/** First URL segment after login (e.g. `general-manager`) — for reminders when browsing another area. */
+export function setPortalHomeSegment(segment: string): void {
+  try {
+    const s = segment.replace(/^\//, '').split('/')[0]?.trim()
+    if (s) localStorage.setItem(PORTAL_HOME_SEGMENT_KEY, s)
+  } catch {
+    // ignore
+  }
+}
+
+export function getPortalHomeSegment(): string | null {
+  try {
+    return localStorage.getItem(PORTAL_HOME_SEGMENT_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function clearPortalHomeSegment(): void {
+  try {
+    localStorage.removeItem(PORTAL_HOME_SEGMENT_KEY)
   } catch {
     // ignore
   }

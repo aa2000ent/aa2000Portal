@@ -1348,6 +1348,92 @@ html[data-theme="dark"] .auth-map-shell {
   box-shadow: var(--dash-shadow);
 }
 
+/* Messenger full page — dark mode (tokens align with dashboard / content panels) */
+html[data-theme='dark'] .dashboard .messenger {
+  --msg-bg: rgba(15, 23, 42, 0.35);
+  --msg-bg-secondary: rgba(30, 41, 59, 0.82);
+  --msg-bg-tertiary: rgba(51, 65, 85, 0.42);
+  --msg-border: var(--aa-content-border-strong);
+  --msg-text: var(--aa-content-text);
+  --msg-text-muted: var(--aa-content-text-muted);
+  --msg-bubble-other: rgba(30, 41, 59, 0.95);
+  --msg-bubble-self: var(--aa-blue);
+  --msg-input-bg: rgba(15, 23, 42, 0.55);
+  border-color: var(--aa-content-border);
+  box-shadow: var(--aa-content-shadow);
+}
+
+html[data-theme='dark'] .dashboard .messenger .messenger-msg-bubble {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+html[data-theme='dark'] .dashboard .messenger .messenger-conv-item.active {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+html[data-theme='dark'] .dashboard .messenger .messenger-details-action:hover {
+  background: rgba(148, 163, 184, 0.15);
+}
+
+/* Floating chat widget — dark mode (not always inside .dashboard) */
+html[data-theme='dark'] .chat-widget-panel {
+  background: var(--aa-content-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-color: var(--aa-content-border);
+  box-shadow: var(--aa-content-shadow);
+}
+
+html[data-theme='dark'] .chat-widget-panel-nav {
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+html[data-theme='dark'] .chat-widget-header {
+  background: rgba(15, 23, 42, 0.4);
+  border-bottom-color: var(--aa-content-border);
+}
+
+html[data-theme='dark'] .chat-widget-title {
+  color: var(--aa-content-text);
+}
+
+html[data-theme='dark'] .chat-widget-subtitle {
+  color: var(--aa-content-text-muted);
+}
+
+html[data-theme='dark'] .chat-widget-message {
+  background: rgba(51, 65, 85, 0.45);
+  border: 1px solid transparent;
+}
+
+html[data-theme='dark'] .chat-widget-message-own {
+  background: color-mix(in srgb, var(--aa-blue) 24%, transparent);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+html[data-theme='dark'] .chat-widget-message-text {
+  color: var(--aa-content-text);
+}
+
+html[data-theme='dark'] .chat-widget-message-own .chat-widget-message-sender {
+  color: #93c5fd;
+}
+
+html[data-theme='dark'] .chat-widget-form {
+  background: rgba(15, 23, 42, 0.35);
+  border-top-color: var(--aa-content-border);
+}
+
+html[data-theme='dark'] .chat-widget-input {
+  background: rgba(15, 23, 42, 0.5);
+  border-color: var(--aa-content-border);
+  color: var(--aa-content-text);
+}
+
+html[data-theme='dark'] .chat-widget-input:focus {
+  border-color: var(--aa-blue);
+}
+
 .messenger-list {
   width: 340px;
   min-width: 280px;
@@ -1937,6 +2023,14 @@ html[data-theme="dark"] .auth-map-shell {
   color: var(--msg-text);
   margin: 0;
   line-height: 1.5;
+}
+
+.messenger-path-code {
+  font-size: 0.8125em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--msg-input-bg, rgba(0, 0, 0, 0.08));
+  font-family: ui-monospace, monospace;
 }
 
 .messenger-details-members {
@@ -5395,6 +5489,26 @@ html[data-theme="dark"] .auth-map-shell {
   min-height: 220px;
   width: 100%;
   min-width: 0;
+}
+
+/* General Manager dashboard */
+.dashboard-section-title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--aa-content-text);
+  margin: 0 0 0.35rem;
+  letter-spacing: -0.02em;
+}
+
+.dashboard-section-desc {
+  font-size: 0.8125rem;
+  color: var(--aa-content-text-muted);
+  margin: 0 0 1rem;
+  line-height: 1.5;
+}
+
+.gm-dashboard-graphs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .dashboard-graph-empty {

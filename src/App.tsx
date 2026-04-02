@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './App.css'
+import RequirePortalAccess from './components/RequirePortalAccess'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ActivityLogProvider } from './contexts/ActivityLogContext'
 import { ApplicationsProvider } from './contexts/ApplicationsContext'
@@ -11,6 +12,7 @@ const Register = lazy(() => import('./pages/Register'))
 const DashboardLayout = lazy(() => import('./layouts/DashboardLayout'))
 const AdminLayout = lazy(() => import('./layouts/AdminLayout'))
 const PortalLayout = lazy(() => import('./layouts/PortalLayout'))
+const GeneralManagerLayout = lazy(() => import('./layouts/GeneralManagerLayout'))
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'))
 const AdminEmployees = lazy(() => import('./pages/admin/AdminEmployees'))
 const AdminProfile = lazy(() => import('./pages/admin/AdminProfile'))
@@ -24,6 +26,7 @@ const Engineering = lazy(() => import('./pages/Engineering'))
 const PortalApplications = lazy(() => import('./pages/PortalApplications'))
 const PortalProfile = lazy(() => import('./pages/PortalProfile'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
+const GeneralManagerDashboard = lazy(() => import('./pages/general-manager/GeneralManagerDashboard'))
 
 function PageLoader() {
   return (
@@ -44,6 +47,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<Login />} />
                 <Route path="/register" element={<Register />} />
+                <Route element={<RequirePortalAccess />}>
                 <Route element={<DashboardLayout />}>
                   <Route path="admin" element={<AdminLayout />}>
                     <Route index element={<AdminDashboard />} />
@@ -69,6 +73,14 @@ function App() {
                     <Route path="engineering/profile" element={<PortalProfile />} />
                     <Route path="engineering/chat" element={<ChatPage />} />
                   </Route>
+                  <Route path="general-manager" element={<GeneralManagerLayout />}>
+                    <Route index element={<GeneralManagerDashboard />} />
+                    <Route path="applications" element={<PortalApplications />} />
+                    <Route path="profile" element={<PortalProfile />} />
+                    <Route path="chat" element={<ChatPage />} />
+                    <Route path="history" element={<AdminHistory variant="general-manager" />} />
+                  </Route>
+                </Route>
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

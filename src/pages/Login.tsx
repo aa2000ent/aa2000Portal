@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import logoImg from '../assets/logo/logo.avif'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { loginVerification, resolvePortalRouteFromAccount } from '../api/auth'
-import { hasApiBase } from '../api/client'
+import { getPortalHomeSegment, hasApiBase, isPortalSessionActive, setPortalHomeSegment } from '../api/client'
 import AuthThemeToggle from '../components/AuthThemeToggle'
 
 export default function Login() {
@@ -15,6 +15,13 @@ export default function Login() {
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const home = getPortalHomeSegment()
+    if (isPortalSessionActive() && home) {
+      navigate(`/${home}`, { replace: true })
+    }
+  }, [navigate])
 
   useEffect(() => {
     const html = document.documentElement
@@ -46,6 +53,7 @@ export default function Login() {
       const res = await loginVerification({ username: username.trim(), password })
       const route = await resolvePortalRouteFromAccount(res.account)
       const roleLabel = res.account.username
+      setPortalHomeSegment(route)
       addEntry({ action: 'sign_in', actor: roleLabel, target: 'Portal', details: `${roleLabel} dashboard` })
       navigate(`/${route}`, { replace: true })
     } catch (err) {

@@ -19,6 +19,7 @@ const ROLE_LABELS: Record<string, string> = {
   marketing: 'Marketing',
   finance: 'Finance',
   engineering: 'Engineering',
+  'general-manager': 'General Manager',
 }
 
 function DashboardHeader() {
@@ -30,7 +31,8 @@ function DashboardHeader() {
   const { isOpen, toggle } = useSidebar()
 
   return (
-    <header className="dashboard-app-header flex items-center px-4 sm:px-6">
+    <header className="dashboard-app-header flex flex-col gap-0 px-4 sm:px-6">
+      <div className="flex items-center w-full min-h-[3.25rem]">
       <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
         <button
           type="button"
@@ -63,6 +65,7 @@ function DashboardHeader() {
             <circle cx="12" cy="7" r="4" />
           </svg>
         </Link>
+      </div>
       </div>
     </header>
   )

@@ -29,19 +29,33 @@ const ACTION_OPTIONS: { value: string; label: string }[] = [
   ...(Object.entries(ACTION_LABELS).map(([value, label]) => ({ value, label }))),
 ]
 
-/* Admin activities are hidden in Activity logs (viewer is admin). */
-const DEPARTMENT_OPTIONS = [
+/* Rows where actor is the Admin portal identity are hidden (GM must not see admin actions; admin view hides own role noise). */
+const DEPARTMENT_OPTIONS_ADMIN = [
   { value: 'all', label: 'All departments' },
   { value: 'Marketing', label: 'Marketing' },
   { value: 'Finance', label: 'Finance' },
   { value: 'Engineering', label: 'Engineering' },
 ]
 
+const DEPARTMENT_OPTIONS_GM = [
+  { value: 'all', label: 'All roles' },
+  { value: 'Marketing', label: 'Marketing' },
+  { value: 'Finance', label: 'Finance' },
+  { value: 'Engineering', label: 'Engineering' },
+  { value: 'General Manager', label: 'General Manager' },
+]
+
 const MIN_PER_PAGE = 1
 const MAX_PER_PAGE = 500
 
-export default function AdminHistory() {
+export type AdminHistoryProps = {
+  /** Subtitle/filter copy only; Admin actor rows are always hidden in both views. */
+  variant?: 'admin' | 'general-manager'
+}
+
+export default function AdminHistory({ variant = 'admin' }: AdminHistoryProps) {
   const { entries } = useActivityLog()
+  const departmentOptions = variant === 'general-manager' ? DEPARTMENT_OPTIONS_GM : DEPARTMENT_OPTIONS_ADMIN
   const [search, setSearch] = useState('')
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [actionFilter, setActionFilter] = useState('all')
@@ -83,7 +97,11 @@ export default function AdminHistory() {
     <div className="dashboard-page">
       <header className="dashboard-page-header">
         <h1 className="dashboard-page-title">Activity logs</h1>
-        <p className="dashboard-page-subtitle">Activity and audit logs from Marketing, Finance, and Engineering</p>
+        <p className="dashboard-page-subtitle">
+          {variant === 'general-manager'
+            ? 'Portal actions in this browser. Admin-area actions are not shown here.'
+            : 'Activity and audit logs from Marketing, Finance, and Engineering'}
+        </p>
       </header>
       <div className="dashboard-page-content">
         <section className="dashboard-card history-card">
@@ -106,8 +124,8 @@ export default function AdminHistory() {
               <CustomSelect
                 value={departmentFilter}
                 onChange={setDepartmentFilter}
-                options={DEPARTMENT_OPTIONS}
-                placeholder="All departments"
+                options={departmentOptions}
+                placeholder={variant === 'general-manager' ? 'All roles' : 'All departments'}
                 aria-label="Filter by department"
                 className="employees-filter-wrap"
                 allowEmpty={false}

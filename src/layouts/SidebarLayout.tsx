@@ -4,7 +4,13 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { useChat } from '../contexts/ChatContext'
 import { useSidebar } from '../contexts/SidebarContext'
-import { clearAuthToken, clearPortalUsername, clearSessionId, getPortalUsername } from '../api/client'
+import {
+  clearAuthToken,
+  clearPortalHomeSegment,
+  clearPortalUsername,
+  clearSessionId,
+  getPortalUsername,
+} from '../api/client'
 import { logoutSecurity } from '../api/auth'
 import { prefetchRoute } from '../prefetchRoutes'
 
@@ -15,6 +21,7 @@ const ROLE_LABELS: Record<string, string> = {
   marketing: 'Marketing',
   finance: 'Finance',
   engineering: 'Engineering',
+  'general-manager': 'General Manager',
 }
 
 function NavIcon({ name }: { name: string }) {
@@ -120,6 +127,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
       clearAuthToken()
       clearSessionId()
       clearPortalUsername()
+      clearPortalHomeSegment()
       const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
       const roleLabel = ROLE_LABELS[path] ?? path
       addEntry({

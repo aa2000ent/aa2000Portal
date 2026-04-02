@@ -77,3 +77,38 @@ export function getLogoutCandidatePaths(): string[] {
   }
   return ['/security/logout', '/security/login/logout']
 }
+
+/**
+ * Optional JSON map: `{ "1": "admin", "2": "marketing" }` — `role_ID` → first path segment after login.
+ * Use when `/roles` list does not include every account role.
+ */
+export function getRoleIdRouteOverride(): Record<number, string> {
+  try {
+    const raw = import.meta.env.VITE_ROLE_ROUTE_MAP
+    if (typeof raw !== 'string' || !raw.trim()) return {}
+    const o = JSON.parse(raw) as Record<string, unknown>
+    const out: Record<number, string> = {}
+    for (const [k, v] of Object.entries(o)) {
+      const id = Number(k)
+      if (!Number.isFinite(id) || id <= 0) continue
+      const seg = String(v ?? '')
+        .trim()
+        .replace(/^\//, '')
+        .split('/')[0]
+      if (seg) out[id] = seg
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Portal segment for executive titles (CEO, COO, …) — not General Manager (that uses `/general-manager` in code).
+ */
+export function getExecutiveTitleDefaultRoute(): string {
+  const raw = import.meta.env.VITE_EXECUTIVE_DEFAULT_ROUTE
+  if (typeof raw !== 'string' || !raw.trim()) return 'admin'
+  const s = raw.trim().toLowerCase().replace(/^\//, '').split('/')[0] ?? 'admin'
+  return ['admin', 'marketing', 'finance', 'engineering', 'general-manager'].includes(s) ? s : 'admin'
+}

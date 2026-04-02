@@ -25,6 +25,11 @@ const routeLoaders: Record<string, () => Promise<unknown>> = {
   '/engineering/applications': () => import('./pages/PortalApplications'),
   '/engineering/profile': () => import('./pages/PortalProfile'),
   '/engineering/chat': () => import('./pages/ChatPage'),
+  '/general-manager': () => import('./pages/general-manager/GeneralManagerDashboard'),
+  '/general-manager/applications': () => import('./pages/PortalApplications'),
+  '/general-manager/profile': () => import('./pages/PortalProfile'),
+  '/general-manager/chat': () => import('./pages/ChatPage'),
+  '/general-manager/history': () => import('./pages/admin/AdminHistory'),
 }
 
 const prefetched = new Set<string>()

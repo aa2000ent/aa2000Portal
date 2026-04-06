@@ -1,0 +1,66 @@
+Accomplishment Report (Apr 2, 2026) — aa2000_portal
+
+Scope
+- Frontend improvements and functional fixes for aa2000_portal, including employee profile photo upload (base64), modal/UI polish, and reliability fixes for image rendering and role-based access behaviors.
+
+Accomplishments / Implemented
+1) Employee Profile Picture Upload (end-to-end)
+   - Added “Upload picture” UI + “Remove (X)” in Admin → Employees modal.
+   - Implemented browser-side conversion to base64 before calling the backend API.
+   - Ensured upload payload uses the Sequelize column key `Emp_imageBase64`:
+     - When uploading: send base64 as payload.
+     - When removing: send `null` to clear from DB.
+   - Made UI robust against state timing issues:
+     - Added conversion waiting guards so “Save” waits until conversion is finished.
+     - Added ref-based stable value handling to avoid stale React state during fast submit.
+   - Improved frontend photo rendering reliability:
+     - Accepts `data:image/...;base64,...` directly.
+     - Converts raw base64 into `data:image/...;base64,...` for rendering.
+     - Handles Buffer-like / non-string payloads coming from Sequelize by converting them into base64 data URLs.
+   - Added image compression/resizing before conversion to base64 to reduce payload size and avoid backend truncation/body limits.
+
+2) Admin Employees Modal Layout / UX Polish
+   - Desktop layout: reduced vertical “pahaba” look by using a 2-column grid and compact spacing.
+   - Reduced map height in the modal to avoid excessive scrolling on desktop.
+   - Placed the photo uploader at the front of the form.
+   - Photo uploader appearance:
+     - Shows a “plus” style when no picture exists.
+     - Shows an “X” button at the top/right when a picture exists for removal.
+
+3) Reliability Improvements After Refetch
+   - Added retry behavior for broken photo rendering:
+     - Clear broken image flags after successful refetch/update so images can display without needing a hard refresh.
+
+4) Role Filter Deduplication
+   - Updated `src/contexts/RolesContext.tsx` to dedupe role options case-insensitively and trim whitespace.
+   - This prevents duplicate role entries in filters/dropdowns.
+
+5) Marketing Dashboard Updates
+   - Updated `src/pages/Marketing.tsx` to show a functional Marketing dashboard:
+     - Assigned apps count based on apps visible to Marketing role.
+     - Portal segment display.
+     - Top applications list (filtered to Marketing visibility).
+     - Recent activity table that hides `Admin` actor noise for privacy.
+
+6) Role-Based Access and Privacy (prior implemented work)
+   - Added route guarding to restrict users to their assigned portal segment.
+   - Removed/adjusted cross-portal quick links and activity log privacy leakage behavior per role.
+
+Verification / Testing (Manual)
+- Open Admin → Employees.
+- Add user:
+  - Upload photo, Save, refresh, verify photo appears and persists.
+- Edit user:
+  - Upload new photo, Save, refresh, verify photo updates.
+  - Remove photo via X, Save, refresh, verify photo is cleared.
+
+Notes / Current Focus
+- Ongoing emphasis is ensuring the base64 image is actually persisted to DB and then correctly rendered after refetch (field naming, truncation/body limits, and backend response format differences).
+
+Files updated (in this iteration)
+- `src/api/employees.ts`
+- `src/pages/admin/AdminEmployees.tsx`
+- `src/App.css`
+- `src/contexts/RolesContext.tsx`
+- `src/pages/Marketing.tsx`
+

@@ -108,6 +108,8 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
   const [isTransitioning, setTransitioning] = useState(false)
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false)
   const sidebarRef = useRef<HTMLElement>(null)
+  /** Scroll container for routed page content (nested inside dashboard-main). */
+  const mainContentScrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
@@ -178,6 +180,14 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
     return () => clearTimeout(t)
   }, [isSidebarOpen, showCollapsed])
 
+  // SPA: same scroll containers are reused across routes — reset to top when the path changes
+  useEffect(() => {
+    const outer = scrollContainerRef.current
+    const inner = mainContentScrollRef.current
+    if (outer) outer.scrollTop = 0
+    if (inner) inner.scrollTop = 0
+  }, [location.pathname])
+
   return (
     <div
       className={`dashboard-with-sidebar relative w-full min-h-full flex ${isSidebarOpen ? 'sidebar-open' : ''} ${showCollapsed ? 'sidebar-collapsed' : ''} ${isTransitioning ? 'overflow-x-hidden' : ''}`}
@@ -214,9 +224,9 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
                 to={to}
                 end={end}
                 className={({ isActive }) =>
-                  `sidebar-nav-link flex items-center gap-3 py-3 px-3 min-h-[44px] rounded-lg no-underline text-sm font-medium
+                  `sidebar-nav-link flex w-full min-w-0 items-center gap-3 py-3 px-3 min-h-[44px] rounded-lg no-underline text-sm font-medium
                   ${isActive ? 'active' : ''}
-                  ${showCollapsed ? 'md:justify-center md:px-0' : ''}
+                  ${showCollapsed ? 'md:justify-center md:px-0 md:gap-0' : ''}
                   `
                 }
                 onMouseEnter={() => prefetchRoute(to)}
@@ -249,7 +259,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
         <div className="sidebar-footer pt-4 mt-3 px-2 border-t flex flex-col gap-1.5 shrink-0 pb-2">
           <button
             type="button"
-            className={`sidebar-footer-btn hidden md:flex items-center gap-3 w-full py-3 min-h-[44px] border-none rounded-lg bg-transparent text-sm font-semibold cursor-pointer transition-colors ${showCollapsed ? 'justify-center px-0' : 'justify-start px-3'}`}
+            className={`sidebar-footer-btn hidden md:flex items-center gap-3 w-full min-w-0 py-3 min-h-[44px] border-none rounded-lg bg-transparent text-sm font-semibold cursor-pointer transition-colors ${showCollapsed ? 'justify-center px-0 gap-0' : 'justify-start px-3'}`}
             onClick={handleCollapseClick}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-hidden={isMobile}
@@ -270,7 +280,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
           </button>
           <button
             type="button"
-            className={`sidebar-footer-btn sidebar-footer-btn--danger flex items-center gap-3 w-full py-3 min-h-[44px] border-none rounded-lg bg-transparent text-sm font-semibold cursor-pointer transition-colors ${showCollapsed ? 'justify-center px-0' : 'justify-start px-3'}`}
+            className={`sidebar-footer-btn sidebar-footer-btn--danger flex items-center gap-3 w-full min-w-0 py-3 min-h-[44px] border-none rounded-lg bg-transparent text-sm font-semibold cursor-pointer transition-colors ${showCollapsed ? 'justify-center px-0 gap-0' : 'justify-start px-3'}`}
             onClick={handleSignOutClick}
             title="Sign out"
           >
@@ -301,6 +311,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
         onCancel={() => setSignOutConfirmOpen(false)}
       />
       <div
+        ref={mainContentScrollRef}
         className="flex-1 min-w-0 pt-4 pb-10 px-8 max-md:pt-4 max-md:pb-8 max-md:px-5 max-md:block md:transition-[margin-left] md:duration-300 md:ease-[cubic-bezier(0.4,0,0.2,1)] overflow-y-auto overflow-x-hidden"
         style={!isMobile ? { marginLeft: isSidebarOpen ? (showCollapsed ? 76 : 240) : 0 } : undefined}
       >

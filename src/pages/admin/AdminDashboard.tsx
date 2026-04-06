@@ -19,49 +19,66 @@ import {
 import { useApprovals } from '../../contexts/ApprovalsContext'
 import { useEmployees } from '../../contexts/EmployeesContext'
 import { useApplications } from '../../contexts/ApplicationsContext'
+import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useTheme } from '../../contexts/ThemeContext'
+import { buildAdminDashboardSeries, buildPortalAppsAudiencePie } from '../../utils/dashboardAnalytics'
 
 function useChartPalette() {
   const { theme } = useTheme()
   return useMemo(() => {
     const isDark = theme === 'dark'
     return {
-      grid: isDark ? '#334155' : '#e2e8f0',
-      axis: isDark ? '#94a3b8' : '#64748b',
-      axisLine: isDark ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.35)',
+      grid: isDark ? '#343b45' : '#e2e6ec',
+      axis: isDark ? '#b8c2cc' : '#5c6570',
+      axisLine: isDark ? 'rgba(184, 194, 204, 0.28)' : 'rgba(92, 101, 112, 0.28)',
       tooltip: isDark
         ? {
-            background: 'rgba(30, 41, 59, 0.96)',
-            border: '1px solid rgba(148, 163, 184, 0.28)',
+            background: '#1c2128',
+            border: '1px solid rgba(236, 237, 238, 0.12)',
             borderRadius: 10,
             fontSize: 12,
             padding: '12px 16px',
-            boxShadow: '0 12px 40px rgba(0,0,0,0.35)',
+            boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
           }
         : {
             background: '#ffffff',
-            border: '1px solid #e2e8f0',
+            border: '1px solid #e2e6ec',
             borderRadius: 10,
             fontSize: 12,
             padding: '12px 16px',
-            boxShadow: '0 8px 24px rgba(15,23,42,0.1)',
+            boxShadow: '0 4px 16px rgba(17, 24, 28, 0.08)',
           },
       tooltipLabel: isDark
-        ? ({ color: '#f1f5f9', fontWeight: 600, marginBottom: 8, fontSize: 13 } as const)
-        : ({ color: '#0f172a', fontWeight: 600, marginBottom: 8, fontSize: 13 } as const),
-      dotStroke: isDark ? '#1e293b' : '#ffffff',
-      legendColor: isDark ? '#cbd5e1' : '#475569',
-      barCursor: isDark ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.18)',
-      weeklyCursor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.06)',
+        ? ({ color: '#ecedee', fontWeight: 600, marginBottom: 8, fontSize: 13 } as const)
+        : ({ color: '#11181c', fontWeight: 600, marginBottom: 8, fontSize: 13 } as const),
+      dotStroke: isDark ? '#1c2128' : '#ffffff',
+      legendColor: isDark ? '#c5ccd4' : '#5c6570',
+      barCursor: isDark ? 'rgba(92, 157, 237, 0.15)' : 'rgba(26, 77, 153, 0.12)',
+      weeklyCursor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(17, 24, 28, 0.04)',
+      lineUsers: isDark ? '#6eb0ff' : 'var(--aa-blue)',
+      lineApps: isDark ? '#ffb74d' : 'var(--aa-cyan)',
+      barPrimary: isDark ? '#5c9ded' : 'var(--aa-blue)',
+      weeklyLogins: isDark ? '#8b9cff' : '#1565c0',
+      weeklyActions: isDark ? '#ffb74d' : '#c9a227',
+      growthStroke: isDark ? '#81c784' : '#2e7d32',
+      growthFillTop: isDark ? '#81c784' : '#2e7d32',
     }
   }, [theme])
 }
 
 export default function AdminDashboard() {
   const chart = useChartPalette()
-  const { pendingCount, approvedCount, rejectedCount } = useApprovals()
+  const { pendingCount } = useApprovals()
   const { totalCount: totalUsers } = useEmployees()
   const { apps } = useApplications()
+  const { entries } = useActivityLog()
+
+  const { activityData, monthlyAppsData, growthData, weeklyActivityData } = useMemo(
+    () => buildAdminDashboardSeries(entries, totalUsers),
+    [entries, totalUsers],
+  )
+
+  const appsAudienceData = useMemo(() => buildPortalAppsAudiencePie(apps), [apps])
 
   const stats: Array<{ label: string; value: number | string; icon: string }> = [
     { label: 'Total users', value: totalUsers, icon: 'users' },
@@ -69,17 +86,6 @@ export default function AdminDashboard() {
     { label: 'Online now', value: '—', icon: 'online' },
     { label: 'Pending approval', value: pendingCount, icon: 'pending' },
   ]
-
-  const statusData = [
-    { name: 'Approved', value: approvedCount, color: 'var(--aa-cyan)' },
-    { name: 'Pending', value: pendingCount, color: 'var(--aa-blue)' },
-    { name: 'Rejected', value: rejectedCount, color: 'var(--aa-blue-dark)' },
-  ]
-
-  const activityData: Array<{ month: string; users: number; applications: number }> = []
-  const monthlyAppsData: Array<{ month: string; count: number }> = []
-  const growthData: Array<{ month: string; total: number }> = []
-  const weeklyActivityData: Array<{ day: string; logins: number; actions: number }> = []
 
   return (
     <div className="dashboard-page">
@@ -120,142 +126,132 @@ export default function AdminDashboard() {
         <div className="dashboard-graphs">
           <section className="dashboard-graph-card" aria-label="Activity over time">
             <h2 className="dashboard-graph-title">Activity over time</h2>
-            <p className="dashboard-graph-desc">Users and applications by month.</p>
-            <div className="dashboard-graph-wrap">
-              {activityData.length === 0 ? (
-                <div className="dashboard-graph-empty">No analytics data available.</div>
-              ) : (
-                <ResponsiveContainer width="100%" height={300} debounce={200}>
-                  <LineChart data={activityData} margin={{ top: 12, right: 16, left: 0, bottom: 32 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
-                    <YAxis yAxisId="left" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={36} />
-                    <Tooltip
-                      contentStyle={{ ...chart.tooltip }}
-                      labelStyle={chart.tooltipLabel}
-                      itemStyle={{ fontSize: 12, padding: '2px 0', color: chart.legendColor }}
-                      cursor={{ stroke: chart.axisLine, strokeWidth: 1, strokeDasharray: '4 4' }}
-                    />
-                    <Line yAxisId="left" type="monotone" dataKey="users" name="Users" stroke="var(--aa-blue)" strokeWidth={2.5} dot={{ fill: 'var(--aa-blue)', r: 4, strokeWidth: 2, stroke: chart.dotStroke }} activeDot={{ r: 6, strokeWidth: 2, stroke: chart.dotStroke, fill: 'var(--aa-blue)' }} animationDuration={600} animationEasing="ease-out" />
-                    <Line yAxisId="right" type="monotone" dataKey="applications" name="Applications" stroke="var(--aa-cyan)" strokeWidth={2.5} dot={{ fill: 'var(--aa-cyan)', r: 4, strokeWidth: 2, stroke: chart.dotStroke }} activeDot={{ r: 6, strokeWidth: 2, stroke: chart.dotStroke, fill: 'var(--aa-cyan)' }} animationDuration={600} animationEasing="ease-out" />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </section>
-          <section className="dashboard-graph-card" aria-label="Applications by status">
-            <h2 className="dashboard-graph-title">Applications by status</h2>
-            <p className="dashboard-graph-desc">Distribution of application statuses.</p>
+            <p className="dashboard-graph-desc">User and app additions by month (from portal activity log).</p>
             <div className="dashboard-graph-wrap">
               <ResponsiveContainer width="100%" height={300} debounce={200}>
-                <PieChart margin={{ bottom: 24 }}>
-                  <Pie
-                    data={statusData}
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={56}
-                    outerRadius={88}
-                    paddingAngle={4}
-                    dataKey="value"
-                    nameKey="name"
-                    animationDuration={600}
-                    animationEasing="ease-out"
-                    cornerRadius={4}
-                  >
-                    {statusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} stroke={chart.dotStroke} strokeWidth={2} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ ...chart.tooltip, padding: '10px 14px' }} />
-                  <Legend
-                    layout="horizontal"
-                    align="center"
-                    verticalAlign="bottom"
-                    wrapperStyle={{ fontSize: 12, paddingTop: 16, marginBottom: 0, color: chart.legendColor }}
-                    iconType="circle"
-                    iconSize={8}
-                    formatter={(value: string) => (
-                      <span style={{ color: chart.legendColor, fontWeight: 500, marginLeft: 2 }}>{value}</span>
-                    )}
+                <LineChart data={activityData} margin={{ top: 12, right: 16, left: 0, bottom: 32 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
+                  <YAxis yAxisId="left" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={36} />
+                  <Tooltip
+                    contentStyle={{ ...chart.tooltip }}
+                    labelStyle={chart.tooltipLabel}
+                    itemStyle={{ fontSize: 12, padding: '2px 0', color: chart.legendColor }}
+                    cursor={{ stroke: chart.axisLine, strokeWidth: 1, strokeDasharray: '4 4' }}
                   />
-                </PieChart>
+                  <Line yAxisId="left" type="monotone" dataKey="users" name="Users added" stroke={chart.lineUsers} strokeWidth={2.5} dot={{ fill: chart.lineUsers, r: 4, strokeWidth: 2, stroke: chart.dotStroke }} activeDot={{ r: 6, strokeWidth: 2, stroke: chart.dotStroke, fill: chart.lineUsers }} animationDuration={600} animationEasing="ease-out" />
+                  <Line yAxisId="right" type="monotone" dataKey="applications" name="Apps added" stroke={chart.lineApps} strokeWidth={2.5} dot={{ fill: chart.lineApps, r: 4, strokeWidth: 2, stroke: chart.dotStroke }} activeDot={{ r: 6, strokeWidth: 2, stroke: chart.dotStroke, fill: chart.lineApps }} animationDuration={600} animationEasing="ease-out" />
+                </LineChart>
               </ResponsiveContainer>
+            </div>
+          </section>
+          <section className="dashboard-graph-card" aria-label="Portal applications by visibility">
+            <h2 className="dashboard-graph-title">Applications by visibility</h2>
+            <p className="dashboard-graph-desc">
+              Portal apps by who can see them: one role, multiple roles, or none set (no lifecycle status from API).
+            </p>
+            <div className="dashboard-graph-wrap">
+              {apps.length === 0 ? (
+                <div className="dashboard-graph-empty">No portal applications loaded yet.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={300} debounce={200}>
+                  <PieChart margin={{ bottom: 24 }}>
+                    <Pie
+                      data={appsAudienceData}
+                      cx="50%"
+                      cy="45%"
+                      innerRadius={56}
+                      outerRadius={88}
+                      paddingAngle={4}
+                      dataKey="value"
+                      nameKey="name"
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                      cornerRadius={4}
+                    >
+                      {appsAudienceData.map((entry, index) => (
+                        <Cell key={`cell-${entry.name}-${index}`} fill={entry.color} stroke={chart.dotStroke} strokeWidth={2} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ ...chart.tooltip, padding: '10px 14px' }} />
+                    <Legend
+                      layout="horizontal"
+                      align="center"
+                      verticalAlign="bottom"
+                      wrapperStyle={{ fontSize: 12, paddingTop: 16, marginBottom: 0, color: chart.legendColor }}
+                      iconType="circle"
+                      iconSize={8}
+                      formatter={(value: string) => (
+                        <span style={{ color: chart.legendColor, fontWeight: 500, marginLeft: 2 }}>{value}</span>
+                      )}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </section>
 
           <div className="dashboard-graphs-row">
             <section className="dashboard-graph-card" aria-label="Applications per month">
               <h2 className="dashboard-graph-title">Applications per month</h2>
-              <p className="dashboard-graph-desc">New applications submitted.</p>
+              <p className="dashboard-graph-desc">Applications added per month (activity log).</p>
               <div className="dashboard-graph-wrap">
-                {monthlyAppsData.length === 0 ? (
-                  <div className="dashboard-graph-empty">No analytics data available.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={260} debounce={200}>
-                    <BarChart data={monthlyAppsData} margin={{ top: 16, right: 16, left: 8, bottom: 32 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
-                      <Tooltip
-                        contentStyle={{ ...chart.tooltip }}
-                        cursor={{ fill: chart.barCursor }}
-                      />
-                      <Bar dataKey="count" name="Applications" fill="var(--aa-blue)" radius={[4, 4, 0, 0]} animationDuration={500} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
+                  <BarChart data={monthlyAppsData} margin={{ top: 16, right: 16, left: 8, bottom: 32 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
+                    <Tooltip
+                      contentStyle={{ ...chart.tooltip }}
+                      cursor={{ fill: chart.barCursor }}
+                    />
+                    <Bar dataKey="count" name="Applications" fill={chart.barPrimary} radius={[4, 4, 0, 0]} animationDuration={500} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </section>
             <section className="dashboard-graph-card" aria-label="User growth">
               <h2 className="dashboard-graph-title">User growth</h2>
-              <p className="dashboard-graph-desc">Cumulative registered users.</p>
+              <p className="dashboard-graph-desc">Cumulative users; aligns with current headcount and logged user additions.</p>
               <div className="dashboard-graph-wrap">
-                {growthData.length === 0 ? (
-                  <div className="dashboard-graph-empty">No analytics data available.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={260} debounce={200}>
-                    <AreaChart data={growthData} margin={{ top: 16, right: 16, left: 8, bottom: 32 }}>
-                      <defs>
-                        <linearGradient id="growthGradientBottom" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
-                      <Tooltip
-                        contentStyle={{ ...chart.tooltip }}
-                        cursor={{ stroke: chart.axisLine, strokeDasharray: '4 4' }}
-                      />
-                      <Area type="monotone" dataKey="total" name="Total users" stroke="#10b981" strokeWidth={2} fill="url(#growthGradientBottom)" animationDuration={500} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
+                  <AreaChart data={growthData} margin={{ top: 16, right: 16, left: 8, bottom: 32 }}>
+                    <defs>
+                      <linearGradient id="growthGradientBottom" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={chart.growthFillTop} stopOpacity={0.35} />
+                        <stop offset="100%" stopColor={chart.growthFillTop} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
+                    <Tooltip
+                      contentStyle={{ ...chart.tooltip }}
+                      cursor={{ stroke: chart.axisLine, strokeDasharray: '4 4' }}
+                    />
+                    <Area type="monotone" dataKey="total" name="Total users" stroke={chart.growthStroke} strokeWidth={2} fill="url(#growthGradientBottom)" animationDuration={500} />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
             </section>
             <section className="dashboard-graph-card" aria-label="Weekly activity">
               <h2 className="dashboard-graph-title">Weekly activity</h2>
-              <p className="dashboard-graph-desc">Logins and actions by day.</p>
+              <p className="dashboard-graph-desc">Last 7 days: sign-ins vs other actions (page views excluded).</p>
               <div className="dashboard-graph-wrap">
-                {weeklyActivityData.length === 0 ? (
-                  <div className="dashboard-graph-empty">No analytics data available.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={260} debounce={200}>
-                    <BarChart data={weeklyActivityData} margin={{ top: 16, right: 16, left: 8, bottom: 32 }} barGap={8} barCategoryGap="12%">
-                      <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
-                      <Tooltip
-                        contentStyle={{ ...chart.tooltip }}
-                        cursor={{ fill: chart.weeklyCursor }}
-                      />
-                      <Bar dataKey="logins" name="Logins" fill="#6366f1" radius={[4, 4, 0, 0]} animationDuration={500} />
-                      <Bar dataKey="actions" name="Actions" fill="#f59e0b" radius={[4, 4, 0, 0]} animationDuration={500} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
+                  <BarChart data={weeklyActivityData} margin={{ top: 16, right: 16, left: 8, bottom: 32 }} barGap={8} barCategoryGap="12%">
+                    <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                    <XAxis dataKey="day" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
+                    <Tooltip
+                      contentStyle={{ ...chart.tooltip }}
+                      cursor={{ fill: chart.weeklyCursor }}
+                    />
+                    <Bar dataKey="logins" name="Logins" fill={chart.weeklyLogins} radius={[4, 4, 0, 0]} animationDuration={500} />
+                    <Bar dataKey="actions" name="Actions" fill={chart.weeklyActions} radius={[4, 4, 0, 0]} animationDuration={500} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </section>
           </div>

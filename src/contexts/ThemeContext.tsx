@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { applyPortalThemeCssVars } from '../theme/applyPortalThemeCssVars'
 
 export type Theme = 'light' | 'dark'
 
-const STORAGE_KEY = 'aa-portal-theme'
+export const THEME_STORAGE_KEY = 'aa-portal-theme'
 
-function readStoredTheme(): Theme {
+/** Read persisted theme (SSR-safe). Used before React mounts to avoid CSS variable flash. */
+export function readThemeFromStorage(): Theme {
   try {
-    const v = localStorage.getItem(STORAGE_KEY)
+    const v = localStorage.getItem(THEME_STORAGE_KEY)
     if (v === 'light' || v === 'dark') return v
   } catch {
     /* ignore */
@@ -16,6 +18,7 @@ function readStoredTheme(): Theme {
 
 function applyDocumentTheme(theme: Theme) {
   document.documentElement.setAttribute('data-theme', theme)
+  applyPortalThemeCssVars(theme)
 }
 
 type ThemeContextValue = {
@@ -27,12 +30,12 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => readStoredTheme())
+  const [theme, setThemeState] = useState<Theme>(() => readThemeFromStorage())
 
   useEffect(() => {
     applyDocumentTheme(theme)
     try {
-      localStorage.setItem(STORAGE_KEY, theme)
+      localStorage.setItem(THEME_STORAGE_KEY, theme)
     } catch {
       /* ignore */
     }

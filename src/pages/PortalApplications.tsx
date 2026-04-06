@@ -4,6 +4,7 @@ import { useApplications, type App } from '../contexts/ApplicationsContext'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { fetchApplications } from '../api/applications'
 import { hasApiBase } from '../api/client'
+import { appendSessionIdToLaunchUrl } from '../utils/appendSessionToUrl'
 
 /** URL segment → same labels used in Admin “Departments” checkboxes (DB role names). */
 const PORTAL_SEGMENT_TO_ROLE_LABEL: Record<string, string> = {
@@ -69,7 +70,8 @@ export default function PortalApplications() {
   const handleLaunch = (app: App) => {
     if (app.domain) {
       addEntry({ action: 'app_launched', actor: roleLabel, target: app.name, details: app.domain })
-      const url = app.domain.startsWith('http') ? app.domain : `https://${app.domain}`
+      const base = app.domain.startsWith('http') ? app.domain : `https://${app.domain}`
+      const url = appendSessionIdToLaunchUrl(base)
       window.open(url, '_blank', 'noopener,noreferrer')
     }
   }

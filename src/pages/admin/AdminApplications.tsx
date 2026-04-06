@@ -5,6 +5,7 @@ import { useApplications, type App } from '../../contexts/ApplicationsContext'
 import ConfirmDialog, { type ConfirmVariant } from '../../components/ConfirmDialog'
 import CustomSelect from '../../components/CustomSelect'
 import { createApplication, deleteApplication, fetchApplications, updateApplication } from '../../api/applications'
+import { appendSessionIdToLaunchUrl } from '../../utils/appendSessionToUrl'
 
 const MIN_PER_PAGE = 1
 const MAX_PER_PAGE = 500
@@ -71,7 +72,8 @@ export default function AdminApplications() {
   const handleLaunch = (app: App) => {
     if (app.domain) {
       addEntry({ action: 'app_launched', actor: 'Admin', target: app.name, details: app.domain })
-      const url = app.domain.startsWith('http') ? app.domain : `https://${app.domain}`
+      const base = app.domain.startsWith('http') ? app.domain : `https://${app.domain}`
+      const url = appendSessionIdToLaunchUrl(base)
       window.open(url, '_blank', 'noopener,noreferrer')
     }
   }

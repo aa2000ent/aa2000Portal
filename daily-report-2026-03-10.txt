@@ -1,0 +1,74 @@
+AA2000 Portal – Daily Accomplishment Report
+Name: Clarence Portugal
+Date: 2026-03-10
+
+1. Authentication & Roles
+- Fixed Roles API integration:
+  - Updated fetchRoles() to work with the external API endpoint (/roles/get/roles) with a safe fallback to /roles.
+  - Improved role parsing to support responses that only contain r_name (no role_ID), ensuring all backend roles appear correctly in the UI.
+- Add / Delete role modal updates:
+  - Ensured the Add / Delete role modal shows the full roles list (backend roles + any local additions).
+  - Wired the Add role action to call the backend (createRole) and automatically refresh the roles list afterward.
+  - Simplified the registration flow so Account role and Employee role are now a single selection, with Emp_role automatically mapped to the chosen role_ID for the API.
+
+2. Registration Page – Address & Location
+- Map‑driven address input:
+  - Added a Leaflet map with support for Use current location (browser geolocation), search by place/street/city using searchPlaces, and draggable pin/map click to position the employee location.
+  - Implemented reverseGeocode(lat, lon) to build a human‑readable address and auto‑populate the Address field on the Create account form, so the user doesn’t need to type it manually.
+  - Set Emp_AddressID to a fixed 0 on submit; the address that users see/edit is the textual address field.
+- Field cleanup:
+  - Removed the Employee ID no. input from the registration form and payload; employee ID generation is handled by the backend.
+
+3. Employees – Add / Edit User Location
+- Add user modal:
+  - Finalized integration of the address field bound to the map, including Use current location, search, and draggable pin to update address and coordinates.
+- Edit user modal:
+  - Brought the same Pin employee location (optional) experience into the Edit user flow (address synchronized with the map, Use current location, search, results list, and draggable pin with reverse geocode).
+  - Reset location/search state correctly when opening the Edit modal so each edit starts from a clean, predictable map state.
+
+4. Data Cleanup (Production‑Ready State)
+- Removed seeded/dummy data from the app:
+  - Initial hardcoded lists for employees, approvals, and applications.
+  - Pre‑seeded activity log entries with fake names and timestamps.
+  - Sample profile content (demo names/emails, “Member since Jan 2024”, fake login location strings).
+- Updated dashboard charts and metrics to:
+  - Use real counts where available.
+  - Show “No analytics data available.” when there is no backend analytics source, instead of fake charts or counts.
+
+5. UI Theme – AA2000 Color Palette
+- Defined brand color variables:
+  - aa-navy, aa-navy-light, aa-bg-light, aa-blue, aa-blue-dark, aa-cyan, aa-slate, aa-slate-dark, aa-white, plus derived border and shadow tokens.
+- Applied palette across the app:
+  - Mapped all existing dashboard theme variables (--dash-*) to the AA tokens.
+  - Updated sidebar active states, buttons, and badges to use aa-blue / aa-blue-dark.
+  - Re-themed charts (lines, bars, pie slices) to use combinations of aa-blue, aa-blue-dark, and aa-cyan.
+  - Reworked Login and Register screens so background gradients, glow blobs, buttons, links, and focus rings all use the AA colors.
+
+6. Layout & Scroll Behavior (Auth Pages)
+- Locked background scrolling on Login and Register:
+  - Wrapper uses fixed viewport height (h-screen, h-dvh) with a gradient background.
+  - Added logic to set html and body overflow: hidden and overscroll-behavior: none while on auth pages, with cleanup on unmount.
+  - Result: background no longer scrolls; only the auth card content scrolls when needed (especially on smaller screens for Register).
+
+7. Git & GitHub Integration
+- Project version control setup:
+  - Initialized Git in the aa2000_portal project.
+  - Updated .gitignore to ignore .env so sensitive configuration values are not committed.
+  - Created an initial commit (“Initial commit: AA2000 Portal”) containing all app source files and config, plus .env.example (but not .env).
+- Remote repository:
+  - Added GitHub remote: https://github.com/clarenceportugal/aa2000portal.git
+  - Renamed default branch to main.
+  - Pushed the initial commit to origin/main.
+
+8. Sidebar (Mobile View + Scroll Behavior)
+- Mobile sidebar alignment:
+  - Updated `SidebarLayout` positioning so the sidebar starts directly below the header using `top-[var(--dashboard-header-h)]`.
+  - Ensured mobile slide-in sidebar can scroll its nav area independently (nav scroll only).
+- Sidebar never scrolls with content (desktop):
+  - Forced desktop sidebar to be `position: fixed` with `overflow: hidden` so it stays static while content scrolls.
+- Content scroll only:
+  - Locked main scrolling to vertical only (`overflow-y: auto`, `overflow-x: hidden`) and kept the overall dashboard container from scrolling.
+- UI polish:
+  - Removed the active indicator dot/loop (`::after`) from sidebar active links.
+  - Adjusted sidebar/footer border to match the header/navy-blue palette.
+

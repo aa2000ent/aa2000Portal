@@ -67,11 +67,11 @@ export default function PortalApplications() {
     })
   }, [apps, location.pathname, search])
 
-  const handleLaunch = (app: App) => {
+  const handleLaunch = async (app: App) => {
     if (app.domain) {
       addEntry({ action: 'app_launched', actor: roleLabel, target: app.name, details: app.domain })
       const base = app.domain.startsWith('http') ? app.domain : `https://${app.domain}`
-      const url = appendSessionIdToLaunchUrl(base)
+      const url = await appendSessionIdToLaunchUrl(base)
       window.open(url, '_blank', 'noopener,noreferrer')
     }
   }
@@ -132,7 +132,7 @@ export default function PortalApplications() {
                         type="button"
                         className="app-card-launch"
                         title="Launch"
-                        onClick={() => handleLaunch(app)}
+                        onClick={() => { void handleLaunch(app) }}
                         disabled={!app.domain}
                       >
                         Launch

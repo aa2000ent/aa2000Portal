@@ -69,11 +69,11 @@ export default function AdminApplications() {
     setCurrentPage(1)
   }
 
-  const handleLaunch = (app: App) => {
+  const handleLaunch = async (app: App) => {
     if (app.domain) {
       addEntry({ action: 'app_launched', actor: 'Admin', target: app.name, details: app.domain })
       const base = app.domain.startsWith('http') ? app.domain : `https://${app.domain}`
-      const url = appendSessionIdToLaunchUrl(base)
+      const url = await appendSessionIdToLaunchUrl(base)
       window.open(url, '_blank', 'noopener,noreferrer')
     }
   }
@@ -310,7 +310,7 @@ export default function AdminApplications() {
                           type="button"
                           className="app-card-launch"
                           title="Launch"
-                          onClick={() => handleLaunch(app)}
+                          onClick={() => { void handleLaunch(app) }}
                           disabled={!app.domain}
                         >
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

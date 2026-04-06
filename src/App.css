@@ -990,11 +990,11 @@ html[data-theme="dark"] .auth-map-shell {
 
 /* Sidebar: hide when closed (burger menu) on desktop */
 @media (min-width: 769px) {
-  /* Ensure sidebar open/close (transform + width) animates smoothly. */
+  /* Match main column margin transition (Tailwind md:duration-300) so panel + content stay in sync. */
   .sidebar-panel {
-    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-      min-width 0.28s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-      padding 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+      min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+      padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     will-change: transform;
     backface-visibility: hidden;
   }
@@ -1087,7 +1087,7 @@ html[data-theme="dark"] .auth-map-shell {
     max-height: calc(100dvh - var(--dashboard-header-h));
     z-index: 1001;
     transform: translateX(-100%);
-    transition: transform 0.25s ease-out, box-shadow 0.25s ease-out;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;

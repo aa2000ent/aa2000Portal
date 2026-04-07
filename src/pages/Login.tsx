@@ -16,6 +16,20 @@ export default function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const toFriendlyLoginError = (err: unknown): string => {
+    const raw = err instanceof Error ? err.message : String(err ?? '')
+    const msg = raw.toLowerCase()
+    if (
+      msg.includes('active session') ||
+      msg.includes('already logged in') ||
+      msg.includes('already has an active session') ||
+      msg.includes('active_session_exists')
+    ) {
+      return 'This account is already logged in on another device. Logout there first before signing in here.'
+    }
+    return raw || 'Sign in failed'
+  }
+
   useEffect(() => {
     const home = getPortalHomeSegment()
     if (isPortalSessionActive() && home) {
@@ -58,7 +72,7 @@ export default function Login() {
       navigate(`/${route}`, { replace: true })
     } catch (err) {
       console.error('[Login] Sign in failed:', err)
-      setError(err instanceof Error ? err.message : 'Sign in failed')
+      setError(toFriendlyLoginError(err))
     } finally {
       setIsSubmitting(false)
     }

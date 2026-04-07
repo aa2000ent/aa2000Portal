@@ -9,6 +9,30 @@ const PORTAL_ACCOUNT_ID_KEY = 'portal_account_id'
 const PORTAL_USERNAME_KEY = 'portal_username'
 const PORTAL_HOME_SEGMENT_KEY = 'portal_home_segment'
 
+function readSessionValue(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeSessionValue(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    // ignore
+  }
+}
+
+function removeSessionValue(key: string): void {
+  try {
+    sessionStorage.removeItem(key)
+  } catch {
+    // ignore
+  }
+}
+
 function getToken(): string | null {
   try {
     return localStorage.getItem('portal_token')
@@ -28,105 +52,61 @@ export function isPortalSessionActive(): boolean {
 }
 
 export function getSessionId(): string | null {
-  try {
-    return localStorage.getItem(SESSION_ID_KEY)
-  } catch {
-    return null
-  }
+  return readSessionValue(SESSION_ID_KEY)
 }
 
 export function setSessionId(s_name: string): void {
-  try {
-    localStorage.setItem(SESSION_ID_KEY, s_name)
-  } catch {
-    // ignore
-  }
+  writeSessionValue(SESSION_ID_KEY, s_name)
 }
 
 export function clearSessionId(): void {
-  try {
-    localStorage.removeItem(SESSION_ID_KEY)
-  } catch {
-    // ignore
-  }
+  removeSessionValue(SESSION_ID_KEY)
 }
 
 /** Signed-in account id (acc_ID) from login response. */
 export function getPortalAccountId(): string | null {
-  try {
-    return localStorage.getItem(PORTAL_ACCOUNT_ID_KEY)
-  } catch {
-    return null
-  }
+  return readSessionValue(PORTAL_ACCOUNT_ID_KEY)
 }
 
 export function setPortalAccountId(accId: number | string): void {
   const value = String(accId ?? '').trim()
   if (!value) return
-  try {
-    localStorage.setItem(PORTAL_ACCOUNT_ID_KEY, value)
-  } catch {
-    // ignore
-  }
+  writeSessionValue(PORTAL_ACCOUNT_ID_KEY, value)
 }
 
 export function clearPortalAccountId(): void {
-  try {
-    localStorage.removeItem(PORTAL_ACCOUNT_ID_KEY)
-  } catch {
-    // ignore
-  }
+  removeSessionValue(PORTAL_ACCOUNT_ID_KEY)
 }
 
 /** Signed-in username (for `/security/logout` body). Set on successful login. */
 export function getPortalUsername(): string | null {
-  try {
-    return localStorage.getItem(PORTAL_USERNAME_KEY)
-  } catch {
-    return null
-  }
+  return readSessionValue(PORTAL_USERNAME_KEY)
 }
 
 export function setPortalUsername(username: string): void {
-  try {
-    localStorage.setItem(PORTAL_USERNAME_KEY, username.trim())
-  } catch {
-    // ignore
-  }
+  writeSessionValue(PORTAL_USERNAME_KEY, username.trim())
 }
 
 export function clearPortalUsername(): void {
-  try {
-    localStorage.removeItem(PORTAL_USERNAME_KEY)
-  } catch {
-    // ignore
-  }
+  removeSessionValue(PORTAL_USERNAME_KEY)
 }
 
 /** First URL segment after login (e.g. `general-manager`) — for reminders when browsing another area. */
 export function setPortalHomeSegment(segment: string): void {
   try {
     const s = segment.replace(/^\//, '').split('/')[0]?.trim()
-    if (s) localStorage.setItem(PORTAL_HOME_SEGMENT_KEY, s)
+    if (s) writeSessionValue(PORTAL_HOME_SEGMENT_KEY, s)
   } catch {
     // ignore
   }
 }
 
 export function getPortalHomeSegment(): string | null {
-  try {
-    return localStorage.getItem(PORTAL_HOME_SEGMENT_KEY)
-  } catch {
-    return null
-  }
+  return readSessionValue(PORTAL_HOME_SEGMENT_KEY)
 }
 
 export function clearPortalHomeSegment(): void {
-  try {
-    localStorage.removeItem(PORTAL_HOME_SEGMENT_KEY)
-  } catch {
-    // ignore
-  }
+  removeSessionValue(PORTAL_HOME_SEGMENT_KEY)
 }
 
 /** `portal.suppressFailureLog` — skip `console.error` on failed response (e.g. trying alternate paths). */

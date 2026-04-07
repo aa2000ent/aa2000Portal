@@ -1,14 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRoles } from '../../contexts/RolesContext'
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useApplications, type App } from '../../contexts/ApplicationsContext'
 import ConfirmDialog, { type ConfirmVariant } from '../../components/ConfirmDialog'
 import CustomSelect from '../../components/CustomSelect'
-import { createApplication, deleteApplication, fetchApplications, updateApplication } from '../../api/applications'
+import {
+  createApplication,
+  deleteApplication,
+  fetchApplications,
+  normalizeVisibleToLabels,
+  updateApplication,
+  visibleToIncludesDepartment,
+} from '../../api/applications'
 import { appendSessionIdToLaunchUrl } from '../../utils/appendSessionToUrl'
 
 const MIN_PER_PAGE = 1
 const MAX_PER_PAGE = 500
+const DEPT_TAGS_PREVIEW = 5
 
 const DEFAULT_NEW_APP = { name: '', description: '', domain: '', visibleTo: [] as string[] }
 
@@ -34,18 +42,33 @@ export default function AdminApplications() {
     onConfirm: () => void
   }>({ open: false, title: '', message: '', confirmLabel: '', variant: 'primary', onConfirm: () => {} })
 
+  /** Expanded “Departments” tag lists on app cards (see more). */
+  const [expandedDeptAppIds, setExpandedDeptAppIds] = useState<Set<number>>(new Set())
+
+  /** Filter options: one entry per role name, case-insensitive dedupe so "Admin" / "ADMIN" do not split matches. */
   const departments = useMemo(() => {
-    const set = new Set<string>()
-    apps.forEach((app) => app.visibleTo.forEach((d) => set.add(d)))
-    return Array.from(set).sort()
+    const byLower = new Map<string, string>()
+    apps.forEach((app) => {
+      normalizeVisibleToLabels(app.visibleTo ?? []).forEach((d) => {
+        const t = d.trim()
+        if (!t) return
+        const k = t.toLowerCase()
+        if (!byLower.has(k)) byLower.set(k, t)
+      })
+    })
+    return Array.from(byLower.values()).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   }, [apps])
+
+  const addSelectAllRef = useRef<HTMLInputElement>(null)
+  const editSelectAllRef = useRef<HTMLInputElement>(null)
 
   const filtered = apps.filter((app) => {
     const matchSearch =
       app.name.toLowerCase().includes(search.toLowerCase()) ||
       app.description.toLowerCase().includes(search.toLowerCase()) ||
       app.domain.toLowerCase().includes(search.toLowerCase())
-    const matchDepartment = !departmentFilter || app.visibleTo.includes(departmentFilter)
+    const matchDepartment =
+      !departmentFilter.trim() || visibleToIncludesDepartment(app.visibleTo, departmentFilter)
     return matchSearch && matchDepartment
   })
 
@@ -56,6 +79,24 @@ export default function AdminApplications() {
   useEffect(() => {
     setCurrentPage(1)
   }, [search, departmentFilter])
+
+  const allNewDeptsSelected = roles.length > 0 && roles.every((r) => newApp.visibleTo.includes(r))
+  const someNewDeptsSelected = newApp.visibleTo.length > 0 && !allNewDeptsSelected
+
+  useEffect(() => {
+    const el = addSelectAllRef.current
+    if (!el) return
+    el.indeterminate = someNewDeptsSelected
+  }, [someNewDeptsSelected, addAppOpen])
+
+  const allEditDeptsSelected = roles.length > 0 && roles.every((r) => editForm.visibleTo.includes(r))
+  const someEditDeptsSelected = editForm.visibleTo.length > 0 && !allEditDeptsSelected
+
+  useEffect(() => {
+    const el = editSelectAllRef.current
+    if (!el) return
+    el.indeterminate = someEditDeptsSelected
+  }, [someEditDeptsSelected, editAppOpen])
 
   const goToPage = (page: number) => {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)))
@@ -69,13 +110,14 @@ export default function AdminApplications() {
     setCurrentPage(1)
   }
 
-  const handleLaunch = async (app: App) => {
-    if (app.domain) {
+  const handleLaunch = (app: App) => {
+    if (!app.domain) return
+    void (async () => {
       addEntry({ action: 'app_launched', actor: 'Admin', target: app.name, details: app.domain })
       const base = app.domain.startsWith('http') ? app.domain : `https://${app.domain}`
       const url = await appendSessionIdToLaunchUrl(base)
       window.open(url, '_blank', 'noopener,noreferrer')
-    }
+    })()
   }
 
   const handleDeleteApp = (app: App) => {
@@ -119,7 +161,7 @@ export default function AdminApplications() {
       name: app.name,
       description: app.description || '',
       domain: app.domain || '',
-      visibleTo: [...(app.visibleTo || [])],
+      visibleTo: normalizeVisibleToLabels([...(app.visibleTo || [])]),
     })
     setEditAppOpen(true)
   }
@@ -142,7 +184,14 @@ export default function AdminApplications() {
         : `https://${domainRaw}`
       : ''
     const description = editForm.description.trim() || 'Version 1.0.0'
-    const visibleTo = editForm.visibleTo.length ? editForm.visibleTo : (roles.length ? [roles[0]] : [])
+    // When every department is selected, persist the canonical list from Roles (order + full set).
+    const visibleTo = allEditDeptsSelected
+      ? [...roles]
+      : editForm.visibleTo.length
+        ? normalizeVisibleToLabels(editForm.visibleTo)
+        : roles.length
+          ? [roles[0]]
+          : []
 
     const payload = {
       name,
@@ -181,7 +230,13 @@ export default function AdminApplications() {
     const version = '1.0.0'
     const description = newApp.description.trim()
 
-    const departments = newApp.visibleTo.length ? newApp.visibleTo : (roles.length ? roles : ['Admin'])
+    const departments = allNewDeptsSelected
+      ? [...roles]
+      : newApp.visibleTo.length
+        ? normalizeVisibleToLabels(newApp.visibleTo)
+        : roles.length
+          ? roles
+          : ['Admin']
 
     let created: App | null = null
     try {
@@ -295,16 +350,39 @@ export default function AdminApplications() {
                         </div>
                       </div>
                       {app.description ? <p className="app-card-desc">{app.description}</p> : null}
-                      {app.visibleTo.length > 0 ? (
-                        <div className="app-card-depts">
-                          <span className="app-card-depts-label">Departments:</span>
-                          <div className="app-card-depts-list">
-                            {app.visibleTo.map((d) => (
-                              <span key={d} className="app-card-dept-tag">{d}</span>
-                            ))}
+                      {(() => {
+                        const deptLabels = normalizeVisibleToLabels(app.visibleTo ?? [])
+                        if (deptLabels.length === 0) return null
+                        const expanded = expandedDeptAppIds.has(app.id)
+                        const shown = expanded ? deptLabels : deptLabels.slice(0, DEPT_TAGS_PREVIEW)
+                        const moreCount = Math.max(0, deptLabels.length - DEPT_TAGS_PREVIEW)
+                        return (
+                          <div className="app-card-depts">
+                            <span className="app-card-depts-label">Departments:</span>
+                            <div className="app-card-depts-list">
+                              {shown.map((d) => (
+                                <span key={d} className="app-card-dept-tag">{d}</span>
+                              ))}
+                              {moreCount > 0 ? (
+                                <button
+                                  type="button"
+                                  className="app-card-depts-more"
+                                  onClick={() => {
+                                    setExpandedDeptAppIds((prev) => {
+                                      const next = new Set(prev)
+                                      if (next.has(app.id)) next.delete(app.id)
+                                      else next.add(app.id)
+                                      return next
+                                    })
+                                  }}
+                                >
+                                  {expanded ? 'See less' : `See more (${moreCount})`}
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                      ) : null}
+                        )
+                      })()}
                       <div className="app-card-actions">
                         <button
                           type="button"
@@ -467,7 +545,23 @@ export default function AdminApplications() {
               </div>
               <div className="modal-field">
                 <span className="modal-label">Departments (who can see this app)</span>
-                <div className="modal-roles-list" style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div className="modal-roles-list modal-roles-list--with-select-all" style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {roles.length > 0 ? (
+                    <label className="modal-dept-select-all">
+                      <input
+                        ref={editSelectAllRef}
+                        type="checkbox"
+                        checked={allEditDeptsSelected}
+                        onChange={() => {
+                          setEditForm((prev) => ({
+                            ...prev,
+                            visibleTo: allEditDeptsSelected ? [] : [...roles],
+                          }))
+                        }}
+                      />
+                      <span>Select all</span>
+                    </label>
+                  ) : null}
                   {roles.map((dept) => (
                     <label key={dept} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                       <input
@@ -556,7 +650,23 @@ export default function AdminApplications() {
               </div>
               <div className="modal-field">
                 <span className="modal-label">Departments (who can see this app)</span>
-                <div className="modal-roles-list" style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div className="modal-roles-list modal-roles-list--with-select-all" style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {roles.length > 0 ? (
+                    <label className="modal-dept-select-all">
+                      <input
+                        ref={addSelectAllRef}
+                        type="checkbox"
+                        checked={allNewDeptsSelected}
+                        onChange={() => {
+                          setNewApp((prev) => ({
+                            ...prev,
+                            visibleTo: allNewDeptsSelected ? [] : [...roles],
+                          }))
+                        }}
+                      />
+                      <span>Select all</span>
+                    </label>
+                  ) : null}
                   {roles.map((dept) => (
                     <label key={dept} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                       <input

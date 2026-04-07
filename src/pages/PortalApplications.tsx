@@ -5,33 +5,10 @@ import { useActivityLog } from '../contexts/ActivityLogContext'
 import { fetchApplications } from '../api/applications'
 import { hasApiBase } from '../api/client'
 import { appendSessionIdToLaunchUrl } from '../utils/appendSessionToUrl'
-
-/** URL segment → same labels used in Admin “Departments” checkboxes (DB role names). */
-const PORTAL_SEGMENT_TO_ROLE_LABEL: Record<string, string> = {
-  marketing: 'Marketing',
-  finance: 'Finance',
-  engineering: 'Engineering',
-  'general-manager': 'General Manager',
-  admin: 'Admin',
-}
-
-function viewerRoleLabels(pathname: string): string[] {
-  const segment = pathname.replace(/^\//, '').split('/')[0] || ''
-  const mapped = PORTAL_SEGMENT_TO_ROLE_LABEL[segment]
-  if (mapped) return [mapped]
-  if (!segment) return []
-  const title = segment
-    .split('-')
-    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ''))
-    .join(' ')
-  return [title]
-}
+import { appVisibleToPortalPath, roleLabelsForPortalPath } from '../utils/departmentRouteMap'
 
 function appIsVisibleToViewer(app: App, pathname: string): boolean {
-  const vt = app.visibleTo ?? []
-  if (vt.length === 0) return false
-  const want = new Set(viewerRoleLabels(pathname).map((s) => s.trim().toLowerCase()))
-  return vt.some((r) => want.has(String(r).trim().toLowerCase()))
+  return appVisibleToPortalPath(app, pathname)
 }
 
 export default function PortalApplications() {
@@ -40,7 +17,7 @@ export default function PortalApplications() {
   const { addEntry } = useActivityLog()
   const [search, setSearch] = useState('')
 
-  const roleLabel = useMemo(() => viewerRoleLabels(location.pathname)[0] ?? 'Portal', [location.pathname])
+  const roleLabel = useMemo(() => roleLabelsForPortalPath(location.pathname)[0] ?? 'Portal', [location.pathname])
 
   useEffect(() => {
     if (!hasApiBase()) return
@@ -67,13 +44,14 @@ export default function PortalApplications() {
     })
   }, [apps, location.pathname, search])
 
-  const handleLaunch = async (app: App) => {
-    if (app.domain) {
+  const handleLaunch = (app: App) => {
+    if (!app.domain) return
+    void (async () => {
       addEntry({ action: 'app_launched', actor: roleLabel, target: app.name, details: app.domain })
       const base = app.domain.startsWith('http') ? app.domain : `https://${app.domain}`
       const url = await appendSessionIdToLaunchUrl(base)
       window.open(url, '_blank', 'noopener,noreferrer')
-    }
+    })()
   }
 
   return (

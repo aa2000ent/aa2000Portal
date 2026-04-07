@@ -635,6 +635,14 @@ body {
   background-size: cover;
 }
 
+html[data-theme="dark"] .aa-app-shell {
+  background-color: var(--aa-dark-canvas, #12151a);
+  background-image:
+    radial-gradient(1100px 640px at 16% -14%, color-mix(in srgb, var(--aa-blue) 22%, transparent) 0%, transparent 62%),
+    radial-gradient(960px 560px at 88% 112%, color-mix(in srgb, var(--aa-cyan) 18%, transparent) 0%, transparent 60%),
+    linear-gradient(180deg, color-mix(in srgb, var(--aa-dark-canvas, #12151a) 92%, #0a0d12 8%) 0%, var(--aa-dark-canvas, #12151a) 100%);
+}
+
 .aa-app-shell::before,
 .aa-app-shell::after {
   content: "";
@@ -653,6 +661,11 @@ body {
   opacity: 0.2;
 }
 
+html[data-theme="dark"] .aa-app-shell::before {
+  background: color-mix(in srgb, var(--aa-blue) 74%, var(--aa-blue-dark) 26%);
+  opacity: 0.16;
+}
+
 .aa-app-shell::after {
   width: min(40vw, 280px);
   height: min(40vw, 280px);
@@ -660,6 +673,11 @@ body {
   right: -5%;
   background: var(--aa-cyan);
   opacity: 0.15;
+}
+
+html[data-theme="dark"] .aa-app-shell::after {
+  background: color-mix(in srgb, var(--aa-cyan) 74%, var(--aa-blue) 26%);
+  opacity: 0.12;
 }
 
 /* ----- Login / Register: theme toggle + auth surfaces ----- */
@@ -720,16 +738,14 @@ html[data-theme="light"] .auth-card {
 }
 
 html[data-theme="dark"] .auth-card {
-  background: var(--aa-content-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--aa-dark-card, var(--aa-content-bg));
   border: 1px solid var(--aa-content-border);
   box-shadow: var(--aa-content-shadow);
 }
 
 html[data-theme="dark"] .login-card {
-  --login-card-bg: rgba(30, 41, 59, 0.96);
-  --login-input-bg: rgba(15, 23, 42, 0.55);
+  --login-card-bg: var(--aa-dark-card, #1c2128);
+  --login-input-bg: var(--aa-field-bg, #12151a);
 }
 
 .auth-text-primary {
@@ -777,19 +793,19 @@ html[data-theme="light"] .auth-input:focus {
 
 html[data-theme="dark"] .auth-input {
   color: var(--aa-content-text);
-  background: rgba(15, 23, 42, 0.55);
+  background: var(--aa-field-bg, #12151a);
   border: 1px solid var(--aa-content-border-strong);
 }
 
 html[data-theme="dark"] .auth-input:hover {
-  background: rgba(15, 23, 42, 0.68);
+  background: color-mix(in srgb, var(--aa-field-bg, #12151a) 88%, white 12%);
   border-color: var(--aa-content-border-strong);
 }
 
 html[data-theme="dark"] .auth-input:focus {
   outline: none;
   border-color: var(--aa-blue);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--aa-blue) 26%, transparent);
 }
 
 html[data-theme="light"] .auth-input::placeholder {
@@ -802,7 +818,7 @@ html[data-theme="dark"] .auth-input::placeholder {
 
 html[data-theme="dark"] .auth-checkbox-box {
   border-color: var(--aa-content-border-strong) !important;
-  background: rgba(15, 23, 42, 0.45) !important;
+  background: var(--aa-field-bg, #12151a) !important;
 }
 
 .auth-input--sm {
@@ -821,7 +837,7 @@ html[data-theme="dark"] .auth-password-toggle {
 
 html[data-theme="dark"] .auth-password-toggle:hover {
   color: var(--aa-cyan);
-  background: rgba(59, 130, 246, 0.12) !important;
+  background: color-mix(in srgb, var(--aa-blue) 20%, transparent) !important;
 }
 
 .auth-footer {
@@ -845,9 +861,9 @@ html[data-theme="light"] .auth-alert--error {
 }
 
 html[data-theme="dark"] .auth-alert--error {
-  background: rgba(127, 29, 29, 0.28);
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  color: #fecaca;
+  background: color-mix(in srgb, #ef4444 16%, var(--aa-dark-card, #1c2128));
+  border: 1px solid color-mix(in srgb, #ef4444 40%, transparent);
+  color: #ffd1d1;
 }
 
 html[data-theme="dark"] .auth-card .text-slate-600 {
@@ -3023,6 +3039,77 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   line-height: 1.4;
 }
 
+.profile-hero-meta--warn {
+  color: var(--dash-warning, #c2690a);
+  margin-top: 0.35rem;
+}
+
+/* Department-specific dashboard accents */
+.dashboard-page--marketing .dashboard-page-title {
+  text-shadow: 0 0 20px rgba(6, 182, 212, 0.22);
+}
+
+.dashboard-page--marketing .dashboard-stat-card {
+  border-top: 2px solid rgba(6, 182, 212, 0.4);
+}
+
+.dashboard-page--finance .dashboard-page-title {
+  text-shadow: 0 0 20px rgba(16, 185, 129, 0.22);
+}
+
+.dashboard-page--finance .dashboard-stat-card {
+  border-top: 2px solid rgba(16, 185, 129, 0.42);
+}
+
+.dashboard-page--finance .dashboard-graph-card {
+  box-shadow: 0 20px 35px -26px rgba(16, 185, 129, 0.5);
+}
+
+.dashboard-page--engineering .dashboard-page-title {
+  text-shadow: 0 0 20px rgba(139, 92, 246, 0.24);
+}
+
+.dashboard-page--engineering .dashboard-stat-card {
+  border-top: 2px solid rgba(139, 92, 246, 0.45);
+}
+
+.dashboard-page--engineering .dashboard-graph-card {
+  box-shadow: 0 20px 35px -26px rgba(139, 92, 246, 0.5);
+}
+
+.dashboard-page--gm .dashboard-page-title {
+  text-shadow: 0 0 22px rgba(245, 158, 11, 0.2);
+}
+
+.dashboard-page--gm .dashboard-stat-card {
+  border-top: 2px solid rgba(245, 158, 11, 0.45);
+}
+
+.dashboard-page--sale .dashboard-stat-card,
+.dashboard-page--purchasing .dashboard-stat-card,
+.dashboard-page--operations .dashboard-stat-card {
+  border-top: 2px solid rgba(14, 165, 233, 0.44);
+}
+
+.dashboard-page--customer .dashboard-stat-card,
+.dashboard-page--supplier .dashboard-stat-card {
+  border-top: 2px solid rgba(59, 130, 246, 0.44);
+}
+
+.dashboard-page--financial .dashboard-stat-card,
+.dashboard-page--accounting .dashboard-stat-card {
+  border-top: 2px solid rgba(34, 197, 94, 0.45);
+}
+
+.dashboard-page--technical .dashboard-stat-card {
+  border-top: 2px solid rgba(168, 85, 247, 0.45);
+}
+
+.dashboard-page--ceo .dashboard-stat-card,
+.dashboard-page--co-ceo .dashboard-stat-card {
+  border-top: 2px solid rgba(245, 158, 11, 0.5);
+}
+
 .profile-form {
   display: flex;
   flex-direction: column;
@@ -3680,6 +3767,46 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   color: #93c5fd;
   letter-spacing: 0.01em;
   border: 1px solid rgba(96, 165, 250, 0.35);
+}
+
+.app-card-depts-more {
+  align-self: center;
+  margin-left: 0.125rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--aa-cyan);
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--aa-cyan) 45%, transparent);
+  border-radius: 9999px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.app-card-depts-more:hover {
+  background: color-mix(in srgb, var(--aa-blue) 18%, transparent);
+  border-color: color-mix(in srgb, var(--aa-blue) 45%, transparent);
+  color: var(--aa-content-text);
+}
+
+.modal-roles-list--with-select-all .modal-dept-select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid var(--aa-content-border);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--aa-content-text);
+}
+
+.modal-dept-select-all input {
+  cursor: pointer;
 }
 
 .app-card-edit {

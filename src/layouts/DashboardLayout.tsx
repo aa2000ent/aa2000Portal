@@ -17,8 +17,18 @@ function DashboardMainWithScroll() {
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
   marketing: 'Marketing',
+  sale: 'Sale',
+  purchasing: 'Purchasing',
+  customer: 'Customer',
+  supplier: 'Supplier',
+  operations: 'Operations',
   finance: 'Finance',
+  financial: 'Financial',
+  accounting: 'Accounting',
   engineering: 'Engineering',
+  technical: 'Technical',
+  ceo: 'CEO',
+  'co-ceo': 'CO-CEO',
   'general-manager': 'General Manager',
 }
 

@@ -23,6 +23,16 @@ const AdminCustomers = lazy(() => import('./pages/admin/AdminCustomers'))
 const Marketing = lazy(() => import('./pages/Marketing'))
 const Finance = lazy(() => import('./pages/Finance'))
 const Engineering = lazy(() => import('./pages/Engineering'))
+const SaleDashboard = lazy(() => import('./pages/sale/Dashboard'))
+const PurchasingDashboard = lazy(() => import('./pages/purchasing/Dashboard'))
+const CustomerDashboard = lazy(() => import('./pages/customer/Dashboard'))
+const SupplierDashboard = lazy(() => import('./pages/supplier/Dashboard'))
+const OperationsDashboard = lazy(() => import('./pages/operations/Dashboard'))
+const FinancialDashboard = lazy(() => import('./pages/financial/Dashboard'))
+const AccountingDashboard = lazy(() => import('./pages/accounting/Dashboard'))
+const TechnicalDashboard = lazy(() => import('./pages/technical/Dashboard'))
+const CeoDashboard = lazy(() => import('./pages/ceo/Dashboard'))
+const CoCeoDashboard = lazy(() => import('./pages/co-ceo/Dashboard'))
 const PortalApplications = lazy(() => import('./pages/PortalApplications'))
 const PortalProfile = lazy(() => import('./pages/PortalProfile'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
@@ -64,14 +74,54 @@ function App() {
                     <Route path="marketing/applications" element={<PortalApplications />} />
                     <Route path="marketing/profile" element={<PortalProfile />} />
                     <Route path="marketing/chat" element={<ChatPage />} />
+                    <Route path="sale" element={<SaleDashboard />} />
+                    <Route path="sale/applications" element={<PortalApplications />} />
+                    <Route path="sale/profile" element={<PortalProfile />} />
+                    <Route path="sale/chat" element={<ChatPage />} />
+                    <Route path="purchasing" element={<PurchasingDashboard />} />
+                    <Route path="purchasing/applications" element={<PortalApplications />} />
+                    <Route path="purchasing/profile" element={<PortalProfile />} />
+                    <Route path="purchasing/chat" element={<ChatPage />} />
+                    <Route path="customer" element={<CustomerDashboard />} />
+                    <Route path="customer/applications" element={<PortalApplications />} />
+                    <Route path="customer/profile" element={<PortalProfile />} />
+                    <Route path="customer/chat" element={<ChatPage />} />
+                    <Route path="supplier" element={<SupplierDashboard />} />
+                    <Route path="supplier/applications" element={<PortalApplications />} />
+                    <Route path="supplier/profile" element={<PortalProfile />} />
+                    <Route path="supplier/chat" element={<ChatPage />} />
+                    <Route path="operations" element={<OperationsDashboard />} />
+                    <Route path="operations/applications" element={<PortalApplications />} />
+                    <Route path="operations/profile" element={<PortalProfile />} />
+                    <Route path="operations/chat" element={<ChatPage />} />
                     <Route path="finance" element={<Finance />} />
                     <Route path="finance/applications" element={<PortalApplications />} />
                     <Route path="finance/profile" element={<PortalProfile />} />
                     <Route path="finance/chat" element={<ChatPage />} />
+                    <Route path="financial" element={<FinancialDashboard />} />
+                    <Route path="financial/applications" element={<PortalApplications />} />
+                    <Route path="financial/profile" element={<PortalProfile />} />
+                    <Route path="financial/chat" element={<ChatPage />} />
+                    <Route path="accounting" element={<AccountingDashboard />} />
+                    <Route path="accounting/applications" element={<PortalApplications />} />
+                    <Route path="accounting/profile" element={<PortalProfile />} />
+                    <Route path="accounting/chat" element={<ChatPage />} />
                     <Route path="engineering" element={<Engineering />} />
                     <Route path="engineering/applications" element={<PortalApplications />} />
                     <Route path="engineering/profile" element={<PortalProfile />} />
                     <Route path="engineering/chat" element={<ChatPage />} />
+                    <Route path="technical" element={<TechnicalDashboard />} />
+                    <Route path="technical/applications" element={<PortalApplications />} />
+                    <Route path="technical/profile" element={<PortalProfile />} />
+                    <Route path="technical/chat" element={<ChatPage />} />
+                    <Route path="ceo" element={<CeoDashboard />} />
+                    <Route path="ceo/applications" element={<PortalApplications />} />
+                    <Route path="ceo/profile" element={<PortalProfile />} />
+                    <Route path="ceo/chat" element={<ChatPage />} />
+                    <Route path="co-ceo" element={<CoCeoDashboard />} />
+                    <Route path="co-ceo/applications" element={<PortalApplications />} />
+                    <Route path="co-ceo/profile" element={<PortalProfile />} />
+                    <Route path="co-ceo/chat" element={<ChatPage />} />
                   </Route>
                   <Route path="general-manager" element={<GeneralManagerLayout />}>
                     <Route index element={<GeneralManagerDashboard />} />

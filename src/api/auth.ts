@@ -1,4 +1,4 @@
-import { apiRequest, getSessionId, setPortalUsername, setSessionId } from './client'
+import { apiRequest, getSessionId, setPortalAccountId, setPortalUsername, setSessionId } from './client'
 import { getExecutiveTitleDefaultRoute, getLogoutCandidatePaths, getRoleIdRouteOverride } from './config'
 import { fetchRoleById, fetchRoles } from './roles'
 
@@ -22,7 +22,9 @@ export type LoginVerificationResponse = {
   message: string
   account: {
     acc_ID: number
-    username: string
+    /** Some Express APIs use `acc_username` instead of `username`. */
+    username?: string
+    acc_username?: string
     role_ID: number
     status: string
     acc_sessionID?: number
@@ -52,7 +54,9 @@ export async function loginVerification(
     body: JSON.stringify(body),
   })
   if (res.session?.s_name) setSessionId(res.session.s_name)
-  if (res.account?.username) setPortalUsername(res.account.username)
+  if (res.account?.acc_ID != null) setPortalAccountId(res.account.acc_ID)
+  const uname = String(res.account?.username ?? res.account?.acc_username ?? '').trim()
+  if (uname) setPortalUsername(uname)
   return res
 }
 
@@ -94,7 +98,23 @@ export async function logoutSecurity(username: string | null | undefined): Promi
   console.warn('[Portal] Logout API failed (continuing with local sign-out):', lastErr)
 }
 
-const PORTAL_ROUTE_KEYS = new Set(['admin', 'marketing', 'finance', 'engineering', 'general-manager'])
+const PORTAL_ROUTE_KEYS = new Set([
+  'admin',
+  'marketing',
+  'sale',
+  'purchasing',
+  'customer',
+  'supplier',
+  'operations',
+  'finance',
+  'financial',
+  'accounting',
+  'engineering',
+  'technical',
+  'ceo',
+  'co-ceo',
+  'general-manager',
+])
 
 function normalizeRouteSegment(seg: string): string {
   const s = seg.trim().toLowerCase().replace(/^\/+/, '').split('/')[0] ?? ''
@@ -108,6 +128,23 @@ export function roleNameToRoute(roleName: string): string {
   const n = (roleName || '').toLowerCase().trim()
   if (!n) return 'admin'
 
+  // Strict one-role -> one-screen routing (no shared department fallback).
+  if (/\bgeneral[\s_-]*manager\b|^gm$/i.test(n)) return 'general-manager'
+  if (/\bco[\s_-]*ceo\b|\bcoo\b|\bchief operating\b/i.test(n)) return 'co-ceo'
+  if (/\bceo\b|\bchief executive\b|\bmanaging director\b/i.test(n)) return 'ceo'
+  if (/\btechnical\b|\bit\b|\btechnician\b/i.test(n)) return 'technical'
+  if (/\bengineering\b|\bengineer\b|\bdeveloper\b|\bsoftware\b/i.test(n)) return 'engineering'
+  if (/\bfinancial\b/.test(n)) return 'financial'
+  if (/\baccounting\b|\baccountant\b/.test(n)) return 'accounting'
+  if (/\bfinance\b|\bbookkeep\b|\btreasury\b|\bcomptroller\b/.test(n)) return 'finance'
+  if (/\bsale[s]?\b/.test(n)) return 'sale'
+  if (/\bpurchasing\b/.test(n)) return 'purchasing'
+  if (/\bcustomer\b/.test(n)) return 'customer'
+  if (/\bsupplier\b/.test(n)) return 'supplier'
+  if (/\boperations?\b/.test(n)) return 'operations'
+  if (/\bmarketing\b|\bbrand\b|\bpromo\b/.test(n)) return 'marketing'
+  if (/(^|[^a-z])admin([^a-z]|$)|supervisor|super user|director|human resource|\bhr\b|owner|executive/i.test(n)) return 'admin'
+
   if (/(^|[^a-z])(market|sales|brand|promo)([^a-z]|$)/i.test(roleName)) return 'marketing'
   if (/(financ|treasury|bookkeep|accountant|comptroller)/i.test(n)) return 'finance'
   if (/(engineer|developer|technical|software|\bit\b|technician)/i.test(n)) return 'engineering'
@@ -118,17 +155,17 @@ export function roleNameToRoute(roleName: string): string {
   if (n.includes('engineer')) return 'engineering'
   if (n.includes('admin')) return 'admin'
 
-  // Dedicated GM portal (/general-manager)
-  if (/\bgeneral manager\b|^gm$/i.test(roleName.trim())) {
-    return 'general-manager'
-  }
-
-  // Other executive titles → configurable (default admin)
-  if (/\bmanaging director\b|\bchief executive\b|\bchief operating\b|\bceo\b|\bcoo\b|\bvp\b|\bvice president\b/i.test(roleName.trim())) {
+  // Other executive titles (fallback policy) → configurable (default admin)
+  if (/\bvp\b|\bvice president\b/i.test(roleName.trim())) {
     return getExecutiveTitleDefaultRoute()
   }
 
   return 'admin'
+}
+
+/** Login name as returned by API (`username` or `acc_username`). */
+export function accountDisplayUsername(account: LoginVerificationResponse['account']): string {
+  return String(account?.username ?? account?.acc_username ?? '').trim()
 }
 
 function roleLabelFromAccount(account: LoginVerificationResponse['account']): string | undefined {

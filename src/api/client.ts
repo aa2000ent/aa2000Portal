@@ -5,6 +5,7 @@ export function hasApiBase(): boolean {
 }
 
 const SESSION_ID_KEY = 'portal_session_id'
+const PORTAL_ACCOUNT_ID_KEY = 'portal_account_id'
 const PORTAL_USERNAME_KEY = 'portal_username'
 const PORTAL_HOME_SEGMENT_KEY = 'portal_home_segment'
 
@@ -45,6 +46,33 @@ export function setSessionId(s_name: string): void {
 export function clearSessionId(): void {
   try {
     localStorage.removeItem(SESSION_ID_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+/** Signed-in account id (acc_ID) from login response. */
+export function getPortalAccountId(): string | null {
+  try {
+    return localStorage.getItem(PORTAL_ACCOUNT_ID_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setPortalAccountId(accId: number | string): void {
+  const value = String(accId ?? '').trim()
+  if (!value) return
+  try {
+    localStorage.setItem(PORTAL_ACCOUNT_ID_KEY, value)
+  } catch {
+    // ignore
+  }
+}
+
+export function clearPortalAccountId(): void {
+  try {
+    localStorage.removeItem(PORTAL_ACCOUNT_ID_KEY)
   } catch {
     // ignore
   }

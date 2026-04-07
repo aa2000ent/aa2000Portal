@@ -108,7 +108,7 @@ export default function GeneralManagerDashboard() {
   ]
 
   return (
-    <div className="dashboard-page">
+    <div className="dashboard-page dashboard-page--gm">
       <header className="dashboard-page-header">
         <h1 className="dashboard-page-title">General Manager</h1>
         <p className="dashboard-page-subtitle">

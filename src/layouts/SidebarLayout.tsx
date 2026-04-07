@@ -6,6 +6,7 @@ import { useChat } from '../contexts/ChatContext'
 import { useSidebar } from '../contexts/SidebarContext'
 import {
   clearAuthToken,
+  clearPortalAccountId,
   clearPortalHomeSegment,
   clearPortalUsername,
   clearSessionId,
@@ -19,8 +20,18 @@ type NavItem = { to: string; label: string; end: boolean; icon?: string }
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
   marketing: 'Marketing',
+  sale: 'Sale',
+  purchasing: 'Purchasing',
+  customer: 'Customer',
+  supplier: 'Supplier',
+  operations: 'Operations',
   finance: 'Finance',
+  financial: 'Financial',
+  accounting: 'Accounting',
   engineering: 'Engineering',
+  technical: 'Technical',
+  ceo: 'CEO',
+  'co-ceo': 'CO-CEO',
   'general-manager': 'General Manager',
 }
 
@@ -128,6 +139,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
       await logoutSecurity(username)
       clearAuthToken()
       clearSessionId()
+      clearPortalAccountId()
       clearPortalUsername()
       clearPortalHomeSegment()
       const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'

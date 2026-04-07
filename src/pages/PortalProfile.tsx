@@ -1,13 +1,26 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useActivityLog } from '../contexts/ActivityLogContext'
+import { getPortalAccountId, getPortalUsername, getSessionId } from '../api/client'
+import { fetchSessionByToken } from '../api/session'
+import { mapSessionLookupToProfile } from '../utils/sessionProfileMap'
 import { getCurrentSession, type ActiveSession } from '../utils/sessionUtils'
 import ProfileThemeToggle from '../components/ProfileThemeToggle'
 
 const ROLE_LABELS: Record<string, string> = {
   marketing: 'Marketing',
+  sale: 'Sale',
+  purchasing: 'Purchasing',
+  customer: 'Customer',
+  supplier: 'Supplier',
+  operations: 'Operations',
   finance: 'Finance',
+  financial: 'Financial',
+  accounting: 'Accounting',
   engineering: 'Engineering',
+  technical: 'Technical',
+  ceo: 'CEO',
+  'co-ceo': 'CO-CEO',
   'general-manager': 'General Manager',
 }
 
@@ -32,6 +45,20 @@ export default function PortalProfile() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [saved, setSaved] = useState(false)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileLoadError, setProfileLoadError] = useState(false)
+  const [apiRoleName, setApiRoleName] = useState('')
+  const [creds, setCreds] = useState<{
+    username: string
+    accountId: string
+    status: string
+    sessionAt: string | null
+  }>(() => ({
+    username: getPortalUsername() ?? '—',
+    accountId: getPortalAccountId() ?? '—',
+    status: '—',
+    sessionAt: null,
+  }))
 
   const [twoFAEnabled, setTwoFAEnabled] = useState(false)
   const [notifEmail, setNotifEmail] = useState(true)
@@ -47,11 +74,47 @@ export default function PortalProfile() {
   const [showConfirmPw, setShowConfirmPw] = useState(false)
   const [sessions, setSessions] = useState<ActiveSession[]>([])
 
+  const displayRole = (apiRoleName || roleLabel).trim()
+  const heroName = name.trim() || creds.username || 'Profile'
+  const heroInitial = heroName.charAt(0).toUpperCase() || '?'
+
   useEffect(() => {
     let cancelled = false
     getCurrentSession().then((current) => {
       if (!cancelled) setSessions((prev) => [current, ...prev.filter((s) => !s.current)])
     })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const token = getSessionId()?.trim()
+    if (!token) {
+      setProfileLoadError(!getPortalUsername())
+      return
+    }
+    setProfileLoading(true)
+    setProfileLoadError(false)
+    void (async () => {
+      const data = await fetchSessionByToken(token)
+      if (cancelled) return
+      setProfileLoading(false)
+      if (!data) {
+        setProfileLoadError(true)
+        return
+      }
+      const p = mapSessionLookupToProfile(data)
+      setName(p.fullName !== '—' ? p.fullName : p.username !== '—' ? p.username : '')
+      setEmail(p.email !== '—' ? p.email : '')
+      setPhone(p.phone !== '—' ? p.phone : '')
+      setApiRoleName(p.roleName !== '—' ? p.roleName : '')
+      setCreds({
+        username: p.username,
+        accountId: p.accountId,
+        status: p.accountStatus,
+        sessionAt: p.sessionCreatedAt,
+      })
+    })()
     return () => { cancelled = true }
   }, [])
 
@@ -102,12 +165,47 @@ export default function PortalProfile() {
         <div className="profile-grid-left">
           <section className="profile-hero dashboard-card">
             <div className="profile-hero-avatar" aria-hidden>
-              <span className="profile-hero-initial">{name.charAt(0)}</span>
+              <span className="profile-hero-initial">{heroInitial}</span>
             </div>
             <div className="profile-hero-info">
-              <h2 className="profile-hero-name">{name}</h2>
-              <span className="profile-hero-role">{roleLabel}</span>
-              <p className="profile-hero-email">{email}</p>
+              <h2 className="profile-hero-name">{heroName}</h2>
+              <span className="profile-hero-role">{displayRole}</span>
+              <p className="profile-hero-email">{email || creds.username}</p>
+              {profileLoading && <p className="profile-hero-meta">Loading account…</p>}
+              {profileLoadError && !profileLoading && (
+                <p className="profile-hero-meta profile-hero-meta--warn">Could not load full profile from the server. Showing saved sign-in details only.</p>
+              )}
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2 className="dashboard-card-title">Your account</h2>
+            <p className="dashboard-card-desc">Credentials for the user currently signed in.</p>
+            <div className="profile-form profile-form--readonly">
+              <div className="profile-field">
+                <span className="modal-label">Username</span>
+                <div className="profile-readonly">{creds.username}</div>
+              </div>
+              <div className="profile-field">
+                <span className="modal-label">Account ID</span>
+                <div className="profile-readonly">{creds.accountId}</div>
+              </div>
+              <div className="profile-field">
+                <span className="modal-label">Role</span>
+                <div className="profile-readonly">{displayRole}</div>
+              </div>
+              <div className="profile-field">
+                <span className="modal-label">Account status</span>
+                <div className="profile-readonly">{creds.status}</div>
+              </div>
+              <div className="profile-field">
+                <span className="modal-label">Session started</span>
+                <div className="profile-readonly">
+                  {creds.sessionAt
+                    ? new Date(creds.sessionAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                    : '—'}
+                </div>
+              </div>
             </div>
           </section>
 
@@ -132,10 +230,6 @@ export default function PortalProfile() {
               <div className="profile-field">
                 <label htmlFor="portal-profile-phone" className="modal-label">Phone</label>
                 <input id="portal-profile-phone" type="tel" className="modal-input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+63 9XX XXX XXXX" />
-              </div>
-              <div className="profile-field">
-                <label className="modal-label">Role</label>
-                <div className="profile-readonly">{roleLabel}</div>
               </div>
               <div className="profile-actions">
                 <button type="button" className={`employees-btn employees-btn-primary profile-save-btn ${saved ? 'profile-save-btn--saved' : ''}`} onClick={handleSave}>

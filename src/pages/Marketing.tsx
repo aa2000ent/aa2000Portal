@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { useApplications } from '../contexts/ApplicationsContext'
+import { appVisibleToPortalPath } from '../utils/departmentRouteMap'
 
 export default function Marketing() {
   const { addEntry, entries } = useActivityLog()
@@ -17,8 +18,7 @@ export default function Marketing() {
   }, [location.pathname])
 
   const marketingApps = useMemo(() => {
-    const want = 'marketing'
-    return apps.filter((a) => (a.visibleTo ?? []).some((v) => String(v).trim().toLowerCase() === want))
+    return apps.filter((a) => appVisibleToPortalPath(a, '/marketing'))
   }, [apps])
 
   const recentEntries = useMemo(() => {
@@ -27,7 +27,7 @@ export default function Marketing() {
   }, [entries])
 
   return (
-    <div className="dashboard-page">
+    <div className="dashboard-page dashboard-page--marketing">
       <header className="dashboard-page-header">
         <h1 className="dashboard-page-title">Marketing</h1>
         <p className="dashboard-page-subtitle">Applications and recent actions</p>

@@ -219,6 +219,8 @@ function getEmployeePhotoUrl(row: Record<string, unknown>): string | undefined {
 
 function mapBackendEmployee(row: Record<string, unknown>, roleOptions?: RoleOption[]): Employee {
   const empId = Number(row.Emp_ID ?? row.emp_ID ?? row.id ?? 0)
+  const accIdRaw = row.acc_ID ?? row.accId ?? row.account_id
+  const accIdNum = Number(accIdRaw)
   const fname = (row.Emp_fname ?? row.emp_fname ?? '') as string
   const mname = (row.Emp_mname ?? row.emp_mname ?? '') as string
   const lname = (row.Emp_lname ?? row.emp_lname ?? '') as string
@@ -237,6 +239,7 @@ function mapBackendEmployee(row: Record<string, unknown>, roleOptions?: RoleOpti
   const addressFromJoin = getAddressLineFromEmployeeRow(row)
   return {
     id: empId,
+    accId: Number.isFinite(accIdNum) && accIdNum > 0 ? accIdNum : undefined,
     name,
     email: (row.Emp_email ?? row.emp_email ?? row.email ?? '') as string,
     role,
@@ -288,7 +291,7 @@ function normalizeRow(row: unknown, roleOptions?: RoleOption[]): Employee {
 }
 
 export async function fetchEmployees(roleOptions?: RoleOption[]): Promise<Employee[]> {
-  const paths = ['/employees/get/employees', '/employees']
+  const paths = ['/employees/get/employees', '/get/employees', '/employees']
   for (const path of paths) {
     try {
       const data = await apiRequest<unknown>(path)
@@ -452,6 +455,7 @@ function employeeToExpressPayload(
 
 export type EmployeeUpdateInput = Omit<EmployeeCreateInput, 'empAddressId'> & {
   id: number
+  accId?: number
   status?: 'Active' | 'Inactive'
   /** Current Emp_AddressID when editing without changing map */
   empAddressId?: number
@@ -472,6 +476,7 @@ function employeeUpdateToExpressPayload(
   if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
   if (input.contact) out.Emp_cnum = input.contact
   if (input.empImageBase64 !== undefined) out.Emp_imageBase64 = input.empImageBase64
+  if (input.accId != null && Number.isFinite(input.accId) && input.accId > 0) out.acc_ID = input.accId
   return out
 }
 
@@ -576,6 +581,7 @@ export async function updateEmployee(
   attachLocationFieldsToBody(payload, addressPayload)
   const paths = [
     `/employees/update/employee/${id}`,
+    `/update/employee/${id}`,
     `/employees/update/employees/${id}`,
     `/employee/update/employee/${id}`,
     `/employees/update/${id}`,
@@ -684,8 +690,12 @@ export async function createEmployee(
   if (hasApiBase()) {
     const primary = await tryCreateEmployeeAtPath('/employees/add/employee', payload, roleOptions)
     if (primary) return primary
+    const rootPrimary = await tryCreateEmployeeAtPath('/add/employee', payload, roleOptions)
+    if (rootPrimary) return rootPrimary
     const alt = await tryCreateEmployeeAtPath('/employees/add/employees', payload, roleOptions)
     if (alt) return alt
+    const rootAlt = await tryCreateEmployeeAtPath('/add/employees', payload, roleOptions)
+    if (rootAlt) return rootAlt
   }
 
   const localBody: Record<string, unknown> = {

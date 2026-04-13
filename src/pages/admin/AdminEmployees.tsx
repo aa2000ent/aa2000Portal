@@ -478,6 +478,7 @@ export default function AdminEmployees() {
       updated = await updateEmployee(
         {
           id: editingEmployee.id,
+          accId: editingEmployee.accId,
           fname: fname.trim(),
           mname: mname.trim() || undefined,
           lname: lname.trim(),

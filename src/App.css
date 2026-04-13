@@ -5937,6 +5937,32 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   min-width: 0;
 }
 
+.dashboard-graph-legend {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.dashboard-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--aa-content-border);
+  background: color-mix(in srgb, var(--aa-content-bg) 82%, transparent);
+  font-size: 0.73rem;
+  color: var(--aa-content-text-muted);
+}
+
+.dashboard-legend-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  display: inline-block;
+}
+
 /* General Manager dashboard */
 .dashboard-section-title {
   font-size: 1.0625rem;

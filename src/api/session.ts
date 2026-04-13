@@ -23,7 +23,32 @@ export type SessionLookupResponse = {
   employee: Record<string, unknown> | null
 }
 
-const SESSION_PATH_PREFIXES = ['/session', '/security/session', '/api/session']
+const DEFAULT_SESSION_PATH_PREFIXES = [
+  '/session',
+  '/security/session',
+  '/security/login/session',
+  '/api/session',
+  '/api/security/session',
+]
+
+let preferredSessionPrefix: string | null = null
+
+function normalizePrefix(v: string): string {
+  const s = String(v ?? '').trim()
+  if (!s) return ''
+  const withSlash = s.startsWith('/') ? s : `/${s}`
+  return withSlash.replace(/\/+$/, '')
+}
+
+function configuredSessionPrefixes(): string[] {
+  const raw = String(import.meta.env.VITE_SESSION_LOOKUP_PATHS ?? import.meta.env.VITE_SESSION_LOOKUP_PATH ?? '')
+  const fromEnv = raw
+    .split(',')
+    .map((x) => normalizePrefix(x))
+    .filter(Boolean)
+  const merged = [...fromEnv, ...DEFAULT_SESSION_PATH_PREFIXES.map(normalizePrefix)]
+  return [...new Set(merged)]
+}
 
 function encodeToken(sessionToken: string): string {
   return encodeURIComponent(sessionToken.trim())
@@ -37,12 +62,19 @@ export async function fetchSessionByToken(sessionToken: string): Promise<Session
   const t = String(sessionToken ?? '').trim()
   if (!t) return null
 
-  for (const prefix of SESSION_PATH_PREFIXES) {
+  const allPrefixes = configuredSessionPrefixes()
+  const prefixes = preferredSessionPrefix
+    ? [preferredSessionPrefix, ...allPrefixes.filter((p) => p !== preferredSessionPrefix)]
+    : allPrefixes
+
+  for (const prefix of prefixes) {
     try {
-      return await apiRequest<SessionLookupResponse>(`${prefix}/${encodeToken(t)}`, {
+      const data = await apiRequest<SessionLookupResponse>(`${prefix}/${encodeToken(t)}`, {
         method: 'GET',
         portal: { suppressFailureLog: true },
       })
+      preferredSessionPrefix = prefix
+      return data
     } catch {
       /* try next */
     }

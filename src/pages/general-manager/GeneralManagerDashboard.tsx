@@ -77,6 +77,7 @@ export default function GeneralManagerDashboard() {
     { name: 'Pending', value: pendingCount, color: 'var(--aa-blue)' },
     { name: 'Rejected', value: rejectedCount, color: 'var(--aa-blue-dark)' },
   ]
+  const hasApprovalData = statusData.some((s) => (s.value ?? 0) > 0)
 
   const rolesByPortal = useMemo(() => {
     const m: Record<string, number> = {
@@ -99,6 +100,7 @@ export default function GeneralManagerDashboard() {
       { name: 'GM / Exec', short: 'GM', value: m['general-manager'], fill: '#f59e0b' },
     ]
   }, [roleOptions])
+  const hasRoleDistribution = useMemo(() => rolesByPortal.some((r) => (r.value ?? 0) > 0), [rolesByPortal])
 
   const stats: Array<{ label: string; value: number | string; icon: string }> = [
     { label: 'Headcount', value: headcount, icon: 'users' },
@@ -162,39 +164,43 @@ export default function GeneralManagerDashboard() {
             <h2 className="dashboard-graph-title">Approvals pipeline</h2>
             <p className="dashboard-graph-desc">Signup and request decisions across the organization.</p>
             <div className="dashboard-graph-wrap">
-              <ResponsiveContainer width="100%" height={280} debounce={200}>
-                <PieChart margin={{ bottom: 24 }}>
-                  <Pie
-                    data={statusData}
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={52}
-                    outerRadius={86}
-                    paddingAngle={4}
-                    dataKey="value"
-                    nameKey="name"
-                    animationDuration={600}
-                    animationEasing="ease-out"
-                    cornerRadius={4}
-                  >
-                    {statusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} stroke={chart.dotStroke} strokeWidth={2} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ ...chart.tooltip, padding: '10px 14px' }} />
-                  <Legend
-                    layout="horizontal"
-                    align="center"
-                    verticalAlign="bottom"
-                    wrapperStyle={{ fontSize: 12, paddingTop: 16, marginBottom: 0, color: chart.legendColor }}
-                    iconType="circle"
-                    iconSize={8}
-                    formatter={(value: string) => (
-                      <span style={{ color: chart.legendColor, fontWeight: 500, marginLeft: 2 }}>{value}</span>
-                    )}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              {!hasApprovalData ? (
+                <div className="dashboard-graph-empty">No approval decisions yet.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={280} debounce={200}>
+                  <PieChart margin={{ bottom: 24 }}>
+                    <Pie
+                      data={statusData}
+                      cx="50%"
+                      cy="45%"
+                      innerRadius={52}
+                      outerRadius={86}
+                      paddingAngle={4}
+                      dataKey="value"
+                      nameKey="name"
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                      cornerRadius={4}
+                    >
+                      {statusData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} stroke={chart.dotStroke} strokeWidth={2} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ ...chart.tooltip, padding: '10px 14px' }} />
+                    <Legend
+                      layout="horizontal"
+                      align="center"
+                      verticalAlign="bottom"
+                      wrapperStyle={{ fontSize: 12, paddingTop: 16, marginBottom: 0, color: chart.legendColor }}
+                      iconType="circle"
+                      iconSize={8}
+                      formatter={(value: string) => (
+                        <span style={{ color: chart.legendColor, fontWeight: 500, marginLeft: 2 }}>{value}</span>
+                      )}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </section>
 
@@ -202,7 +208,7 @@ export default function GeneralManagerDashboard() {
             <h2 className="dashboard-graph-title">Roles by portal area</h2>
             <p className="dashboard-graph-desc">DB roles mapped to portal segments (same rules as login routing).</p>
             <div className="dashboard-graph-wrap">
-              {roleOptions.length === 0 && !rolesLoading ? (
+              {(roleOptions.length === 0 && !rolesLoading) || !hasRoleDistribution ? (
                 <div className="dashboard-graph-empty">No roles loaded yet. Check API / roles endpoint.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={280} debounce={200}>

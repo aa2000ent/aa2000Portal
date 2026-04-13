@@ -1,17 +1,59 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useChat, getConversationId } from '../contexts/ChatContext'
+import { useEmployees } from '../contexts/EmployeesContext'
+import { getPortalUsername } from '../api/client'
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
   marketing: 'Marketing',
   finance: 'Finance',
+  financial: 'Financial',
+  accounting: 'Accounting',
   engineering: 'Engineering',
+  technical: 'Technical',
+  sale: 'Sale',
+  purchasing: 'Purchasing',
+  customer: 'Customer',
+  supplier: 'Supplier',
+  operations: 'Operations',
+  ceo: 'CEO',
+  'co-ceo': 'CO-CEO',
   'general-manager': 'General Manager',
 }
 
 /** All org chat identities (stable order for member list). */
-const ALL_USERS = ['Admin', 'General Manager', 'Marketing', 'Finance', 'Engineering']
+const ALL_USERS = [
+  'Admin',
+  'General Manager',
+  'CEO',
+  'CO-CEO',
+  'Marketing',
+  'Sale',
+  'Purchasing',
+  'Customer',
+  'Supplier',
+  'Operations',
+  'Finance',
+  'Financial',
+  'Accounting',
+  'Engineering',
+  'Technical',
+]
+
+type ChatUser = {
+  id: string
+  label: string
+  search: string
+}
+
+function humanizeSegment(seg: string): string {
+  return seg
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
 
 function formatChatTime(iso: string) {
   const d = new Date(iso)
@@ -26,46 +68,99 @@ function getInitials(name: string) {
   return name.slice(0, 2).toUpperCase() || '?'
 }
 
-function formatPartyList(names: string[]): string {
-  if (names.length === 0) return 'other teams'
-  if (names.length === 1) return names[0]
-  if (names.length === 2) return `${names[0]} and ${names[1]}`
-  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
-}
-
 export default function ChatPage() {
   const location = useLocation()
   const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
-  const currentSender = ROLE_LABELS[path] ?? path.replace(/-/g, ' ')
+  const { employees } = useEmployees()
+  const signedUsername = String(getPortalUsername() ?? '').trim()
+  const roleLabel = ROLE_LABELS[path] ?? humanizeSegment(path)
+  const currentSender = signedUsername || roleLabel
+  const currentSenderId = signedUsername
+    ? `user:${signedUsername.toLowerCase()}`
+    : `role:${roleLabel.toLowerCase()}`
 
   const { getMessagesForConversation, getLastMessageForConversation, addMessage, getUnreadCount, markConversationRead } = useChat()
   const [inputValue, setInputValue] = useState('')
   const [searchUser, setSearchUser] = useState('')
   const [selectedUser, setSelectedUser] = useState<string | null>(null)
+  const [newChatOpen, setNewChatOpen] = useState(false)
+  const [newChatQuery, setNewChatQuery] = useState('')
   const [tab, setTab] = useState<'all' | 'unread'>('all')
   const [detailsOpen, setDetailsOpen] = useState<string | null>('info')
   const listRef = useRef<HTMLDivElement>(null)
+  const newChatRef = useRef<HTMLDivElement>(null)
 
-  const otherUsers = useMemo(() => ALL_USERS.filter((u) => u !== currentSender), [currentSender])
+  const allChatUsers = useMemo<ChatUser[]>(() => {
+    const fromEmployees = employees
+      .map((e) => {
+        const name = String(e.name ?? '').trim()
+        const email = String(e.email ?? '').trim()
+        const label = name || email
+        if (!label) return null
+        const id = email ? `emp:${email.toLowerCase()}` : `emp-id:${e.id}`
+        const search = `${label} ${email} ${e.role}`.toLowerCase()
+        return { id, label, search }
+      })
+      .filter((u): u is ChatUser => Boolean(u))
+
+    if (fromEmployees.length > 0) {
+      const dedup = new Map<string, ChatUser>()
+      for (const u of fromEmployees) {
+        if (!dedup.has(u.id)) dedup.set(u.id, u)
+      }
+      return Array.from(dedup.values())
+    }
+
+    return ALL_USERS.map((label) => ({
+      id: `role:${label.toLowerCase()}`,
+      label,
+      search: label.toLowerCase(),
+    }))
+  }, [employees])
+
+  const otherUsers = useMemo(
+    () => allChatUsers.filter((u) => u.id !== currentSenderId && u.label.toLowerCase() !== currentSender.toLowerCase()),
+    [allChatUsers, currentSenderId, currentSender],
+  )
+
+  const usersWithMessages = useMemo(
+    () =>
+      otherUsers.filter((user) => {
+        const cid = getConversationId(currentSenderId, user.id)
+        return Boolean(getLastMessageForConversation(cid))
+      }),
+    [otherUsers, currentSenderId, getLastMessageForConversation],
+  )
 
   const usersWithUnread = useMemo(
-    () => otherUsers.filter((user) => getUnreadCount(getConversationId(currentSender, user), currentSender) > 0),
-    [otherUsers, currentSender, getUnreadCount]
+    () =>
+      usersWithMessages.filter((user) => getUnreadCount(getConversationId(currentSenderId, user.id), currentSender) > 0),
+    [usersWithMessages, currentSenderId, currentSender, getUnreadCount]
   )
 
   const totalUnread = useMemo(
-    () => usersWithUnread.reduce((sum, user) => sum + getUnreadCount(getConversationId(currentSender, user), currentSender), 0),
-    [usersWithUnread, currentSender, getUnreadCount]
+    () => usersWithUnread.reduce((sum, user) => sum + getUnreadCount(getConversationId(currentSenderId, user.id), currentSender), 0),
+    [usersWithUnread, currentSenderId, currentSender, getUnreadCount]
   )
 
   const filteredUsers = useMemo(() => {
-    const base = tab === 'unread' ? usersWithUnread : otherUsers
+    const base = tab === 'unread' ? usersWithUnread : usersWithMessages
     const q = searchUser.trim().toLowerCase()
     if (!q) return base
-    return base.filter((name) => name.toLowerCase().includes(q))
-  }, [tab, usersWithUnread, otherUsers, searchUser])
+    return base.filter((user) => user.search.includes(q))
+  }, [tab, usersWithUnread, usersWithMessages, searchUser])
 
-  const conversationId = selectedUser ? getConversationId(currentSender, selectedUser) : null
+  const newChatUsers = useMemo(() => {
+    const q = newChatQuery.trim().toLowerCase()
+    if (!q) return otherUsers
+    return otherUsers.filter((user) => user.search.includes(q))
+  }, [otherUsers, newChatQuery])
+
+  const selectedUserObj = useMemo(
+    () => otherUsers.find((u) => u.id === selectedUser) ?? null,
+    [otherUsers, selectedUser],
+  )
+  const conversationId = selectedUser ? getConversationId(currentSenderId, selectedUser) : null
   const messages = useMemo(
     () => (conversationId ? getMessagesForConversation(conversationId) : []),
     [conversationId, getMessagesForConversation]
@@ -79,6 +174,26 @@ export default function ChatPage() {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
   }, [messages])
 
+  useEffect(() => {
+    if (!newChatOpen) return
+    const onDown = (ev: MouseEvent) => {
+      const target = ev.target
+      if (!(target instanceof Node)) return
+      if (newChatRef.current && !newChatRef.current.contains(target)) {
+        setNewChatOpen(false)
+      }
+    }
+    const onEsc = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') setNewChatOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onEsc)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onEsc)
+    }
+  }, [newChatOpen])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const text = inputValue.trim()
@@ -87,8 +202,8 @@ export default function ChatPage() {
     setInputValue('')
   }
 
-  const lastMessagePreview = (otherName: string) => {
-    const cid = getConversationId(currentSender, otherName)
+  const lastMessagePreview = (otherUserId: string) => {
+    const cid = getConversationId(currentSenderId, otherUserId)
     const last = getLastMessageForConversation(cid)
     if (!last) return 'No messages yet'
     const prefix = last.sender === currentSender ? 'You: ' : ''
@@ -96,18 +211,86 @@ export default function ChatPage() {
     return prefix + t
   }
 
+  const otherUserLabels = useMemo(() => otherUsers.map((u) => u.label), [otherUsers])
+
   return (
     <div className={`messenger ${selectedUser ? 'messenger-mobile-thread' : ''}`}>
       <aside className="messenger-list" aria-hidden={!!selectedUser}>
         <div className="messenger-list-header">
           <h2 className="messenger-list-title">Chats</h2>
-          <div className="messenger-list-actions">
-            <button type="button" className="messenger-icon-btn" aria-label="New chat">
+          <div className="messenger-list-actions" ref={newChatRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="messenger-icon-btn"
+              aria-label="New chat"
+              aria-expanded={newChatOpen}
+              onClick={() => {
+                setNewChatOpen((v) => !v)
+                setNewChatQuery('')
+              }}
+            >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
             </button>
             <button type="button" className="messenger-icon-btn" aria-label="Chat options">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="1.5" /><circle cx="6" cy="12" r="1.5" /><circle cx="18" cy="12" r="1.5" /></svg>
             </button>
+            {newChatOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 8px)',
+                  right: 0,
+                  width: 280,
+                  maxWidth: 'min(88vw, 280px)',
+                  background: 'var(--aa-content-bg)',
+                  border: '1px solid var(--aa-content-border)',
+                  borderRadius: 10,
+                  boxShadow: '0 12px 28px rgba(0,0,0,0.28)',
+                  zIndex: 20,
+                  padding: '0.625rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <svg className="messenger-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="m21 21-4.35-4.35" />
+                  </svg>
+                  <input
+                    type="search"
+                    className="messenger-search"
+                    placeholder="Search all users"
+                    value={newChatQuery}
+                    onChange={(e) => setNewChatQuery(e.target.value)}
+                    aria-label="Search all users"
+                    autoFocus
+                  />
+                </div>
+                <div className="messenger-conversations" style={{ maxHeight: 240 }}>
+                  {newChatUsers.length === 0 ? (
+                    <p className="messenger-conv-empty">No users found.</p>
+                  ) : (
+                    newChatUsers.map((user) => (
+                      <button
+                        key={`new-${user.id}`}
+                        type="button"
+                        className="messenger-conv-item"
+                        onClick={() => {
+                          setSelectedUser(user.id)
+                          setNewChatOpen(false)
+                          setNewChatQuery('')
+                        }}
+                      >
+                        <span className="messenger-conv-avatar" aria-hidden>{getInitials(user.label)}</span>
+                        <div className="messenger-conv-body">
+                          <span className="messenger-conv-name">{user.label}</span>
+                          <span className="messenger-conv-preview">Start conversation</span>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <div className="messenger-search-wrap">
@@ -137,26 +320,30 @@ export default function ChatPage() {
         <div className="messenger-conversations">
           {filteredUsers.length === 0 ? (
             <p className="messenger-conv-empty">
-              {tab === 'unread' ? 'No unread messages.' : 'No users match your search.'}
+              {tab === 'unread'
+                ? 'No unread messages.'
+                : searchUser.trim()
+                  ? 'No chats match your search.'
+                  : 'No chats yet. Click + to start a new chat.'}
             </p>
           ) : (
             filteredUsers.map((user) => {
-              const cid = getConversationId(currentSender, user)
+              const cid = getConversationId(currentSenderId, user.id)
               const last = getLastMessageForConversation(cid)
-              const isActive = selectedUser === user
+              const isActive = selectedUser === user.id
               const unread = getUnreadCount(cid, currentSender)
               return (
                 <button
-                  key={user}
+                  key={user.id}
                   type="button"
                   className={`messenger-conv-item ${isActive ? 'active' : ''} ${unread > 0 ? 'has-unread' : ''}`}
-                  onClick={() => setSelectedUser(user)}
+                  onClick={() => setSelectedUser(user.id)}
                   aria-current={isActive ? 'true' : undefined}
                 >
-                  <span className="messenger-conv-avatar" aria-hidden>{getInitials(user)}</span>
+                  <span className="messenger-conv-avatar" aria-hidden>{getInitials(user.label)}</span>
                   <div className="messenger-conv-body">
-                    <span className="messenger-conv-name">{user}</span>
-                    <span className="messenger-conv-preview">{lastMessagePreview(user)}</span>
+                    <span className="messenger-conv-name">{user.label}</span>
+                    <span className="messenger-conv-preview">{lastMessagePreview(user.id)}</span>
                   </div>
                   {unread > 0 && (
                     <span className="messenger-conv-unread" aria-label={`${unread} unread`}>
@@ -180,8 +367,8 @@ export default function ChatPage() {
               <button type="button" className="messenger-thread-back" onClick={() => setSelectedUser(null)} aria-label="Back to chats">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
               </button>
-              <span className="messenger-thread-avatar" aria-hidden>{getInitials(selectedUser)}</span>
-              <span className="messenger-thread-name">{selectedUser}</span>
+              <span className="messenger-thread-avatar" aria-hidden>{getInitials(selectedUserObj?.label ?? '')}</span>
+              <span className="messenger-thread-name">{selectedUserObj?.label ?? 'Unknown user'}</span>
               <div className="messenger-thread-actions">
                 <button type="button" className="messenger-icon-btn" aria-label="Video call">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
@@ -272,12 +459,12 @@ export default function ChatPage() {
           <div className="messenger-details-panel">
             <p className="messenger-details-panel-title">Members</p>
             <ul className="messenger-details-members">
-              {ALL_USERS.map((role) => (
-                <li key={role} className="messenger-details-member">
-                  <span className="messenger-conv-avatar">{getInitials(role)}</span>
+              {[currentSender, ...otherUserLabels].map((user) => (
+                <li key={user} className="messenger-details-member">
+                  <span className="messenger-conv-avatar">{getInitials(user)}</span>
                   <span>
-                    {role}
-                    {role === currentSender ? ' (you)' : ''}
+                    {user}
+                    {user === currentSender ? ' (you)' : ''}
                   </span>
                 </li>
               ))}
@@ -288,8 +475,8 @@ export default function ChatPage() {
           <div className="messenger-details-panel">
             <p className="messenger-details-panel-title">Chat info</p>
             <p className="messenger-details-panel-text">
-              You are signed in as <strong>{currentSender}</strong> (from the URL path: <code className="messenger-path-code">/{path}</code>). You can
-              message {formatPartyList(otherUsers)}. Use the list on the left to open a thread.
+              You are signed in as <strong>{currentSender}</strong> (from the URL path: <code className="messenger-path-code">/{path}</code>). Existing
+              conversations appear on the left. Click <strong>+</strong> to search all users and start a new chat.
             </p>
           </div>
         )}

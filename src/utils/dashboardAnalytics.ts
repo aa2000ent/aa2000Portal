@@ -8,7 +8,7 @@ const AUDIENCE_SLICE_COLORS: Record<string, string> = {
   Finance: '#10b981',
   Engineering: '#8b5cf6',
   'General Manager': '#f59e0b',
-  'Multiple roles': '#64748b',
+  'Multiple roles': '#2563eb',
   'No audience set': '#94a3b8',
 }
 

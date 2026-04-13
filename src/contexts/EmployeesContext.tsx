@@ -5,6 +5,8 @@ import { useRoles } from './RolesContext'
 
 export type Employee = {
   id: number
+  /** Linked Account PK (employees.acc_ID) for backend update compatibility. */
+  accId?: number
   name: string
   email: string
   role: string

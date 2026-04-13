@@ -291,7 +291,7 @@ function normalizeRow(row: unknown, roleOptions?: RoleOption[]): Employee {
 }
 
 export async function fetchEmployees(roleOptions?: RoleOption[]): Promise<Employee[]> {
-  const paths = ['/employees/get/employees', '/get/employees', '/employees']
+  const paths = ['/employees/get/employees', '/employees/get/employees', '/employees']
   for (const path of paths) {
     try {
       const data = await apiRequest<unknown>(path)

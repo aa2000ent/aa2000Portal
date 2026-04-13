@@ -14,10 +14,32 @@ function parseBaseUrls(rawList: unknown): string[] {
   return Array.from(new Set(parts))
 }
 
+/** True when the API is not loopback — cross-origin fetches need CORS (or a dev proxy). */
+function isRemoteApiHost(base: string): boolean {
+  if (!base) return false
+  try {
+    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(base) ? base : `https://${base}`
+    const host = new URL(withScheme).hostname.toLowerCase()
+    return host !== 'localhost' && host !== '127.0.0.1' && host !== '[::1]'
+  } catch {
+    return false
+  }
+}
+
 function getConfiguredBaseUrls(): string[] {
   const multi = parseBaseUrls(import.meta.env.VITE_API_BASE_URLS)
   if (multi.length > 0) return multi
   const single = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL)
+  const devProxyDisabled = import.meta.env.VITE_USE_DEV_PROXY === 'false'
+  if (
+    import.meta.env.DEV &&
+    !devProxyDisabled &&
+    single &&
+    isRemoteApiHost(single) &&
+    typeof window !== 'undefined'
+  ) {
+    return [`${window.location.origin}/__portal_api`]
+  }
   return single ? [single] : []
 }
 
@@ -53,24 +75,36 @@ export function getBaseUrl(): string {
 
 /** True when the API is not on this machine's loopback — use Express-style paths (/application/..., /roles/get/roles). */
 function isRemoteApiBaseUrl(base: string): boolean {
-  const normalized = normalizeBaseUrl(base)
-  if (!normalized) return false
-  try {
-    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(normalized) ? normalized : `https://${normalized}`
-    const host = new URL(withScheme).hostname.toLowerCase()
-    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return false
-    return true
-  } catch {
-    return false
-  }
+  return isRemoteApiHost(normalizeBaseUrl(base))
 }
 
+/**
+ * True when API routes should match the remote Express-style paths (`/roles/get/roles`, `/application/...`).
+ * In dev, the browser uses `localhost/.../__portal_api` as the fetch base, so we also check
+ * `VITE_API_BASE_URL`: if it points at a remote host, we are proxying to that API and must use the same paths.
+ */
 export function isConfiguredForExternalApi(): boolean {
   const bases = getConfiguredBaseUrls()
   const legacyHints = ['devtunnels', 'ngrok', 'localtunnel', 'ts.net', 'trycloudflare']
-  return bases.some(
-    (u) => isRemoteApiBaseUrl(u) || legacyHints.some((hint) => u.toLowerCase().includes(hint))
-  )
+  if (
+    bases.some(
+      (u) => isRemoteApiBaseUrl(u) || legacyHints.some((hint) => u.toLowerCase().includes(hint))
+    )
+  ) {
+    return true
+  }
+  const single = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL)
+  const devProxyDisabled = import.meta.env.VITE_USE_DEV_PROXY === 'false'
+  if (
+    import.meta.env.DEV &&
+    !devProxyDisabled &&
+    single &&
+    isRemoteApiHost(single) &&
+    typeof window !== 'undefined'
+  ) {
+    return true
+  }
+  return false
 }
 
 export function getApiBaseUrlForDisplay(): string {

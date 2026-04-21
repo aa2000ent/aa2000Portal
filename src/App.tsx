@@ -10,10 +10,10 @@ import { ChatProvider } from './contexts/ChatContext'
 
 const Login = lazy(() => import('./pages/Login'))
 const Register = lazy(() => import('./pages/Register'))
-const DashboardLayout = lazy(() => import('./layouts/DashboardLayout'))
-const AdminLayout = lazy(() => import('./layouts/AdminLayout'))
-const PortalLayout = lazy(() => import('./layouts/PortalLayout'))
-const GeneralManagerLayout = lazy(() => import('./layouts/GeneralManagerLayout'))
+import DashboardLayout from './layouts/DashboardLayout'
+import AdminLayout from './layouts/AdminLayout'
+import PortalLayout from './layouts/PortalLayout'
+import GeneralManagerLayout from './layouts/GeneralManagerLayout'
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'))
 const AdminEmployees = lazy(() => import('./pages/admin/AdminEmployees'))
 const AdminProfile = lazy(() => import('./pages/admin/AdminProfile'))

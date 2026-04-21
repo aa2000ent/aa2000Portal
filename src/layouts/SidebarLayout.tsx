@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import ErrorBoundary from '../components/ErrorBoundary'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -329,7 +329,16 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
         style={!isMobile ? { marginLeft: isSidebarOpen ? (showCollapsed ? 76 : 240) : 0 } : undefined}
       >
         <ErrorBoundary>
-          <Outlet />
+          <Suspense
+            fallback={
+              <div className="flex min-h-[400px] flex-col items-center justify-center animate-in fade-in duration-500">
+                <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-[var(--aa-blue)]" />
+                <span className="mt-4 text-xs font-medium text-slate-400">Loading content...</span>
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </ErrorBoundary>
       </div>
     </div>

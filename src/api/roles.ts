@@ -6,9 +6,6 @@ export type RoleOption = {
   role_name: string
 }
 
-function is404Error(err: unknown): boolean {
-  return err instanceof Error && err.message.includes('404')
-}
 
 function normalizeRole(row: Record<string, unknown>): RoleOption {
   const id = Number(row.role_ID ?? row.id ?? row.role_id ?? 0)

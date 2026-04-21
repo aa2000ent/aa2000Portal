@@ -61,8 +61,23 @@ function getConfiguredBaseUrls(): string[] {
     const devProxyDisabled = import.meta.env.VITE_USE_DEV_PROXY === 'false'
     
     if (!devProxyDisabled && (rawSingle || rawMulti)) {
+      if (typeof window !== 'undefined') {
+        const w = window as any
+        if (!w.__portalApiProxyLogged) {
+          console.info('[Portal API] Using Vite dev proxy (/__portal_api) for API calls.')
+          w.__portalApiProxyLogged = true
+        }
+      }
       // Use the Vite proxy path — all requests go through localhost
       return ['/__portal_api']
+    }
+
+    if (devProxyDisabled && typeof window !== 'undefined') {
+      const w = window as any
+      if (!w.__portalApiProxyLogged) {
+        console.warn('[Portal API] Dev proxy is DISABLED via VITE_USE_DEV_PROXY=false. Direct API calls may fail due to CORS.')
+        w.__portalApiProxyLogged = true
+      }
     }
   }
 

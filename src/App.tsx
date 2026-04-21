@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './App.css'
+import ErrorBoundary from './components/ErrorBoundary'
 import RequirePortalAccess from './components/RequirePortalAccess'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ActivityLogProvider } from './contexts/ActivityLogContext'
@@ -38,10 +39,33 @@ const PortalProfile = lazy(() => import('./pages/PortalProfile'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
 const GeneralManagerDashboard = lazy(() => import('./pages/general-manager/GeneralManagerDashboard'))
 
+function RootErrorFallback() {
+  return (
+    <div className="flex h-screen h-dvh w-full flex-col items-center justify-center bg-[var(--aa-navy)] p-6 text-center text-white" style={{ background: 'var(--aa-app-bg-gradient)' }}>
+      <div className="mb-6 rounded-full bg-white/10 p-4">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+      </div>
+      <h2 className="mb-2 text-xl font-bold">Something went wrong</h2>
+      <p className="mb-8 text-slate-300 max-w-md mx-auto">The application encountered an unexpected error. This might be due to a network issue or a temporary glitch.</p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="rounded-lg bg-[var(--aa-blue)] px-8 py-3 font-semibold text-white shadow-lg transition-all hover:bg-[var(--aa-blue-dark)] hover:scale-105 active:scale-95"
+      >
+        Reload Page
+      </button>
+    </div>
+  )
+}
+
 function PageLoader() {
   return (
-    <div className="flex min-h-[200px] items-center justify-center" aria-label="Loading">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--aa-slate)] border-t-[var(--aa-blue)]" />
+    <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[var(--aa-navy)]" style={{ background: 'var(--aa-app-bg-gradient)' }} aria-label="Loading">
+      <div className="relative mb-4">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-white/20 border-t-[var(--aa-blue)]" />
+        <div className="absolute inset-0 h-12 w-12 animate-ping rounded-full border-4 border-[var(--aa-blue)] opacity-20" />
+      </div>
+      <span className="text-sm font-medium text-white/80 animate-pulse">Loading Portal...</span>
     </div>
   )
 }
@@ -53,6 +77,7 @@ function App() {
       <ApplicationsProvider>
         <ChatProvider>
           <BrowserRouter>
+            <ErrorBoundary fallback={<RootErrorFallback />}>
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path="/" element={<Login />} />
@@ -135,6 +160,7 @@ function App() {
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
+            </ErrorBoundary>
           </BrowserRouter>
         </ChatProvider>
       </ApplicationsProvider>

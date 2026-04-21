@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useMemo, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import { fetchEmployees } from '../api/employees'
 import { hasApiBase } from '../api/client'
 import { useRoles } from './RolesContext'
@@ -31,16 +31,20 @@ const EmployeesContext = createContext<EmployeesContextValue | null>(null)
 
 export function EmployeesProvider({ children }: { children: ReactNode }) {
   const [employees, setEmployees] = useState<Employee[]>([])
-  const { roleOptions } = useRoles()
+  const { roleOptions, loading: rolesLoading } = useRoles()
+  const roleOptionsRef = useRef(roleOptions)
+  roleOptionsRef.current = roleOptions
+  const hasFetched = useRef(false)
 
   useEffect(() => {
-    if (!hasApiBase()) return
-    fetchEmployees(roleOptions)
+    if (!hasApiBase() || rolesLoading || hasFetched.current) return
+    hasFetched.current = true
+    fetchEmployees(roleOptionsRef.current)
       .then((list) => {
         setEmployees(list)
       })
       .catch(() => {})
-  }, [roleOptions])
+  }, [rolesLoading])
 
   const totalCount = useMemo(() => employees.length, [employees])
   const value: EmployeesContextValue = { employees, setEmployees, totalCount }

@@ -323,7 +323,7 @@ function applicationToBackendPayload(app: Partial<App>, forUpdateId?: number): R
 
 async function tryFetchAt(path: string): Promise<App[] | null> {
   try {
-    const data = await apiRequest<unknown>(path)
+    const data = await apiRequest<unknown>(path, { portal: { suppressFailureLog: true } })
     const list = Array.isArray(data) ? data : (data as { data?: unknown[] })?.data
     if (!Array.isArray(list)) return null
     return list.map((row) => mapBackendApplication(row))
@@ -332,18 +332,34 @@ async function tryFetchAt(path: string): Promise<App[] | null> {
   }
 }
 
+let _cachedAppFetchPath: string | null = null
+
 export async function fetchApplications(): Promise<App[]> {
   const externalPaths = ['/application/all/applications', '/all/applications', '/applications']
   const localPaths = ['/api/applications']
 
-  const paths = isConfiguredForExternalApi() ? externalPaths : localPaths
-
-  for (const p of paths) {
-    const apps = await tryFetchAt(p)
+  // Fast path: reuse the endpoint that worked last time
+  if (_cachedAppFetchPath) {
+    const apps = await tryFetchAt(_cachedAppFetchPath)
     if (apps) return apps
+    _cachedAppFetchPath = null
   }
 
-  return []
+  const paths = isConfiguredForExternalApi() ? externalPaths : localPaths
+
+  // Fire all paths in parallel — first success wins
+  try {
+    return await Promise.any(
+      paths.map(async (p) => {
+        const apps = await tryFetchAt(p)
+        if (!apps) throw new Error('no data')
+        _cachedAppFetchPath = p
+        return apps
+      }),
+    )
+  } catch {
+    return []
+  }
 }
 
 export type CreateApplicationInput = {

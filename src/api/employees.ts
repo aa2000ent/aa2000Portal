@@ -290,40 +290,63 @@ function normalizeRow(row: unknown, roleOptions?: RoleOption[]): Employee {
   return toEmployee(row as EmployeeDto)
 }
 
-export async function fetchEmployees(roleOptions?: RoleOption[]): Promise<Employee[]> {
-  const paths = ['/employees/get/employees', '/employees/get/employees', '/employees']
-  for (const path of paths) {
-    try {
-      const data = await apiRequest<unknown>(path)
-      const list = Array.isArray(data) ? data : (data as { data?: unknown[] })?.data
-      if (!Array.isArray(list)) continue
-      const mapped = list.map((row) => normalizeRow(row, roleOptions))
-      // Some backends can return duplicate rows due to joins; ensure stable UI by deduping.
-      // Prefer `id` (when valid). If `id` is missing/invalid, fall back to email+role (and name as last resort).
-      const byKey = new Map<string, Employee>()
-      for (const emp of mapped) {
-        const id = Number(emp.id)
-        const email = String(emp.email ?? '').trim().toLowerCase()
-        const name = String(emp.name ?? '').trim().toLowerCase()
-        const role = String(emp.role ?? '').trim().toLowerCase()
+let _cachedEmpFetchPath: string | null = null
 
-        const key =
-          Number.isFinite(id) && id > 0
-            ? `id:${id}`
-            : email
-              ? `email:${email}|role:${role}`
-              : `name:${name}|role:${role}`
+async function tryFetchEmployeesAt(path: string, roleOptions?: RoleOption[]): Promise<Employee[] | null> {
+  try {
+    const data = await apiRequest<unknown>(path, { portal: { suppressFailureLog: true } })
+    const list = Array.isArray(data) ? data : (data as { data?: unknown[] })?.data
+    if (!Array.isArray(list)) return null
+    const mapped = list.map((row) => normalizeRow(row, roleOptions))
+    // Some backends can return duplicate rows due to joins; ensure stable UI by deduping.
+    // Prefer `id` (when valid). If `id` is missing/invalid, fall back to email+role (and name as last resort).
+    const byKey = new Map<string, Employee>()
+    for (const emp of mapped) {
+      const id = Number(emp.id)
+      const email = String(emp.email ?? '').trim().toLowerCase()
+      const name = String(emp.name ?? '').trim().toLowerCase()
+      const role = String(emp.role ?? '').trim().toLowerCase()
 
-        if (!byKey.has(key)) byKey.set(key, emp)
-      }
+      const key =
+        Number.isFinite(id) && id > 0
+          ? `id:${id}`
+          : email
+            ? `email:${email}|role:${role}`
+            : `name:${name}|role:${role}`
 
-      // Preserve original order as much as possible (first occurrence wins).
-      return Array.from(byKey.values())
-    } catch {
-      continue
+      if (!byKey.has(key)) byKey.set(key, emp)
     }
+
+    // Preserve original order as much as possible (first occurrence wins).
+    return Array.from(byKey.values())
+  } catch {
+    return null
   }
-  return []
+}
+
+export async function fetchEmployees(roleOptions?: RoleOption[]): Promise<Employee[]> {
+  const paths = ['/employees/get/employees', '/get/employees', '/employees']
+
+  // Fast path: reuse the endpoint that worked last time
+  if (_cachedEmpFetchPath) {
+    const emps = await tryFetchEmployeesAt(_cachedEmpFetchPath, roleOptions)
+    if (emps) return emps
+    _cachedEmpFetchPath = null
+  }
+
+  // Fire all paths in parallel — first success wins
+  try {
+    return await Promise.any(
+      paths.map(async (p) => {
+        const emps = await tryFetchEmployeesAt(p, roleOptions)
+        if (!emps) throw new Error('no data')
+        _cachedEmpFetchPath = p
+        return emps
+      }),
+    )
+  } catch {
+    return []
+  }
 }
 
 type EmployeeCreateInput = {

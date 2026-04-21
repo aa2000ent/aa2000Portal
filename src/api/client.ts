@@ -134,6 +134,12 @@ export async function apiRequest<T = unknown>(
   for (let i = 0; i < bases.length; i += 1) {
     const base = bases[i]
     const url = `${base}${API_PREFIX}${p}`
+    if (!/^https?:\/\//i.test(url) && !url.startsWith('/')) {
+      const hint =
+        'Request URL must start with http:// or https://. In .env set VITE_API_BASE_URL to the URL only (e.g. https://host.ts.net), not a full line like VITE_API_BASE_URL=https://.... Leave VITE_API_PREFIX empty unless your API uses a path prefix. Restart npm run dev after saving .env.'
+      console.error('[Portal API] Invalid base URL (would hit the dev server by mistake):', { base, url })
+      throw new Error(hint)
+    }
     let res: Response
     try {
       res = await fetch(url, { ...fetchInit, headers })

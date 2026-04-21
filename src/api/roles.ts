@@ -61,20 +61,40 @@ function parseRoleList(data: unknown, useNormalize: boolean): RoleOption[] {
   return roles.sort((a, b) => a.role_ID - b.role_ID)
 }
 
+let _cachedRoleFetchPath: string | null = null
+
 export async function fetchRoles(): Promise<RoleOption[]> {
-  try {
-    const path = isConfiguredForExternalApi() ? '/roles/get/roles' : '/roles'
-    let data: unknown
+  const externalPaths = ['/roles/get/roles', '/roles']
+  const localPaths = ['/roles']
+
+  // Fast path: reuse the endpoint that worked last time
+  if (_cachedRoleFetchPath) {
     try {
-      data = await apiRequest<unknown>(path)
-    } catch (err) {
-      if (path === '/roles/get/roles' && is404Error(err)) {
-        data = await apiRequest<unknown>('/roles')
-        return parseRoleList(data, true)
-      }
-      throw err
+      const data = await apiRequest<unknown>(_cachedRoleFetchPath, { portal: { suppressFailureLog: true } })
+      const list = parseRoleList(data, _cachedRoleFetchPath === '/roles/get/roles')
+      if (list.length) return list
+    } catch {
+      _cachedRoleFetchPath = null
     }
-    return parseRoleList(data, path === '/roles/get/roles')
+  }
+
+  const paths = isConfiguredForExternalApi() ? externalPaths : localPaths
+
+  // Fire all paths in parallel — first success wins
+  try {
+    return await Promise.any(
+      paths.map(async (p) => {
+        try {
+          const data = await apiRequest<unknown>(p, { portal: { suppressFailureLog: true } })
+          const list = parseRoleList(data, p === '/roles/get/roles')
+          if (!list.length) throw new Error('empty')
+          _cachedRoleFetchPath = p
+          return list
+        } catch (err) {
+          throw err
+        }
+      }),
+    )
   } catch {
     return []
   }

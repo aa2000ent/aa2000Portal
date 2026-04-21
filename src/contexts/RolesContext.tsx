@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { createRole, fetchRoles, type RoleOption } from '../api/roles'
 import { hasApiBase } from '../api/client'
 
@@ -17,6 +17,7 @@ export function RolesProvider({ children }: { children: ReactNode }) {
   const [roleOptions, setRoleOptions] = useState<RoleOption[]>([])
   const [loading, setLoading] = useState(true)
   const [localOnlyRoles, setLocalOnlyRoles] = useState<string[]>([])
+  const hasFetched = useRef(false)
 
   const fetchAndSet = useCallback(async () => {
     if (!hasApiBase()) {
@@ -35,6 +36,8 @@ export function RolesProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    if (hasFetched.current) return
+    hasFetched.current = true
     fetchAndSet()
   }, [fetchAndSet])
 

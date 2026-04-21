@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react'
 import { hasApiBase } from '../api/client'
 import { fetchApplications } from '../api/applications'
 
@@ -19,8 +19,10 @@ const ApplicationsContext = createContext<ApplicationsContextValue | null>(null)
 
 export function ApplicationsProvider({ children }: { children: ReactNode }) {
   const [apps, setApps] = useState<App[]>([])
+  const hasFetched = useRef(false)
   useEffect(() => {
-    if (!hasApiBase()) return
+    if (!hasApiBase() || hasFetched.current) return
+    hasFetched.current = true
     fetchApplications()
       .then((list) => setApps(list))
       .catch(() => setApps([]))

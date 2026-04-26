@@ -18,12 +18,20 @@ function getRelativeOffset(index: number, activeIndex: number, total: number): n
   return raw
 }
 
+function formatDateLabel(value?: string): string {
+  if (!value) return 'No date'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'No date'
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 export default function ActiveAnnouncementsCard() {
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([])
   const [memos, setMemos] = useState<AnnouncementItem[]>([])
   const [slideIndex, setSlideIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedItem, setSelectedItem] = useState<AnnouncementItem | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -79,80 +87,147 @@ export default function ActiveAnnouncementsCard() {
     return () => window.clearInterval(timer)
   }, [activeItems])
 
-  return (
-    <section className="dashboard-announcement-showcase" aria-label="Active announcements slideshow">
-      <h2 className="dashboard-announcement-showcase__title">ANNOUNCEMENTS</h2>
-      <div className="dashboard-graph-wrap">
-        {loading ? (
-          <div className="dashboard-graph-empty">Loading active announcements...</div>
-        ) : error ? (
-          <div className="dashboard-graph-empty">{error}</div>
-        ) : !hasData ? (
-          <div className="dashboard-graph-empty">No active announcements or memos found.</div>
-        ) : (
-          <div className="dashboard-announcement-slider">
-            {visibleCards.map(({ item, index, offset }) => (
-              <article
-                key={`announcement-card-${item.an_ID}-${index}`}
-                className={`dashboard-announcement-slide ${offset === 0 ? 'is-active' : ''}`}
-                style={
-                  {
-                    ['--offset' as string]: offset,
-                    ['--abs-offset' as string]: Math.abs(offset),
-                  } as CSSProperties
-                }
-                aria-hidden={offset !== 0}
-              >
-                {item.Image ? (
-                  <img
-                    src={item.Image}
-                    alt={item.Title}
-                    className="dashboard-announcement-slide__image"
-                  />
-                ) : (
-                  <div className="dashboard-announcement-slide__image dashboard-announcement-slide__image--placeholder">
-                    No image
-                  </div>
-                )}
-                <h3 className="dashboard-announcement-slide__title">{item.Title || 'Untitled'}</h3>
-                <p className="dashboard-announcement-slide__desc">{item.Description || 'No description.'}</p>
-                <p className="dashboard-announcement-slide__meta">{item.type === 'MEMO' ? 'MEMO' : 'PUBLIC ANNOUNCEMENT'}</p>
-              </article>
-            ))}
+  useEffect(() => {
+    if (!selectedItem) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelectedItem(null)
+    }
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [selectedItem])
 
-            <div className="dashboard-announcement-slider__controls">
-              <button
-                type="button"
-                className="employees-pagination-btn"
-                onClick={() => setSlideIndex((prev) => (prev - 1 + activeItems.length) % activeItems.length)}
-                disabled={activeItems.length <= 1}
-              >
-                Prev
-              </button>
-              <div className="dashboard-announcement-slider__dots">
-                {activeItems.map((_, idx) => (
+  return (
+    <>
+      <section className="dashboard-announcement-showcase" aria-label="Active announcements slideshow">
+        <h2 className="dashboard-announcement-showcase__title">ANNOUNCEMENTS</h2>
+        <div className="dashboard-graph-wrap">
+          {loading ? (
+            <div className="dashboard-graph-empty">Loading active announcements...</div>
+          ) : error ? (
+            <div className="dashboard-graph-empty">{error}</div>
+          ) : !hasData ? (
+            <div className="dashboard-graph-empty">No active announcements or memos found.</div>
+          ) : (
+            <div className="dashboard-announcement-slider">
+              {visibleCards.map(({ item, index, offset }) => (
+                <article
+                  key={`announcement-card-${item.an_ID}-${index}`}
+                  className={`dashboard-announcement-slide ${offset === 0 ? 'is-active' : ''}`}
+                  style={
+                    {
+                      ['--offset' as string]: offset,
+                      ['--abs-offset' as string]: Math.abs(offset),
+                    } as CSSProperties
+                  }
+                  aria-hidden={offset !== 0}
+                >
                   <button
-                    key={`carousel-dot-${idx}`}
                     type="button"
-                    onClick={() => setSlideIndex(idx)}
-                    className={`dashboard-announcement-slider__dot ${slideIndex === idx ? 'is-active' : ''}`}
-                    aria-label={`Go to slide ${idx + 1}`}
-                  />
-                ))}
+                    className={`dashboard-announcement-slide__button ${offset === 0 ? 'is-primary' : ''}`}
+                    onClick={() => setSelectedItem(item)}
+                    aria-label={`Open announcement: ${item.Title || 'Untitled'}`}
+                  >
+                    {item.Image ? (
+                      <img
+                        src={item.Image}
+                        alt={item.Title}
+                        className="dashboard-announcement-slide__image"
+                      />
+                    ) : (
+                      <div className="dashboard-announcement-slide__image dashboard-announcement-slide__image--placeholder">
+                        No image
+                      </div>
+                    )}
+                    <h3 className="dashboard-announcement-slide__title">{item.Title || 'Untitled'}</h3>
+                    <p className="dashboard-announcement-slide__desc">{item.Description || 'No description.'}</p>
+                    <div className="dashboard-announcement-slide__footer">
+                      <p className="dashboard-announcement-slide__meta">{item.type === 'MEMO' ? 'MEMO' : 'PUBLIC ANNOUNCEMENT'}</p>
+                      <p className="dashboard-announcement-slide__date">{formatDateLabel(item.Date)}</p>
+                    </div>
+                  </button>
+                </article>
+              ))}
+
+              <div className="dashboard-announcement-slider__controls">
+                <button
+                  type="button"
+                  className="employees-pagination-btn"
+                  onClick={() => setSlideIndex((prev) => (prev - 1 + activeItems.length) % activeItems.length)}
+                  disabled={activeItems.length <= 1}
+                >
+                  Prev
+                </button>
+                <div className="dashboard-announcement-slider__dots">
+                  {activeItems.map((_, idx) => (
+                    <button
+                      key={`carousel-dot-${idx}`}
+                      type="button"
+                      onClick={() => setSlideIndex(idx)}
+                      className={`dashboard-announcement-slider__dot ${slideIndex === idx ? 'is-active' : ''}`}
+                      aria-label={`Go to slide ${idx + 1}`}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="employees-pagination-btn"
+                  onClick={() => setSlideIndex((prev) => (prev + 1) % activeItems.length)}
+                  disabled={activeItems.length <= 1}
+                >
+                  Next
+                </button>
               </div>
-              <button
-                type="button"
-                className="employees-pagination-btn"
-                onClick={() => setSlideIndex((prev) => (prev + 1) % activeItems.length)}
-                disabled={activeItems.length <= 1}
-              >
-                Next
-              </button>
             </div>
+          )}
+        </div>
+      </section>
+      {selectedItem && (
+        <div className="dashboard-announcement-dialog-backdrop" role="presentation" onClick={() => setSelectedItem(null)}>
+          <div
+            className="dashboard-announcement-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={selectedItem.Title || 'Announcement details'}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="dashboard-announcement-dialog__eyebrow">
+              {selectedItem.type === 'MEMO' ? 'Internal memo' : 'Public announcement'}
+            </p>
+            <button
+              type="button"
+              className="dashboard-announcement-dialog__close"
+              onClick={() => setSelectedItem(null)}
+              aria-label="Close announcement dialog"
+            >
+              ×
+            </button>
+            {selectedItem.Image ? (
+              <img
+                src={selectedItem.Image}
+                alt={selectedItem.Title}
+                className="dashboard-announcement-dialog__image"
+              />
+            ) : (
+              <div className="dashboard-announcement-dialog__image dashboard-announcement-dialog__image--placeholder">
+                No image
+              </div>
+            )}
+            <h3 className="dashboard-announcement-dialog__title">{selectedItem.Title || 'Untitled'}</h3>
+            <p className="dashboard-announcement-dialog__meta">
+              Posted on {formatDateLabel(selectedItem.Date)}
+            </p>
+            <p className="dashboard-announcement-dialog__description">
+              {selectedItem.Description || 'No description.'}
+            </p>
           </div>
-        )}
-      </div>
-    </section>
+        </div>
+      )}
+    </>
   )
 }
 

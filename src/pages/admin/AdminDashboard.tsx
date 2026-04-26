@@ -22,6 +22,7 @@ import { useApplications } from '../../contexts/ApplicationsContext'
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { buildAdminDashboardSeries, buildPortalAppsAudiencePie } from '../../utils/dashboardAnalytics'
+import ActiveAnnouncementsCard from '../../components/ActiveAnnouncementsCard'
 
 function useChartPalette() {
   const { theme } = useTheme()
@@ -282,6 +283,7 @@ export default function AdminDashboard() {
             </section>
           </div>
         </div>
+        <ActiveAnnouncementsCard />
       </div>
     </div>
   )

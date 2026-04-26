@@ -19,6 +19,7 @@ import { useApplications } from '../../contexts/ApplicationsContext'
 import { useRoles } from '../../contexts/RolesContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { roleNameToRoute } from '../../api/auth'
+import ActiveAnnouncementsCard from '../../components/ActiveAnnouncementsCard'
 
 function useChartPalette() {
   const { theme } = useTheme()
@@ -248,6 +249,7 @@ export default function GeneralManagerDashboard() {
             </div>
           </section>
         </div>
+        <ActiveAnnouncementsCard />
       </div>
     </div>
   )

@@ -15,6 +15,7 @@ import { appVisibleToPortalPath } from '../../utils/departmentRouteMap'
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useApplications } from '../../contexts/ApplicationsContext'
 import { useTheme } from '../../contexts/ThemeContext'
+import ActiveAnnouncementsCard from '../../components/ActiveAnnouncementsCard'
 
 type RoleDashboardBaseProps = {
   segment: string
@@ -197,6 +198,7 @@ export default function RoleDashboardBase({
             </div>
           </section>
         </div>
+        <ActiveAnnouncementsCard />
       </div>
     </div>
   )

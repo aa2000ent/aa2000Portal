@@ -1,3 +1,141 @@
+.dashboard-announcement-showcase {
+  margin-top: 1.25rem;
+  width: 100%;
+}
+
+.dashboard-announcement-showcase__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--aa-shell-text);
+}
+
+.dashboard-announcement-slider {
+  position: relative;
+  min-height: 360px;
+  padding: 0.5rem 0.5rem 3.4rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  perspective: 1200px;
+}
+
+.dashboard-announcement-slide {
+  --offset: 0;
+  --abs-offset: 0;
+  position: absolute;
+  left: 50%;
+  top: 0.55rem;
+  width: min(330px, 80vw);
+  min-height: 250px;
+  border-radius: 10px;
+  background: rgba(239, 239, 239, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+  padding: 0.7rem;
+  transform-style: preserve-3d;
+  transform:
+    translateX(calc(-50% + (var(--offset) * 120px)))
+    translateY(calc(var(--abs-offset) * 10px))
+    rotateY(calc(var(--offset) * -20deg))
+    scale(calc(1 - (var(--abs-offset) * 0.08)));
+  opacity: calc(1 - (var(--abs-offset) * 0.22));
+  z-index: calc(20 - var(--abs-offset));
+  transition: transform 360ms ease, opacity 260ms ease, box-shadow 260ms ease;
+}
+
+.dashboard-announcement-slide.is-active {
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
+}
+
+.dashboard-announcement-slide__image {
+  width: 100%;
+  height: 140px;
+  border-radius: 6px;
+  object-fit: cover;
+  margin-bottom: 0.55rem;
+  background: #444;
+}
+
+.dashboard-announcement-slide__image--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #d1d5db;
+}
+
+.dashboard-announcement-slide__title {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.25rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.dashboard-announcement-slide__desc {
+  margin: 0.4rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.2rem;
+  color: #4b5563;
+  min-height: 2.4rem;
+}
+
+.dashboard-announcement-slide__meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.dashboard-announcement-slider__controls {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 0.35rem;
+  width: min(430px, 92vw);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  z-index: 3;
+}
+
+.dashboard-announcement-slider__dots {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.dashboard-announcement-slider__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.55);
+  border: none;
+  cursor: pointer;
+}
+
+.dashboard-announcement-slider__dot.is-active {
+  background: var(--aa-blue);
+}
+
+@media (max-width: 768px) {
+  .dashboard-announcement-slider {
+    min-height: 335px;
+    padding-bottom: 3.5rem;
+  }
+  .dashboard-announcement-slide {
+    width: min(280px, 84vw);
+    transform:
+      translateX(calc(-50% + (var(--offset) * 88px)))
+      translateY(calc(var(--abs-offset) * 8px))
+      rotateY(calc(var(--offset) * -16deg))
+      scale(calc(1 - (var(--abs-offset) * 0.09)));
+  }
+}
 /* App.css – styles for dashboard, employees, applications, modals, etc. */
 /* Login page uses Tailwind – see Login.tsx */
 

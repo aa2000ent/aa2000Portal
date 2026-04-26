@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Suspense } from 'react'
-import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useNavigate, useLocation, matchPath } from 'react-router-dom'
 import ErrorBoundary from '../components/ErrorBoundary'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useActivityLog } from '../contexts/ActivityLogContext'
@@ -16,7 +16,7 @@ import {
 import { logoutSecurity } from '../api/auth'
 import { prefetchRoute } from '../prefetchRoutes'
 
-type NavItem = { to: string; label: string; end: boolean; icon?: string }
+export type NavItem = { to: string; label: string; end: boolean; icon?: string; children?: NavItem[] }
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
@@ -100,6 +100,13 @@ function NavIcon({ name }: { name: string }) {
           <circle cx="12" cy="7" r="4" />
         </svg>
       )
+    case 'announcement':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m3 11 16-8v18L3 13v-2z" />
+          <path d="M11 20a3 3 0 0 1-3-3v-4" />
+        </svg>
+      )
     default:
       return null
   }
@@ -116,6 +123,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
   const { messages } = useChat()
   const { isOpen: isSidebarOpen, setOpen: setSidebarOpen, scrollContainerRef, savedScrollTopRef } = useSidebar()
   const [isCollapsed, setCollapsed] = useState(false)
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({})
   const [isMobile, setIsMobile] = useState(false)
   const [isTransitioning, setTransitioning] = useState(false)
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false)
@@ -201,6 +209,27 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
     if (inner) inner.scrollTop = 0
   }, [location.pathname])
 
+  const routeIsActive = (to: string, end: boolean) => {
+    if (end) return !!matchPath({ path: to, end: true }, location.pathname)
+    return !!matchPath({ path: `${to}/*`, end: false }, location.pathname) || location.pathname === to
+  }
+
+  const hasActiveChild = (items: NavItem[] = []): boolean =>
+    items.some((item) => (item.children?.length ? hasActiveChild(item.children) : routeIsActive(item.to, item.end)))
+
+  useEffect(() => {
+    setExpandedMenus((prev) => {
+      const next = { ...prev }
+      for (const item of navItems) {
+        if (!item.children?.length) continue
+        if (hasActiveChild(item.children)) {
+          next[item.to] = true
+        }
+      }
+      return next
+    })
+  }, [location.pathname, navItems])
+
   return (
     <div
       className={`dashboard-with-sidebar relative w-full min-h-full flex ${isSidebarOpen ? 'sidebar-open' : ''} ${showCollapsed ? 'sidebar-collapsed' : ''} ${isTransitioning ? 'overflow-x-hidden' : ''}`}
@@ -231,40 +260,97 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
       >
         <nav className="flex flex-col gap-1 pt-1 px-2 flex-1 min-h-0 overflow-hidden">
           {navItems.length > 0 ? (
-            navItems.map(({ to, label, end, icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={end}
-                className={({ isActive }) =>
-                  `sidebar-nav-link flex w-full min-w-0 items-center gap-3 py-3 px-3 min-h-[44px] rounded-lg no-underline text-sm font-medium
-                  ${isActive ? 'active' : ''}
-                  ${showCollapsed ? 'md:justify-center md:px-0 md:gap-0' : ''}
-                  `
-                }
-                onMouseEnter={() => prefetchRoute(to)}
-                onFocus={() => prefetchRoute(to)}
-                onClick={() => window.innerWidth <= 768 && setSidebarOpen(false)}
-                title={showCollapsed ? label : undefined}
-              >
-                {icon && (
-                  <span className="flex items-center justify-center shrink-0 w-5 h-5 relative" aria-hidden>
-                    <NavIcon name={icon} />
-                    {icon === 'chat' && messages.length > 0 && (
-                      <span className="sidebar-chat-badge" aria-hidden>
-                        {messages.length > 99 ? '99+' : messages.length}
+            navItems.map(({ to, label, end, icon, children }) => {
+              const childItems = children ?? []
+              const hasChildren = childItems.length > 0
+              const isExpanded = Boolean(expandedMenus[to])
+              const isParentActive = hasChildren && hasActiveChild(childItems)
+
+              if (!hasChildren) {
+                return (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    end={end}
+                    className={({ isActive }) =>
+                      `sidebar-nav-link flex w-full min-w-0 items-center gap-3 py-3 px-3 min-h-[44px] rounded-lg no-underline text-sm font-medium
+                      ${isActive ? 'active' : ''}
+                      ${showCollapsed ? 'md:justify-center md:px-0 md:gap-0' : ''}
+                      `
+                    }
+                    onMouseEnter={() => prefetchRoute(to)}
+                    onFocus={() => prefetchRoute(to)}
+                    onClick={() => window.innerWidth <= 768 && setSidebarOpen(false)}
+                    title={showCollapsed ? label : undefined}
+                  >
+                    {icon && (
+                      <span className="flex items-center justify-center shrink-0 w-5 h-5 relative" aria-hidden>
+                        <NavIcon name={icon} />
+                        {icon === 'chat' && messages.length > 0 && (
+                          <span className="sidebar-chat-badge" aria-hidden>
+                            {messages.length > 99 ? '99+' : messages.length}
+                          </span>
+                        )}
                       </span>
                     )}
-                  </span>
-                )}
-                <span
-                  className="sidebar-nav-label overflow-hidden whitespace-nowrap block transition-[width,opacity] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] md:min-w-0"
-                  style={!isMobile ? { width: showCollapsed ? 0 : 192, opacity: showCollapsed ? 0 : 1 } : undefined}
-                >
-                  {label}
-                </span>
-              </NavLink>
-            ))
+                    <span
+                      className="sidebar-nav-label overflow-hidden whitespace-nowrap block transition-[width,opacity] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] md:min-w-0"
+                      style={!isMobile ? { width: showCollapsed ? 0 : 192, opacity: showCollapsed ? 0 : 1 } : undefined}
+                    >
+                      {label}
+                    </span>
+                  </NavLink>
+                )
+              }
+
+              return (
+                <div key={to} className="sidebar-nav-group">
+                  <button
+                    type="button"
+                    className={`sidebar-nav-link sidebar-nav-link--parent flex w-full min-w-0 items-center gap-3 py-3 px-3 min-h-[44px] rounded-lg border-none text-sm font-medium bg-transparent cursor-pointer ${isParentActive ? 'active' : ''} ${showCollapsed ? 'md:justify-center md:px-0 md:gap-0' : ''}`}
+                    onClick={() => setExpandedMenus((prev) => ({ ...prev, [to]: !prev[to] }))}
+                    title={showCollapsed ? label : undefined}
+                    aria-expanded={isExpanded}
+                  >
+                    {icon && (
+                      <span className="flex items-center justify-center shrink-0 w-5 h-5 relative" aria-hidden>
+                        <NavIcon name={icon} />
+                      </span>
+                    )}
+                    <span
+                      className="sidebar-nav-label overflow-hidden whitespace-nowrap block transition-[width,opacity] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] md:min-w-0"
+                      style={!isMobile ? { width: showCollapsed ? 0 : 176, opacity: showCollapsed ? 0 : 1 } : undefined}
+                    >
+                      {label}
+                    </span>
+                    {!showCollapsed && (
+                      <span className={`sidebar-nav-chevron ${isExpanded ? 'expanded' : ''}`} aria-hidden>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </span>
+                    )}
+                  </button>
+                  {isExpanded && !showCollapsed && (
+                    <div className="sidebar-subnav" role="group" aria-label={label}>
+                      {childItems.map((child) => (
+                        <NavLink
+                          key={child.to}
+                          to={child.to}
+                          end={child.end}
+                          className={({ isActive }) => `sidebar-nav-link sidebar-nav-link--sub flex w-full min-w-0 items-center gap-3 py-2.5 px-3 min-h-[38px] rounded-lg no-underline text-sm font-medium ${isActive ? 'active' : ''}`}
+                          onMouseEnter={() => prefetchRoute(child.to)}
+                          onFocus={() => prefetchRoute(child.to)}
+                          onClick={() => window.innerWidth <= 768 && setSidebarOpen(false)}
+                        >
+                          <span className="sidebar-nav-label overflow-hidden whitespace-nowrap block">{child.label}</span>
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })
           ) : (
             <div className="py-3 px-3 text-sm font-semibold text-slate-400">{roleLabel}</div>
           )}

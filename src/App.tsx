@@ -36,6 +36,8 @@ const CeoDashboard = lazy(() => import('./pages/ceo/Dashboard'))
 const CoCeoDashboard = lazy(() => import('./pages/co-ceo/Dashboard'))
 const PortalApplications = lazy(() => import('./pages/PortalApplications'))
 const PortalProfile = lazy(() => import('./pages/PortalProfile'))
+const PortalPublicAnnouncement = lazy(() => import('./pages/PortalPublicAnnouncement'))
+const PortalMemo = lazy(() => import('./pages/PortalMemo'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
 const GeneralManagerDashboard = lazy(() => import('./pages/general-manager/GeneralManagerDashboard'))
 
@@ -90,6 +92,8 @@ function App() {
                     <Route path="customer" element={<AdminCustomers />} />
                     <Route path="profile" element={<AdminProfile />} />
                     <Route path="applications" element={<AdminApplications />} />
+                    <Route path="announcement/public-announcement" element={<PortalPublicAnnouncement />} />
+                    <Route path="announcement/memo" element={<PortalMemo />} />
                     <Route path="approvals" element={<AdminApprovals />} />
                     <Route path="history" element={<AdminHistory />} />
                     <Route path="chat" element={<ChatPage />} />
@@ -143,14 +147,20 @@ function App() {
                     <Route path="ceo/applications" element={<PortalApplications />} />
                     <Route path="ceo/profile" element={<PortalProfile />} />
                     <Route path="ceo/chat" element={<ChatPage />} />
+                    <Route path="ceo/announcement/public-announcement" element={<PortalPublicAnnouncement />} />
+                    <Route path="ceo/announcement/memo" element={<PortalMemo />} />
                     <Route path="co-ceo" element={<CoCeoDashboard />} />
                     <Route path="co-ceo/applications" element={<PortalApplications />} />
                     <Route path="co-ceo/profile" element={<PortalProfile />} />
                     <Route path="co-ceo/chat" element={<ChatPage />} />
+                    <Route path="co-ceo/announcement/public-announcement" element={<PortalPublicAnnouncement />} />
+                    <Route path="co-ceo/announcement/memo" element={<PortalMemo />} />
                   </Route>
                   <Route path="general-manager" element={<GeneralManagerLayout />}>
                     <Route index element={<GeneralManagerDashboard />} />
                     <Route path="applications" element={<PortalApplications />} />
+                    <Route path="announcement/public-announcement" element={<PortalPublicAnnouncement />} />
+                    <Route path="announcement/memo" element={<PortalMemo />} />
                     <Route path="profile" element={<PortalProfile />} />
                     <Route path="chat" element={<ChatPage />} />
                     <Route path="history" element={<AdminHistory variant="general-manager" />} />

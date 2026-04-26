@@ -1240,6 +1240,35 @@ html[data-theme="dark"] .dashboard-graph-desc {
   font-weight: 600;
 }
 
+.sidebar-panel .sidebar-nav-link--parent {
+  text-align: left;
+}
+
+.sidebar-panel .sidebar-nav-chevron {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+}
+
+.sidebar-panel .sidebar-nav-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.sidebar-panel .sidebar-subnav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.2rem 0 0.3rem;
+  padding-left: 1.8rem;
+}
+
+.sidebar-panel .sidebar-nav-link--sub {
+  color: color-mix(in srgb, var(--aa-shell-text-muted) 92%, white 8%);
+  min-height: 38px;
+}
+
 .sidebar-panel .sidebar-footer-btn {
   color: var(--aa-shell-text-muted);
 }

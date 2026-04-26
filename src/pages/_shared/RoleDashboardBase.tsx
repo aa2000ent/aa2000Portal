@@ -1,21 +1,21 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ResponsiveContainer,
+  LineChart,
+  Line,
   BarChart,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  PieChart,
-  Pie,
-  Cell,
 } from 'recharts'
-import { appVisibleToPortalPath } from '../../utils/departmentRouteMap'
 import { useActivityLog } from '../../contexts/ActivityLogContext'
-import { useApplications } from '../../contexts/ApplicationsContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import ActiveAnnouncementsCard from '../../components/ActiveAnnouncementsCard'
+import { getPortalAccountId } from '../../api/client'
+import { fetchProjectsForDashboard, type ProjectItem } from '../../api/projects'
 
 type RoleDashboardBaseProps = {
   segment: string
@@ -32,60 +32,79 @@ export default function RoleDashboardBase({
   segment,
   title,
   subtitle,
-  activityFocusLabel,
-  activityMatcher,
+  activityFocusLabel: _activityFocusLabel,
+  activityMatcher: _activityMatcher,
 }: RoleDashboardBaseProps) {
-  const { addEntry, entries } = useActivityLog()
-  const { apps } = useApplications()
+  const { addEntry } = useActivityLog()
   const { theme } = useTheme()
+  const [projects, setProjects] = useState<ProjectItem[]>([])
+  const [projectsLoading, setProjectsLoading] = useState(true)
+  const [projectsError, setProjectsError] = useState<string | null>(null)
 
   useEffect(() => {
     addEntry({ action: 'page_visited', actor: title, target: `${title} dashboard`, details: `Viewed ${title} dashboard` })
   }, [addEntry, title])
 
-  const roleApps = useMemo(() => apps.filter((a) => appVisibleToPortalPath(a, `/${segment}`)), [apps, segment])
-  const recent = useMemo(
-    () =>
-      [...entries]
-        .filter((e) => e.actor !== 'Admin')
-        .filter((e) => (activityMatcher ? activityMatcher.test(`${e.action} ${e.details ?? ''} ${e.target}`) : true))
-        .slice(-6)
-        .reverse(),
-    [entries, activityMatcher],
-  )
+  useEffect(() => {
+    const employeeID = getPortalAccountId()
+    if (!employeeID) {
+      setProjects([])
+      setProjectsLoading(false)
+      setProjectsError('No employee session found. Please sign in again.')
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      setProjectsLoading(true)
+      setProjectsError(null)
+      try {
+        const data = await fetchProjectsForDashboard(segment, employeeID)
+        if (cancelled) return
+        setProjects(data)
+      } catch (e) {
+        if (cancelled) return
+        setProjects([])
+        setProjectsError(e instanceof Error ? e.message : 'Failed to load projects.')
+      } finally {
+        if (!cancelled) setProjectsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [segment])
 
-  const actionBreakdown = useMemo(() => {
-    const pretty = (raw: string): string =>
-      raw
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ')
+  const pipelineData = useMemo(() => {
     const map = new Map<string, number>()
-    for (const e of recent) {
-      const key = pretty(e.action.replace(/_/g, ' '))
+    for (const p of projects) {
+      const status = String(p.status || 'UNKNOWN').toUpperCase()
+      map.set(status, (map.get(status) ?? 0) + 1)
+    }
+    return Array.from(map.entries()).map(([name, value]) => ({ name, value }))
+  }, [projects])
+
+  const completedProjects = useMemo(
+    () => projects.filter((p) => /COMPLETED|DONE|CLOSED/i.test(String(p.status))).length,
+    [projects]
+  )
+  const activeProjects = projects.length - completedProjects
+
+  const projectActivitySeries = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const p of projects) {
+      if (!/COMPLETED|DONE|CLOSED/i.test(String(p.status))) continue
+      const raw = p.startDate
+      const date = raw ? new Date(raw) : null
+      if (!date || Number.isNaN(date.getTime())) continue
+      const key = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
       map.set(key, (map.get(key) ?? 0) + 1)
     }
-    return Array.from(map.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5)
-  }, [recent])
-
-  const appAudience = useMemo(() => {
-    const single = roleApps.filter((a) => (a.visibleTo?.length ?? 0) <= 1).length
-    const multi = roleApps.filter((a) => (a.visibleTo?.length ?? 0) > 1).length
-    const noDomain = roleApps.filter((a) => !String(a.domain ?? '').trim()).length
-    return [
-      { name: 'Single-role', value: single, color: '#3b82f6' },
-      { name: 'Multi-role', value: multi, color: '#14b8a6' },
-      { name: 'No domain', value: noDomain, color: '#f59e0b' },
-    ].filter((x) => x.value > 0)
-  }, [roleApps])
+    return Array.from(map.entries()).map(([date, count]) => ({ date, count }))
+  }, [projects])
 
   const chartGrid = theme === 'dark' ? '#334155' : '#e2e8f0'
   const chartAxis = theme === 'dark' ? '#94a3b8' : '#64748b'
-  const actionColors = ['#3b82f6', '#0ea5e9', '#14b8a6', '#22c55e', '#f59e0b']
+  const statusColors = ['#3b82f6', '#0ea5e9', '#14b8a6', '#22c55e', '#f59e0b', '#a855f7']
   const chartTooltip = theme === 'dark'
     ? {
         background: 'rgba(30, 41, 59, 0.96)',
@@ -109,48 +128,60 @@ export default function RoleDashboardBase({
       <div className="dashboard-page-content">
         <section className="dashboard-stats" aria-label={`${title} metrics`}>
           <div className="dashboard-stat-card">
-            <span className="dashboard-stat-value">{roleApps.length}</span>
-            <span className="dashboard-stat-label">Assigned apps</span>
+            <span className="dashboard-stat-value">{projects.length}</span>
+            <span className="dashboard-stat-label">List of projects</span>
           </div>
           <div className="dashboard-stat-card">
-            <span className="dashboard-stat-value">{recent.length}</span>
-            <span className="dashboard-stat-label">{activityFocusLabel}</span>
+            <span className="dashboard-stat-value">{activeProjects}</span>
+            <span className="dashboard-stat-label">In pipeline</span>
           </div>
           <div className="dashboard-stat-card">
-            <span className="dashboard-stat-value">{actionBreakdown.length}</span>
-            <span className="dashboard-stat-label">Action types</span>
+            <span className="dashboard-stat-value">{completedProjects}</span>
+            <span className="dashboard-stat-label">Completed projects</span>
           </div>
         </section>
         <div className="dashboard-graphs">
-          <section className="dashboard-graph-card" aria-label={`${title} action breakdown`}>
-            <h2 className="dashboard-graph-title">Activity breakdown</h2>
-            <p className="dashboard-graph-desc">Top recent actions detected for {title.toLowerCase()} workflows.</p>
+          <section className="dashboard-graph-card" aria-label={`${title} projects`}>
+            <h2 className="dashboard-graph-title">List of projects</h2>
+            <p className="dashboard-graph-desc">Projects assigned to your account from the project API.</p>
             <div className="dashboard-graph-wrap">
-              {actionBreakdown.length === 0 ? (
-                <div className="dashboard-graph-empty">No tracked actions yet.</div>
+              {projectsLoading ? (
+                <div className="dashboard-graph-empty">Loading projects...</div>
+              ) : projectsError ? (
+                <div className="dashboard-graph-empty">{projectsError}</div>
+              ) : projects.length === 0 ? (
+                <div className="dashboard-graph-empty">No projects found for this account.</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {projects.slice(0, 8).map((p) => (
+                    <div key={`${p.id}-${p.name}`} className="rounded-lg border border-slate-200/25 p-3 bg-white/5">
+                      <p className="text-sm font-semibold">{p.name || p.application || segment}</p>
+                      <p className="text-xs text-slate-400 mt-1">{p.description || p.status}</p>
+                      <span className="inline-flex mt-2 rounded-full px-2.5 py-1 text-[11px] font-semibold bg-[color-mix(in_srgb,var(--aa-blue)_20%,transparent)] text-[var(--aa-shell-text)]">
+                        {p.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+          <section className="dashboard-graph-card" aria-label={`${title} project pipeline`}>
+            <h2 className="dashboard-graph-title">Project pipeline status</h2>
+            <p className="dashboard-graph-desc">Status distribution of your current project list.</p>
+            <div className="dashboard-graph-wrap">
+              {pipelineData.length === 0 ? (
+                <div className="dashboard-graph-empty">No pipeline status data yet.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={280} debounce={200}>
-                  <BarChart data={actionBreakdown} layout="vertical" margin={{ top: 8, right: 20, left: 24, bottom: 8 }}>
+                  <BarChart data={pipelineData} margin={{ top: 8, right: 12, left: 8, bottom: 24 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
-                    <XAxis
-                      type="number"
-                      allowDecimals={false}
-                      tick={{ fontSize: 11, fill: chartAxis, fontWeight: 500 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      dataKey="name"
-                      type="category"
-                      tick={{ fontSize: 11, fill: chartAxis, fontWeight: 500 }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={108}
-                    />
-                    <Tooltip contentStyle={chartTooltip} formatter={(v) => [v, 'Events']} />
-                    <Bar dataKey="value" name="Events" radius={[0, 6, 6, 0]}>
-                      {actionBreakdown.map((row, i) => (
-                        <Cell key={`${row.name}-${i}`} fill={actionColors[i % actionColors.length]} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: chartAxis, fontWeight: 500 }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: chartAxis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
+                    <Tooltip contentStyle={chartTooltip} />
+                    <Bar dataKey="value" name="Projects" radius={[6, 6, 0, 0]}>
+                      {pipelineData.map((row, i) => (
+                        <Cell key={`${row.name}-${i}`} fill={statusColors[i % statusColors.length]} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -158,42 +189,30 @@ export default function RoleDashboardBase({
               )}
             </div>
           </section>
-          <section className="dashboard-graph-card" aria-label={`${title} app exposure`}>
-            <h2 className="dashboard-graph-title">App exposure mix</h2>
-            <p className="dashboard-graph-desc">How assigned apps are scoped and configured in this role.</p>
+          <section className="dashboard-graph-card" aria-label={`${title} project activity`}>
+            <h2 className="dashboard-graph-title">Project activeness</h2>
+            <p className="dashboard-graph-desc">Completed projects timeline grouped by Start_date.</p>
             <div className="dashboard-graph-wrap">
-              {appAudience.length === 0 ? (
-                <div className="dashboard-graph-empty">No application visibility data yet.</div>
+              {projectActivitySeries.length === 0 ? (
+                <div className="dashboard-graph-empty">No project activity timeline available yet.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={280} debounce={200}>
-                  <PieChart>
-                    <Pie
-                      data={appAudience}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={54}
-                      outerRadius={86}
-                      paddingAngle={3}
-                    >
-                      {appAudience.map((slice) => (
-                        <Cell key={slice.name} fill={slice.color} />
-                      ))}
-                    </Pie>
+                  <LineChart data={projectActivitySeries} margin={{ top: 8, right: 12, left: 8, bottom: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: chartAxis, fontWeight: 500 }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: chartAxis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
                     <Tooltip contentStyle={chartTooltip} />
-                  </PieChart>
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      name="Project updates"
+                      stroke="var(--aa-blue)"
+                      strokeWidth={2.5}
+                      dot={{ r: 3, fill: 'var(--aa-blue)' }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </LineChart>
                 </ResponsiveContainer>
-              )}
-              {appAudience.length > 0 && (
-                <div className="dashboard-graph-legend">
-                  {appAudience.map((slice) => (
-                    <span key={slice.name} className="dashboard-legend-chip">
-                      <i className="dashboard-legend-dot" style={{ background: slice.color }} aria-hidden />
-                      {slice.name}: {slice.value}
-                    </span>
-                  ))}
-                </div>
               )}
             </div>
           </section>

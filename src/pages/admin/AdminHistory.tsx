@@ -22,6 +22,8 @@ const ACTION_LABELS: Record<ActionType, string> = {
   '2fa_enabled': '2FA enabled',
   '2fa_disabled': '2FA disabled',
   session_revoked: 'Session revoked',
+  announcement_posted: 'Announcement posted',
+  memo_created: 'Memo created',
 }
 
 const ACTION_OPTIONS: { value: string; label: string }[] = [

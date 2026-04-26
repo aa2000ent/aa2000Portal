@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { useApplications } from '../contexts/ApplicationsContext'
 import { appVisibleToPortalPath } from '../utils/departmentRouteMap'
+import ActiveAnnouncementsCard from '../components/ActiveAnnouncementsCard'
 
 export default function Engineering() {
   const { addEntry, entries } = useActivityLog()
@@ -99,6 +100,7 @@ export default function Engineering() {
             </div>
           </section>
         </div>
+        <ActiveAnnouncementsCard />
       </div>
     </div>
   )

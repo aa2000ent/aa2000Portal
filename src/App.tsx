@@ -101,6 +101,8 @@ function App() {
                   <Route element={<PortalLayout />}>
                     <Route path="marketing" element={<Marketing />} />
                     <Route path="marketing/applications" element={<PortalApplications />} />
+                    <Route path="marketing/announcement/public-announcement" element={<PortalPublicAnnouncement />} />
+                    <Route path="marketing/announcement/memo" element={<PortalMemo />} />
                     <Route path="marketing/profile" element={<PortalProfile />} />
                     <Route path="marketing/chat" element={<ChatPage />} />
                     <Route path="sale" element={<SaleDashboard />} />
@@ -147,14 +149,12 @@ function App() {
                     <Route path="ceo/applications" element={<PortalApplications />} />
                     <Route path="ceo/profile" element={<PortalProfile />} />
                     <Route path="ceo/chat" element={<ChatPage />} />
-                    <Route path="ceo/announcement/public-announcement" element={<PortalPublicAnnouncement />} />
-                    <Route path="ceo/announcement/memo" element={<PortalMemo />} />
                     <Route path="co-ceo" element={<CoCeoDashboard />} />
                     <Route path="co-ceo/applications" element={<PortalApplications />} />
                     <Route path="co-ceo/profile" element={<PortalProfile />} />
                     <Route path="co-ceo/chat" element={<ChatPage />} />
-                    <Route path="co-ceo/announcement/public-announcement" element={<PortalPublicAnnouncement />} />
-                    <Route path="co-ceo/announcement/memo" element={<PortalMemo />} />
+                    <Route path=":segment/announcement/public-announcement" element={<PortalPublicAnnouncement />} />
+                    <Route path=":segment/announcement/memo" element={<PortalMemo />} />
                   </Route>
                   <Route path="general-manager" element={<GeneralManagerLayout />}>
                     <Route index element={<GeneralManagerDashboard />} />

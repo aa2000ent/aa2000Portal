@@ -20,6 +20,8 @@ export type ActionType =
   | '2fa_enabled'
   | '2fa_disabled'
   | 'session_revoked'
+  | 'announcement_posted'
+  | 'memo_created'
 
 export type HistoryEntry = {
   id: number

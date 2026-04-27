@@ -3,6 +3,7 @@ import { useActivityLog } from '../contexts/ActivityLogContext'
 import { useApplications } from '../contexts/ApplicationsContext'
 import { appVisibleToPortalPath } from '../utils/departmentRouteMap'
 import ActiveAnnouncementsCard from '../components/ActiveAnnouncementsCard'
+import DashboardStories from '../components/DashboardStories'
 import { useTheme } from '../contexts/ThemeContext'
 import {
   ResponsiveContainer,
@@ -90,6 +91,7 @@ export default function Marketing() {
         <p className="dashboard-page-subtitle">Applications overview</p>
       </header>
       <div className="dashboard-page-content">
+        <DashboardStories />
         <section className="dashboard-stats" aria-label="Marketing metrics">
           <div className="dashboard-stat-card" style={{ animationDelay: '0ms' }}>
             <span className="dashboard-stat-value">{marketingApps.length}</span>

@@ -3,6 +3,7 @@ import { useActivityLog } from '../contexts/ActivityLogContext'
 import { useApplications } from '../contexts/ApplicationsContext'
 import { appVisibleToPortalPath } from '../utils/departmentRouteMap'
 import ActiveAnnouncementsCard from '../components/ActiveAnnouncementsCard'
+import DashboardStories from '../components/DashboardStories'
 
 export default function Engineering() {
   const { addEntry, entries } = useActivityLog()
@@ -28,6 +29,7 @@ export default function Engineering() {
         <p className="dashboard-page-subtitle">Technical workspace and engineering activity</p>
       </header>
       <div className="dashboard-page-content">
+        <DashboardStories />
         <section className="dashboard-stats" aria-label="Engineering metrics">
           <div className="dashboard-stat-card" style={{ animationDelay: '0ms' }}>
             <span className="dashboard-stat-value">{engApps.length}</span>

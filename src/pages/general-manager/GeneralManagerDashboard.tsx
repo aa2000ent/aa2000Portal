@@ -20,6 +20,7 @@ import { useRoles } from '../../contexts/RolesContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { roleNameToRoute } from '../../api/auth'
 import ActiveAnnouncementsCard from '../../components/ActiveAnnouncementsCard'
+import DashboardStories from '../../components/DashboardStories'
 
 function useChartPalette() {
   const { theme } = useTheme()
@@ -112,14 +113,14 @@ export default function GeneralManagerDashboard() {
 
   return (
     <div className="dashboard-page dashboard-page--gm">
-      <header className="dashboard-page-header">
-        <h1 className="dashboard-page-title">General Manager</h1>
-        <p className="dashboard-page-subtitle">
-          Organization overview and approvals pipeline for your role
-        </p>
-      </header>
-
       <div className="dashboard-page-content">
+        <DashboardStories />
+        <header className="dashboard-page-header">
+          <h1 className="dashboard-page-title">General Manager</h1>
+          <p className="dashboard-page-subtitle">
+            Organization overview and approvals pipeline for your role
+          </p>
+        </header>
         <section className="dashboard-stats" aria-label="Executive metrics">
           {stats.map(({ label, value, icon }, i) => (
             <div key={label} className="dashboard-stat-card" style={{ animationDelay: `${i * 50}ms` }}>

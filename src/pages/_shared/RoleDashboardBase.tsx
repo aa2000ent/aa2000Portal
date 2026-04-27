@@ -16,6 +16,7 @@ import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useApplications } from '../../contexts/ApplicationsContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import ActiveAnnouncementsCard from '../../components/ActiveAnnouncementsCard'
+import DashboardStories from '../../components/DashboardStories'
 
 type RoleDashboardBaseProps = {
   segment: string
@@ -242,11 +243,12 @@ export default function RoleDashboardBase({
 
   return (
     <div className={`dashboard-page dashboard-page--${segment}`}>
-      <header className="dashboard-page-header">
-        <h1 className="dashboard-page-title">{title}</h1>
-        <p className="dashboard-page-subtitle">{subtitle}</p>
-      </header>
       <div className="dashboard-page-content">
+        <DashboardStories />
+        <header className="dashboard-page-header">
+          <h1 className="dashboard-page-title">{title}</h1>
+          <p className="dashboard-page-subtitle">{subtitle}</p>
+        </header>
         <section className="dashboard-stats" aria-label={`${title} metrics`}>
           <div className="dashboard-stat-card">
             <span className="dashboard-stat-value">{roleApps.length}</span>

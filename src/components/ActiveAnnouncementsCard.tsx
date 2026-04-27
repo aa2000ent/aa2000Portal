@@ -104,7 +104,10 @@ export default function ActiveAnnouncementsCard() {
   return (
     <>
       <section className="dashboard-announcement-showcase" aria-label="Active announcements slideshow">
-        <h2 className="dashboard-announcement-showcase__title">ANNOUNCEMENTS</h2>
+        <div className="dashboard-announcement-showcase__head">
+          <h2 className="dashboard-announcement-showcase__title">ANNOUNCEMENTS</h2>
+          <span className="dashboard-announcement-showcase__hint">Latest announcements and memos</span>
+        </div>
         <div className="dashboard-graph-wrap">
           {loading ? (
             <div className="dashboard-graph-empty">Loading active announcements...</div>

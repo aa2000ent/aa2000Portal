@@ -3,6 +3,7 @@ import { useActivityLog } from '../contexts/ActivityLogContext'
 import { useApplications } from '../contexts/ApplicationsContext'
 import { appVisibleToPortalPath } from '../utils/departmentRouteMap'
 import ActiveAnnouncementsCard from '../components/ActiveAnnouncementsCard'
+import DashboardStories from '../components/DashboardStories'
 
 export default function Finance() {
   const { addEntry, entries } = useActivityLog()
@@ -28,6 +29,7 @@ export default function Finance() {
         <p className="dashboard-page-subtitle">Financial access overview and approvals activity</p>
       </header>
       <div className="dashboard-page-content">
+        <DashboardStories />
         <section className="dashboard-stats" aria-label="Finance metrics">
           <div className="dashboard-stat-card" style={{ animationDelay: '0ms' }}>
             <span className="dashboard-stat-value">{financeApps.length}</span>

@@ -23,6 +23,7 @@ import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { buildAdminDashboardSeries, buildPortalAppsAudiencePie } from '../../utils/dashboardAnalytics'
 import ActiveAnnouncementsCard from '../../components/ActiveAnnouncementsCard'
+import DashboardStories from '../../components/DashboardStories'
 
 function useChartPalette() {
   const { theme } = useTheme()
@@ -100,11 +101,12 @@ export default function AdminDashboard() {
 
   return (
     <div className="dashboard-page">
-      <header className="dashboard-page-header">
-        <h1 className="dashboard-page-title">Dashboard</h1>
-        <p className="dashboard-page-subtitle">Overview and quick actions</p>
-      </header>
       <div className="dashboard-page-content">
+        <DashboardStories />
+        <header className="dashboard-page-header">
+          <h1 className="dashboard-page-title">Dashboard</h1>
+          <p className="dashboard-page-subtitle">Overview and quick actions</p>
+        </header>
         <section className="dashboard-stats" aria-label="Key metrics">
           {stats.map(({ label, value, icon }, i) => (
               <div

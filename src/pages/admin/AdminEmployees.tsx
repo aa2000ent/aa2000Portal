@@ -398,12 +398,14 @@ export default function AdminEmployees() {
     }
 
     if (!created && photoBase64) {
-      // If an image was selected but server create failed, avoid local-only fake success.
       const empImageBase64 = toApiBase64(photoBase64)
-      if (empImageBase64 != null) console.error('[Portal] createEmployee returned null (image provided). base64_len=', String(empImageBase64).length)
-      else console.error('[Portal] createEmployee returned null (image provided) but empImageBase64 is null/empty')
-      console.error('[Portal] Employee photo upload failed: row not created on server.')
-      return
+      if (empImageBase64 != null) {
+        console.warn('[Portal] createEmployee returned null (image provided). Keeping optimistic row and refetching.', {
+          base64Length: String(empImageBase64).length,
+        })
+      } else {
+        console.warn('[Portal] createEmployee returned null (image provided) but payload image is empty.')
+      }
     }
 
     const nextEmp: Employee =

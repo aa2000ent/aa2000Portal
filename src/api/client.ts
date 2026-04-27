@@ -8,6 +8,9 @@ const SESSION_ID_KEY = 'portal_session_id'
 const PORTAL_ACCOUNT_ID_KEY = 'portal_account_id'
 const PORTAL_USERNAME_KEY = 'portal_username'
 const PORTAL_HOME_SEGMENT_KEY = 'portal_home_segment'
+const GET_CACHE_TTL_MS = 15_000
+const GET_RESPONSE_CACHE = new Map<string, { expiresAt: number; value: unknown }>()
+const INFLIGHT_GET_REQUESTS = new Map<string, Promise<unknown>>()
 
 function readSessionValue(key: string): string | null {
   try {
@@ -114,6 +117,35 @@ export type ApiRequestOptions = RequestInit & {
   portal?: { suppressFailureLog?: boolean }
 }
 
+function canUseGetCache(method: string, body: BodyInit | null | undefined): boolean {
+  return method.toUpperCase() === 'GET' && body == null
+}
+
+function stableHeadersKey(headers: HeadersInit): string {
+  const pairs: Array<[string, string]> = []
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => pairs.push([key.toLowerCase(), value]))
+  } else if (Array.isArray(headers)) {
+    for (const [key, value] of headers) pairs.push([String(key).toLowerCase(), String(value)])
+  } else {
+    for (const [key, value] of Object.entries(headers as Record<string, string>)) {
+      pairs.push([key.toLowerCase(), String(value)])
+    }
+  }
+  pairs.sort((a, b) => a[0].localeCompare(b[0]))
+  return JSON.stringify(pairs)
+}
+
+function cloneForCache<T>(value: T): T {
+  if (value == null || typeof value !== 'object') return value
+  try {
+    if (typeof structuredClone === 'function') return structuredClone(value)
+    return JSON.parse(JSON.stringify(value)) as T
+  } catch {
+    return value
+  }
+}
+
 export async function apiRequest<T = unknown>(
   path: string,
   options: ApiRequestOptions = {}
@@ -129,6 +161,30 @@ export async function apiRequest<T = unknown>(
     ...(sessionId ? { 'X-Session-Id': sessionId } : {}),
     ...(fetchInit.headers as Record<string, string>),
   }
+  const method = String(fetchInit.method ?? 'GET').toUpperCase()
+  const useGetCache = canUseGetCache(method, fetchInit.body)
+  const requestKey = useGetCache
+    ? JSON.stringify({
+        p,
+        method,
+        h: stableHeadersKey(headers),
+      })
+    : ''
+
+  if (!useGetCache) {
+    // Writes can invalidate stale list/detail reads shown in dashboard UIs.
+    GET_RESPONSE_CACHE.clear()
+    INFLIGHT_GET_REQUESTS.clear()
+  } else {
+    const now = Date.now()
+    const cached = GET_RESPONSE_CACHE.get(requestKey)
+    if (cached && cached.expiresAt > now) return cloneForCache(cached.value) as T
+    if (cached && cached.expiresAt <= now) GET_RESPONSE_CACHE.delete(requestKey)
+    const inflight = INFLIGHT_GET_REQUESTS.get(requestKey)
+    if (inflight) return (await inflight) as T
+  }
+
+  const requestPromise = (async (): Promise<T> => {
   let lastError: unknown = null
 
   for (let i = 0; i < bases.length; i += 1) {
@@ -201,11 +257,29 @@ export async function apiRequest<T = unknown>(
     }
 
     const contentType = res.headers.get('content-type')
-    if (contentType?.includes('application/json')) return res.json() as Promise<T>
+    if (contentType?.includes('application/json')) {
+      const parsed = await res.json()
+      return parsed as T
+    }
     return undefined as T
   }
 
   throw (lastError ?? new Error('All configured API base URLs failed.'))
+  })()
+
+  if (useGetCache) INFLIGHT_GET_REQUESTS.set(requestKey, requestPromise as Promise<unknown>)
+  try {
+    const result = await requestPromise
+    if (useGetCache) {
+      GET_RESPONSE_CACHE.set(requestKey, {
+        expiresAt: Date.now() + GET_CACHE_TTL_MS,
+        value: cloneForCache(result),
+      })
+    }
+    return result
+  } finally {
+    if (useGetCache) INFLIGHT_GET_REQUESTS.delete(requestKey)
+  }
 }
 
 export function setAuthToken(token: string): void {

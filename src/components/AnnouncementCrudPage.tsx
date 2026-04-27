@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import ConfirmDialog, { type ConfirmVariant } from './ConfirmDialog'
 import {
   createAnnouncement,
@@ -11,6 +12,8 @@ import {
   updateAnnouncement,
 } from '../api/announcements'
 import { getPortalAccountId } from '../api/client'
+import { fetchEmployees } from '../api/employees'
+import type { Employee } from '../contexts/EmployeesContext'
 
 type Props = {
   type: AnnouncementType
@@ -20,6 +23,7 @@ type Props = {
 
 const MIN_PER_PAGE = 1
 const MAX_PER_PAGE = 500
+const CREATOR_SEGMENTS = new Set(['admin', 'ceo', 'general-manager'])
 
 function toBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -31,6 +35,7 @@ function toBase64(file: File): Promise<string> {
 }
 
 export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
+  const location = useLocation()
   const [list, setList] = useState<AnnouncementItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -45,6 +50,11 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
   const [formStatus, setFormStatus] = useState<AnnouncementStatus>('ACTIVE')
   const [formImageBase64, setFormImageBase64] = useState('')
   const [submitBusy, setSubmitBusy] = useState(false)
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [loadingEmployees, setLoadingEmployees] = useState(false)
+  const [memoAudience, setMemoAudience] = useState<'ALL' | 'SELECTED'>('ALL')
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<number[]>([])
+  const [memoRecipientSearch, setMemoRecipientSearch] = useState('')
 
   const [confirm, setConfirm] = useState<{
     open: boolean
@@ -89,16 +99,27 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
 
   useEffect(() => setCurrentPage(1), [search])
 
+  const canManage = useMemo(() => {
+    const segment = location.pathname.split('/').filter(Boolean)[0] ?? ''
+    return CREATOR_SEGMENTS.has(segment)
+  }, [location.pathname])
+  const isMemoPage = type === 'MEMO'
+
   function openAdd() {
+    if (!canManage) return
     setEditing(null)
     setFormTitle('')
     setFormDescription('')
     setFormStatus('ACTIVE')
     setFormImageBase64('')
+    setMemoAudience('ALL')
+    setSelectedRecipientIds([])
+    setMemoRecipientSearch('')
     setOpenForm(true)
   }
 
   async function openEdit(item: AnnouncementItem) {
+    if (!canManage) return
     setEditing(item)
     setFormTitle(item.Title)
     setFormDescription(item.Description ?? '')
@@ -112,6 +133,9 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
     setFormDescription(fresh.Description ?? '')
     setFormStatus(fresh.Status)
     setFormImageBase64(fresh.Image ?? '')
+    setMemoAudience('ALL')
+    setSelectedRecipientIds([])
+    setMemoRecipientSearch('')
   }
 
   function closeForm() {
@@ -119,10 +143,70 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
     setEditing(null)
   }
 
+  useEffect(() => {
+    if (!openForm || !canManage || !isMemoPage) return
+    let cancelled = false
+    setLoadingEmployees(true)
+    void fetchEmployees()
+      .then((list) => {
+        if (cancelled) return
+        setEmployees(list)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setEmployees([])
+      })
+      .finally(() => {
+        if (cancelled) return
+        setLoadingEmployees(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [openForm, canManage, isMemoPage])
+
+  const memoSelectableEmployees = useMemo(() => {
+    const seen = new Set<number>()
+    const result: Array<{ accId: number; label: string }> = []
+    for (const emp of employees) {
+      const accId = Number(emp.accId ?? 0)
+      if (!Number.isFinite(accId) || accId <= 0 || seen.has(accId)) continue
+      seen.add(accId)
+      const role = String(emp.role ?? '').trim()
+      result.push({
+        accId,
+        label: role ? `${emp.name} (${role})` : emp.name,
+      })
+    }
+    return result
+  }, [employees])
+
+  const allRecipientIds = useMemo(
+    () => memoSelectableEmployees.map((emp) => emp.accId),
+    [memoSelectableEmployees],
+  )
+  const filteredMemoRecipients = useMemo(() => {
+    const q = memoRecipientSearch.trim().toLowerCase()
+    if (!q) return memoSelectableEmployees
+    return memoSelectableEmployees.filter((emp) => emp.label.toLowerCase().includes(q))
+  }, [memoRecipientSearch, memoSelectableEmployees])
+
+  function toggleMemoRecipient(accId: number) {
+    setSelectedRecipientIds((prev) => {
+      if (prev.includes(accId)) return prev.filter((id) => id !== accId)
+      return [...prev, accId]
+    })
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!canManage) return
     const cleanTitle = formTitle.trim()
     if (!cleanTitle) return
+    if (isMemoPage && !editing && memoAudience === 'SELECTED' && selectedRecipientIds.length === 0) {
+      setError('Please select at least one employee recipient, or choose Select all.')
+      return
+    }
     setConfirm({
       open: true,
       title: editing ? `Update ${title.toLowerCase()}?` : `Add ${title.toLowerCase()}?`,
@@ -145,13 +229,22 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
                 type,
               })
             } else {
-              await createAnnouncement({
+              const payload = {
                 acc_ID: accId,
                 Title: cleanTitle,
                 Description: formDescription.trim() || '',
                 Image: formImageBase64 || '',
                 Status: formStatus,
                 type,
+                ...(isMemoPage
+                  ? {
+                      audience: memoAudience,
+                      recipientAccIds: memoAudience === 'ALL' ? allRecipientIds : selectedRecipientIds,
+                    }
+                  : {}),
+              } as const
+              await createAnnouncement({
+                ...payload,
               })
             }
             closeForm()
@@ -167,6 +260,7 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
   }
 
   function handleDelete(item: AnnouncementItem) {
+    if (!canManage) return
     setConfirm({
       open: true,
       title: `Delete ${title.toLowerCase()}?`,
@@ -212,8 +306,8 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
                 aria-label={`Search ${title.toLowerCase()}`}
               />
             </div>
-            <button type="button" className="employees-btn employees-btn-primary" onClick={openAdd}>
-              Add {title}
+            <button type="button" className="employees-btn employees-btn-primary" onClick={openAdd} disabled={!canManage}>
+              {canManage ? `Add ${title}` : 'View only'}
             </button>
           </div>
 
@@ -240,12 +334,18 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
                     />
                   ) : null}
                   <div className="app-card-actions">
-                    <button type="button" className="app-card-edit" onClick={() => { void openEdit(item) }}>
-                      Edit
-                    </button>
-                    <button type="button" className="app-card-delete" onClick={() => handleDelete(item)}>
-                      Delete
-                    </button>
+                    {canManage ? (
+                      <>
+                        <button type="button" className="app-card-edit" onClick={() => { void openEdit(item) }}>
+                          Edit
+                        </button>
+                        <button type="button" className="app-card-delete" onClick={() => handleDelete(item)}>
+                          Delete
+                        </button>
+                      </>
+                    ) : (
+                      <span className="app-card-domain">View only</span>
+                    )}
                   </div>
                 </li>
               ))}
@@ -290,7 +390,7 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
         </section>
       </div>
 
-      {openForm && (
+      {openForm && canManage && (
         <div className="modal-overlay" onClick={closeForm} role="dialog" aria-modal="true">
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
@@ -330,9 +430,74 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
                   <img src={formImageBase64} alt="Selected preview" className="w-full h-[140px] object-cover rounded-lg border border-slate-200 mt-2" />
                 ) : null}
               </div>
+              {isMemoPage ? (
+                <div className="modal-field">
+                  <label className="modal-label">Memo recipients</label>
+                  <div className="flex items-center gap-3 mb-2">
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="memo-audience"
+                        checked={memoAudience === 'ALL'}
+                        onChange={() => setMemoAudience('ALL')}
+                      />
+                      Select all (visible to all employees)
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="memo-audience"
+                        checked={memoAudience === 'SELECTED'}
+                        onChange={() => setMemoAudience('SELECTED')}
+                      />
+                      Select specific employees
+                    </label>
+                  </div>
+                  {memoAudience === 'SELECTED' ? (
+                    <div className="max-h-40 overflow-auto rounded-lg border border-slate-200 p-2">
+                      <input
+                        type="search"
+                        className="modal-input mb-2"
+                        placeholder="Search employee..."
+                        value={memoRecipientSearch}
+                        onChange={(event) => setMemoRecipientSearch(event.target.value)}
+                        aria-label="Search memo recipients"
+                      />
+                      {loadingEmployees ? (
+                        <div className="text-sm text-slate-500">Loading employees...</div>
+                      ) : filteredMemoRecipients.length === 0 ? (
+                        <div className="text-sm text-slate-500">
+                          {memoSelectableEmployees.length === 0 ? 'No employees available for selection.' : 'No employees matched your search.'}
+                        </div>
+                      ) : (
+                        filteredMemoRecipients.map((employee) => (
+                          <label key={employee.accId} className="flex items-center gap-2 py-1 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={selectedRecipientIds.includes(employee.accId)}
+                              onChange={() => toggleMemoRecipient(employee.accId)}
+                            />
+                            <span>{employee.label}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500">
+                      {allRecipientIds.length > 0
+                        ? `All ${allRecipientIds.length} employee accounts will receive this memo.`
+                        : 'Employee list unavailable. Memo will be marked as audience: ALL.'}
+                    </div>
+                  )}
+                </div>
+              ) : null}
               <div className="modal-actions">
                 <button type="button" className="employees-btn employees-btn-secondary" onClick={closeForm}>Cancel</button>
-                <button type="submit" className="employees-btn employees-btn-primary" disabled={submitBusy}>
+                <button
+                  type="submit"
+                  className="employees-btn employees-btn-primary"
+                  disabled={submitBusy || (isMemoPage && memoAudience === 'SELECTED' && selectedRecipientIds.length === 0)}
+                >
                   {submitBusy ? 'Saving...' : editing ? 'Save changes' : 'Create'}
                 </button>
               </div>

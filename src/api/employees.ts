@@ -471,7 +471,10 @@ function employeeToExpressPayload(
   }
   if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
   if (input.contact) out.Emp_cnum = input.contact
-  if (input.empImageBase64 !== undefined) out.Emp_imageBase64 = input.empImageBase64
+  if (input.empImageBase64 !== undefined) {
+    out.Emp_imageBase64 = input.empImageBase64
+    out.empImageBase64 = input.empImageBase64
+  }
   if (opts.accId != null) out.acc_ID = opts.accId
   return out
 }
@@ -498,7 +501,10 @@ function employeeUpdateToExpressPayload(
   }
   if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
   if (input.contact) out.Emp_cnum = input.contact
-  if (input.empImageBase64 !== undefined) out.Emp_imageBase64 = input.empImageBase64
+  if (input.empImageBase64 !== undefined) {
+    out.Emp_imageBase64 = input.empImageBase64
+    out.empImageBase64 = input.empImageBase64
+  }
   if (input.accId != null && Number.isFinite(input.accId) && input.accId > 0) out.acc_ID = input.accId
   return out
 }
@@ -733,7 +739,7 @@ export async function createEmployee(
     Emp_email: trimmedEmail,
     Emp_AddressID: empAddressId,
     Emp_role: typeof input.roleId === 'number' && input.roleId > 0 ? input.roleId : input.roleName,
-    ...(input.empImageBase64 !== undefined ? { Emp_imageBase64: input.empImageBase64 } : {}),
+    ...(input.empImageBase64 !== undefined ? { Emp_imageBase64: input.empImageBase64, empImageBase64: input.empImageBase64 } : {}),
     ...(accId != null ? { acc_ID: accId } : {}),
   }
   attachLocationFieldsToBody(localBody, addressPayload)

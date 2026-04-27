@@ -10,6 +10,7 @@ import { getPortalAccountId } from '../api/client'
 
 type StoryReaction = 'like' | 'love' | 'fire' | 'clap'
 type StoryReactionMap = Record<string, StoryReaction>
+type StoryViewedMap = Record<string, boolean>
 
 const STORY_REACTIONS: Array<{ key: StoryReaction; emoji: string; label: string }> = [
   { key: 'like', emoji: '👍', label: 'Like' },
@@ -19,6 +20,8 @@ const STORY_REACTIONS: Array<{ key: StoryReaction; emoji: string; label: string 
 ]
 
 const STORY_REACTION_STORAGE_KEY = 'aa2000.storyReactions'
+const STORY_VIEWED_STORAGE_KEY = 'aa2000.storyViewed'
+const STORY_CREATOR_SEGMENTS = new Set(['admin', 'ceo', 'general-manager'])
 
 function sortNewestFirst(list: AnnouncementItem[]): AnnouncementItem[] {
   return [...list].sort((a, b) => {
@@ -33,6 +36,12 @@ function formatDateLabel(value?: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'No date'
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function storyAuthorLabel(item: AnnouncementItem): string {
+  if (item.authorName?.trim()) return item.authorName.trim()
+  if (item.acc_ID > 0) return `User ${item.acc_ID}`
+  return 'Unknown user'
 }
 
 function toBase64(file: File): Promise<string> {
@@ -51,6 +60,7 @@ export default function DashboardStories() {
   const [error, setError] = useState<string | null>(null)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [reactions, setReactions] = useState<StoryReactionMap>({})
+  const [viewedStories, setViewedStories] = useState<StoryViewedMap>({})
   const [openComposer, setOpenComposer] = useState(false)
   const [composerType, setComposerType] = useState<AnnouncementType>('ANNOUNCEMENT')
   const [composerImage, setComposerImage] = useState('')
@@ -102,8 +112,23 @@ export default function DashboardStories() {
   }, [])
 
   useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(STORY_VIEWED_STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as StoryViewedMap
+      if (parsed && typeof parsed === 'object') setViewedStories(parsed)
+    } catch {
+      // Ignore malformed local storage values.
+    }
+  }, [])
+
+  useEffect(() => {
     window.localStorage.setItem(STORY_REACTION_STORAGE_KEY, JSON.stringify(reactions))
   }, [reactions])
+
+  useEffect(() => {
+    window.localStorage.setItem(STORY_VIEWED_STORAGE_KEY, JSON.stringify(viewedStories))
+  }, [viewedStories])
 
   useEffect(() => {
     let cancelled = false
@@ -136,10 +161,26 @@ export default function DashboardStories() {
     }
   }, [selectedIndex, items.length])
 
+  useEffect(() => {
+    if (selectedIndex === null) return
+    const selectedItem = items[selectedIndex]
+    if (!selectedItem) return
+    const key = String(selectedItem.an_ID)
+    setViewedStories((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
+  }, [selectedIndex, items])
+
   const hasItems = useMemo(() => items.length > 0, [items])
   const firstPathSegment = useMemo(() => location.pathname.split('/').filter(Boolean)[0] ?? '', [location.pathname])
+  const canCreateStories = useMemo(() => STORY_CREATOR_SEGMENTS.has(firstPathSegment), [firstPathSegment])
+  const isStoryViewed = (id: number): boolean => Boolean(viewedStories[String(id)])
+  const railItems = useMemo(() => {
+    const unseen = items.filter((item) => !isStoryViewed(item.an_ID))
+    const seen = items.filter((item) => isStoryViewed(item.an_ID))
+    return [...unseen, ...seen]
+  }, [items, viewedStories])
 
   const handleAddStory = () => {
+    if (!canCreateStories) return
     setSelectedIndex(null)
     setComposerType(firstPathSegment === 'admin' ? 'ANNOUNCEMENT' : 'MEMO')
     setComposerImage('')
@@ -226,6 +267,10 @@ export default function DashboardStories() {
 
   const handleCreateStory = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!canCreateStories) {
+      setComposerError('You are only allowed to view stories.')
+      return
+    }
     const accId = Number(getPortalAccountId() ?? 0)
     if (!accId) {
       setComposerError('No active portal account found. Please sign in again.')
@@ -270,28 +315,35 @@ export default function DashboardStories() {
           <div className="dashboard-stories__empty">{error}</div>
         ) : !hasItems ? (
           <div className="dashboard-stories__rail">
-            <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
-              <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
-                <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
-              </span>
-              <span className="dashboard-story__label">Add story</span>
-            </button>
+            {canCreateStories && (
+              <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
+                <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
+                  <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
+                </span>
+                <span className="dashboard-story__label">Add story</span>
+              </button>
+            )}
             <div className="dashboard-stories__empty">No active stories.</div>
           </div>
         ) : (
           <div className="dashboard-stories__rail">
-            <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
-              <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
-                <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
-              </span>
-              <span className="dashboard-story__label">Add story</span>
-            </button>
-            {items.map((item, index) => (
+            {canCreateStories && (
+              <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
+                <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
+                  <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
+                </span>
+                <span className="dashboard-story__label">Add story</span>
+              </button>
+            )}
+            {railItems.map((item) => (
               <button
                 key={`story-${item.an_ID}`}
                 type="button"
-                className="dashboard-story"
-                onClick={() => setSelectedIndex(index)}
+                className={`dashboard-story ${isStoryViewed(item.an_ID) ? 'is-seen' : ''}`}
+                onClick={() => {
+                  const originalIndex = items.findIndex((row) => row.an_ID === item.an_ID)
+                  if (originalIndex >= 0) setSelectedIndex(originalIndex)
+                }}
                 aria-label={`Open story ${item.Title || 'Untitled'}`}
               >
                 <span className="dashboard-story__avatar-wrap">
@@ -302,6 +354,7 @@ export default function DashboardStories() {
                       {item.type === 'MEMO' ? 'M' : 'A'}
                     </span>
                   )}
+                  <span className="dashboard-story__author">{storyAuthorLabel(item)}</span>
                 </span>
                 <span className="dashboard-story__label">{item.Title || 'Untitled'}</span>
               </button>
@@ -325,18 +378,20 @@ export default function DashboardStories() {
                   ×
                 </button>
               </div>
-              <button type="button" className="dashboard-story dashboard-story--add dashboard-story--add-sidebar" onClick={handleAddStory}>
-                <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
-                  <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
-                </span>
-                <span className="dashboard-story__label">Create story</span>
-              </button>
+              {canCreateStories && (
+                <button type="button" className="dashboard-story dashboard-story--add dashboard-story--add-sidebar" onClick={handleAddStory}>
+                  <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
+                    <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
+                  </span>
+                  <span className="dashboard-story__label">Create story</span>
+                </button>
+              )}
               <div className="dashboard-story-viewer__list">
                 {items.map((item, index) => (
                   <button
                     key={`viewer-item-${item.an_ID}`}
                     type="button"
-                    className={`dashboard-story-viewer__list-item ${index === selectedIndex ? 'is-active' : ''}`}
+                    className={`dashboard-story-viewer__list-item ${index === selectedIndex ? 'is-active' : ''} ${isStoryViewed(item.an_ID) ? 'is-seen' : ''}`}
                     onClick={() => setSelectedIndex(index)}
                     aria-label={`Open ${item.Title || 'Untitled'} story`}
                   >
@@ -406,7 +461,7 @@ export default function DashboardStories() {
         </div>
       )}
 
-      {openComposer && (
+      {openComposer && canCreateStories && (
         <div className="modal-overlay dashboard-story-creator-overlay" onClick={closeComposer} role="dialog" aria-modal="true">
           <div className="dashboard-story-creator" onClick={(event) => event.stopPropagation()}>
             <div className="dashboard-story-creator__header">

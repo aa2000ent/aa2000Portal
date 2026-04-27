@@ -12,6 +12,7 @@ export interface AnnouncementItem {
   Date: string
   Status: AnnouncementStatus
   type: AnnouncementType
+  authorName?: string
 }
 
 type RawAnnouncement = Record<string, unknown>
@@ -24,6 +25,27 @@ function parseStatus(value: unknown): AnnouncementStatus {
   return String(value ?? 'ACTIVE').toUpperCase() === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE'
 }
 
+function parseAuthorName(row: RawAnnouncement): string | undefined {
+  const candidates = [
+    row.authorName,
+    row.AuthorName,
+    row.author_name,
+    row.fullName,
+    row.full_name,
+    row.employeeName,
+    row.employee_name,
+    row.name,
+    row.createdByName,
+    row.created_by_name,
+    row.username,
+  ]
+  for (const value of candidates) {
+    const text = String(value ?? '').trim()
+    if (text) return text
+  }
+  return undefined
+}
+
 function mapAnnouncement(row: RawAnnouncement): AnnouncementItem {
   return {
     an_ID: Number(row.an_ID ?? row.id ?? 0),
@@ -34,6 +56,7 @@ function mapAnnouncement(row: RawAnnouncement): AnnouncementItem {
     Date: String(row.Date ?? row.date ?? ''),
     Status: parseStatus(row.Status ?? row.status),
     type: parseType(row.type),
+    authorName: parseAuthorName(row),
   }
 }
 
@@ -74,6 +97,8 @@ export interface AnnouncementCreatePayload {
   Image?: string
   Status?: AnnouncementStatus
   type: AnnouncementType
+  recipientAccIds?: number[]
+  audience?: 'ALL' | 'SELECTED'
 }
 
 export async function createAnnouncement(payload: AnnouncementCreatePayload): Promise<AnnouncementItem | null> {

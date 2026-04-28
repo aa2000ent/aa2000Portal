@@ -205,12 +205,6 @@ function buildMessageId(senderId: string, receiverId: string, timestamp: string,
 function buildSocketBaseUrl(): string {
   const raw = String(import.meta.env.VITE_SOCKET_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? '').trim()
   if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '')
-  return window.location.origin
-}
-
-function buildSocketBaseUrl(): string {
-  const raw = String(import.meta.env.VITE_SOCKET_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? '').trim()
-  if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '')
   try {
     const base = getBaseUrl()
     if (/^https?:\/\//i.test(base)) return base.replace(/\/$/, '')
@@ -218,6 +212,38 @@ function buildSocketBaseUrl(): string {
     // ignore
   }
   return window.location.origin
+}
+
+function resolveCurrentSenderEmployeeId(params: {
+  signedEmployeeId?: number
+  signedAccountId?: string
+  currentSenderId: string
+  currentSender: string
+  employees: Array<{ id: number; name?: string; email?: string; accId?: number | string; role?: string }>
+}): number | null {
+  if (Number.isFinite(params.signedEmployeeId) && Number(params.signedEmployeeId) > 0) {
+    return Number(params.signedEmployeeId)
+  }
+
+  const fromCurrentId = getEmployeeIdFromChatUserId(params.currentSenderId)
+  if (fromCurrentId && fromCurrentId > 0) return fromCurrentId
+
+  const accId = Number(String(params.signedAccountId ?? '').trim())
+  if (Number.isFinite(accId) && accId > 0) {
+    const byAccId = params.employees.find((emp) => Number(emp.accId ?? 0) === accId)
+    if (byAccId?.id) return Number(byAccId.id)
+  }
+
+  const senderKey = String(params.currentSender ?? '').trim().toLowerCase()
+  if (senderKey) {
+    const byName = params.employees.find((emp) => String(emp.name ?? '').trim().toLowerCase() === senderKey)
+    if (byName?.id) return Number(byName.id)
+
+    const byEmail = params.employees.find((emp) => String(emp.email ?? '').trim().toLowerCase() === senderKey)
+    if (byEmail?.id) return Number(byEmail.id)
+  }
+
+  return null
 }
 
 export default function ChatPage() {
@@ -722,7 +748,7 @@ export default function ChatPage() {
       const senderLabel = normalizedFromId === currentSenderId ? currentSender : (meta.fromName || 'Employee')
       upsertMessages([
         {
-          id: buildMessageId(employeeId, timestamp, rawSender, text),
+          id: buildMessageId(currentSenderId, normalizedOtherId, timestamp, text),
           conversationId,
           sender: senderLabel,
           text,

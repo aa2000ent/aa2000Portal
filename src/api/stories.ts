@@ -87,39 +87,53 @@ function parseEmployeeFromStoryRow(row: RawStory): StoryAuthorSource | undefined
  *   `router.get('/media/:filename', …)` mounted under `/stories` so full path is `/stories/media/:filename`.
  */
 export function resolveStoryMediaUrls(row: RawStory): string[] {
+  // Prioritize canonical story path fields to avoid legacy/object fields (e.g. Image=[object Object])
+  // hijacking the resolver in production payloads.
   const rawCandidates = [
-    row.Image,
-    row.image,
-    row.mediaBase64,
-    row.MediaBase64,
     row.StoriesPath,
     row.storiesPath,
     row.mediaUrl,
     row.MediaUrl,
     row.url,
-  ]
-    .map((v) => String(v ?? '').trim())
-    .filter(Boolean)
-  const pathStr = rawCandidates[0] ?? ''
-  if (!pathStr) return []
-  if (pathStr.startsWith('data:')) return [pathStr]
-  if (isLikelyBase64(pathStr)) return [toDataUrl(pathStr)]
-  if (/^https?:\/\//i.test(pathStr)) return [pathStr]
+    row.Image,
+    row.image,
+    row.mediaBase64,
+    row.MediaBase64,
+  ].filter((v) => v != null)
 
-  const basename = basenameFromDiskPath(pathStr)
-  if (!basename) return []
-  const encoded = encodeURIComponent(basename)
-
+  const out: string[] = []
   const customBase = String(import.meta.env.VITE_STORIES_MEDIA_BASE ?? '').trim().replace(/\/$/, '')
-  const candidates: string[] = []
-  if (customBase && /^https?:\/\//i.test(customBase)) candidates.push(`${customBase}/${encoded}`)
-
   const baseUrl = getBaseUrl()
-  candidates.push(`${baseUrl}${API_PREFIX}/stories/media/${encoded}`)
-  candidates.push(`${baseUrl}${API_PREFIX}/stories/${encoded}`)
-  candidates.push(`${baseUrl}${API_PREFIX}/uploads/stories/${encoded}`)
 
-  return Array.from(new Set(candidates))
+  for (const raw of rawCandidates) {
+    const pathStr = String(raw).trim()
+    if (!pathStr) continue
+    // Skip obvious non-media legacy objects serialized to string.
+    if (pathStr === '[object Object]') continue
+
+    if (pathStr.startsWith('data:')) {
+      out.push(pathStr)
+      continue
+    }
+    if (isLikelyBase64(pathStr)) {
+      out.push(toDataUrl(pathStr))
+      continue
+    }
+    if (/^https?:\/\//i.test(pathStr)) {
+      out.push(pathStr)
+      continue
+    }
+
+    const basename = basenameFromDiskPath(pathStr)
+    if (!basename) continue
+    const encoded = encodeURIComponent(basename)
+    if (customBase && /^https?:\/\//i.test(customBase)) out.push(`${customBase}/${encoded}`)
+    out.push(`${baseUrl}${API_PREFIX}/stories/media/${encoded}`)
+    out.push(`${baseUrl}${API_PREFIX}/stories/${encoded}`)
+    out.push(`${baseUrl}${API_PREFIX}/uploads/stories/${encoded}`)
+  }
+
+  return Array.from(new Set(out))
 }
 
 function parseStoryRow(row: RawStory): Omit<DashboardStoryItem, 'title' | 'accId'> | null {

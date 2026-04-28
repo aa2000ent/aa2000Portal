@@ -103,7 +103,21 @@ function parseStoryRow(row: RawStory): Omit<DashboardStoryItem, 'title' | 'accId
   const employeeId = Number(row.EmployeeID ?? row.employeeID ?? row.employeeId ?? 0)
   const caption = String(row.Caption ?? row.caption ?? '').trim()
   const date = String(
-    row.createdAt ?? row.created_at ?? row.updatedAt ?? row.updated_at ?? row.Date ?? row.date ?? '',
+    row.createdAt ??
+      row.created_at ??
+      row.CreatedAt ??
+      row.CreatedDate ??
+      row.createdDate ??
+      row.created_date ??
+      row.StoriesDate ??
+      row.stories_date ??
+      row.story_date ??
+      row.timestamp ??
+      row.updatedAt ??
+      row.updated_at ??
+      row.Date ??
+      row.date ??
+      '',
   ).trim()
   const mediaCandidates = resolveStoryMediaUrls(row)
   const mediaUrl = mediaCandidates[0] ?? ''

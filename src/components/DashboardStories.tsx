@@ -35,10 +35,23 @@ function sortNewestFirst(list: DashboardStoryItem[]): DashboardStoryItem[] {
 }
 
 function formatDateLabel(value?: string): string {
-  if (!value) return 'No date'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'No date'
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const ts = value ? new Date(value).getTime() : NaN
+  if (!Number.isFinite(ts)) return 'Now'
+  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000))
+  if (diffSec < 5) return 'Now'
+  if (diffSec < 60) return `${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h ago`
+  const diffDay = Math.floor(diffHr / 24)
+  return `${diffDay}d ago`
+}
+
+function isWithin24Hours(value?: string): boolean {
+  const ts = value ? new Date(value).getTime() : NaN
+  if (!Number.isFinite(ts)) return true
+  return Date.now() - ts < 24 * 60 * 60 * 1000
 }
 
 function toBase64(file: File): Promise<string> {
@@ -159,6 +172,7 @@ async function composeStoryImageWithText(
 }
 
 export default function DashboardStories() {
+  const [, setClockTick] = useState(0)
   const [items, setItems] = useState<DashboardStoryItem[]>([])
   const [currentUserPhotoUrl, setCurrentUserPhotoUrl] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
@@ -203,7 +217,8 @@ export default function DashboardStories() {
     try {
       const [rawStories, employees] = await Promise.all([fetchStories(), fetchEmployees()])
       const mapped = mapStoriesForDashboard(rawStories as unknown[], employees)
-      const merged = sortNewestFirst(mapped).slice(0, 12)
+      const activeStories = mapped.filter((item) => isWithin24Hours(item.date))
+      const merged = sortNewestFirst(activeStories).slice(0, 12)
       setItems(merged)
       const currentAccId = Number(getPortalAccountId() ?? 0)
       const me = currentAccId > 0 ? employees.find((emp) => Number(emp.accId ?? 0) === currentAccId) : undefined
@@ -261,6 +276,18 @@ export default function DashboardStories() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  // Keep relative timestamps fresh and auto-expire 24h stories while viewer stays open.
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      setClockTick((x) => x + 1)
+      setItems((prev) => {
+        const filtered = prev.filter((item) => isWithin24Hours(item.date))
+        return filtered.length === prev.length ? prev : filtered
+      })
+    }, 1000)
+    return () => window.clearInterval(t)
   }, [])
 
   useEffect(() => {

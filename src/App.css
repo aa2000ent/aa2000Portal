@@ -285,6 +285,27 @@
   margin-bottom: 0.55rem;
 }
 
+.dashboard-story-viewer__sidebar-head .dashboard-announcement-dialog__close {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.45);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  font-size: 1.05rem;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.dashboard-story-viewer__sidebar-head .dashboard-announcement-dialog__close:hover {
+  background: rgba(30, 41, 59, 0.75);
+  color: #ffffff;
+}
+
 .dashboard-story-viewer__sidebar-title {
   margin: 0;
   font-size: 1.02rem;

@@ -56,7 +56,16 @@ type WebhookConversationResponse = {
   employeeName?: string
   employeeRole?: string | number
   employeeImage?: string
-  data?: Array<string | { employeeID?: string | number; sender?: string; message?: string; timestamp?: string }>
+  data?: Array<string | {
+    employeeID?: string | number
+    sender?: string
+    timestamp?: string
+    message?: string
+    from?: string
+    fromName?: string
+    toEmpID?: string
+    toName?: string
+  }>
 }
 
 const AI_SERVICE_USER: ChatUser = {
@@ -189,8 +198,14 @@ function toImageSrc(raw: unknown): string | undefined {
   return `data:image/jpeg;base64,${s}`
 }
 
-function buildMessageId(employeeId: number, timestamp: string, sender: string, text: string): string {
-  return `webhook-${employeeId}-${timestamp}-${sender}-${text}`.slice(0, 220)
+function buildMessageId(senderId: string, receiverId: string, timestamp: string, text: string): string {
+  return `webhook-${senderId}->${receiverId}-${timestamp}-${text}`.slice(0, 240)
+}
+
+function buildSocketBaseUrl(): string {
+  const raw = String(import.meta.env.VITE_SOCKET_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? '').trim()
+  if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '')
+  return window.location.origin
 }
 
 function buildSocketBaseUrl(): string {
@@ -213,6 +228,7 @@ export default function ChatPage() {
   const signedAccId = Number(getPortalAccountId() ?? 0)
   const roleLabel = ROLE_LABELS[path] ?? humanizeSegment(path)
   const currentSender = signedUsername || roleLabel
+  const signedAccountId = String(getPortalAccountId() ?? '').trim()
   const signedKey = signedUsername.toLowerCase()
   const signedEmployee = useMemo(
     () => {
@@ -245,6 +261,17 @@ export default function ChatPage() {
     : signedUsername
       ? `user:${signedUsername.toLowerCase()}`
       : `role:${roleLabel.toLowerCase()}`
+  const currentParticipantId = useMemo(() => {
+    const resolvedSenderEmpId = resolveCurrentSenderEmployeeId({
+      signedEmployeeId: signedEmployee?.id,
+      signedAccountId,
+      currentSenderId,
+      currentSender,
+      employees,
+    })
+    return resolvedSenderEmpId ? `emp-id:${resolvedSenderEmpId}` : currentSenderId
+  }, [signedEmployee?.id, signedAccountId, currentSenderId, currentSender, employees])
+  const currentParticipantEmpId = useMemo(() => getEmployeeIdFromChatUserId(currentParticipantId), [currentParticipantId])
 
   const { getMessagesForConversation, getLastMessageForConversation, upsertMessages, addMessage, getUnreadCount, markConversationRead } = useChat()
   const [inputValue, setInputValue] = useState('')
@@ -290,28 +317,28 @@ export default function ChatPage() {
   }, [employees, webhookUsers])
 
   const otherUsers = useMemo(
-    () => allChatUsers.filter((u) => u.id !== currentSenderId && u.name.toLowerCase() !== currentSender.toLowerCase()),
-    [allChatUsers, currentSenderId, currentSender],
+    () => allChatUsers.filter((u) => u.id !== currentParticipantId && u.name.toLowerCase() !== currentSender.toLowerCase()),
+    [allChatUsers, currentParticipantId, currentSender],
   )
 
   const usersWithMessages = useMemo(
     () =>
       otherUsers.filter((user) => {
-        const cid = getConversationId(currentSenderId, user.id)
+        const cid = getConversationId(currentParticipantId, user.id)
         return Boolean(getLastMessageForConversation(cid))
       }),
-    [otherUsers, currentSenderId, getLastMessageForConversation],
+    [otherUsers, currentParticipantId, getLastMessageForConversation],
   )
 
   const usersWithUnread = useMemo(
     () =>
-      usersWithMessages.filter((user) => getUnreadCount(getConversationId(currentSenderId, user.id), currentSender) > 0),
-    [usersWithMessages, currentSenderId, currentSender, getUnreadCount]
+      usersWithMessages.filter((user) => getUnreadCount(getConversationId(currentParticipantId, user.id), currentSender) > 0),
+    [usersWithMessages, currentParticipantId, currentSender, getUnreadCount]
   )
 
   const totalUnread = useMemo(
-    () => usersWithUnread.reduce((sum, user) => sum + getUnreadCount(getConversationId(currentSenderId, user.id), currentSender), 0),
-    [usersWithUnread, currentSenderId, currentSender, getUnreadCount]
+    () => usersWithUnread.reduce((sum, user) => sum + getUnreadCount(getConversationId(currentParticipantId, user.id), currentSender), 0),
+    [usersWithUnread, currentParticipantId, currentSender, getUnreadCount]
   )
 
   const filteredUsers = useMemo(() => {
@@ -331,7 +358,7 @@ export default function ChatPage() {
     () => otherUsers.find((u) => u.id === selectedUser) ?? null,
     [otherUsers, selectedUser],
   )
-  const conversationId = selectedUser ? getConversationId(currentSenderId, selectedUser) : null
+  const conversationId = selectedUser ? getConversationId(currentParticipantId, selectedUser) : null
   const messages = useMemo(
     () => (conversationId ? getMessagesForConversation(conversationId) : []),
     [conversationId, getMessagesForConversation]
@@ -366,10 +393,9 @@ export default function ChatPage() {
   }, [newChatOpen])
 
   useEffect(() => {
-    const roleFallbackEmployeeIds = employees
-      .map((e) => Number(e.id))
-      .filter((id) => Number.isFinite(id) && id > 0)
-    const targetEmployeeIds = signedEmployee?.id ? [signedEmployee.id] : roleFallbackEmployeeIds
+    // Only poll the logged-in employee conversation endpoint.
+    // Avoid scanning every employee ID, which causes excessive GET traffic.
+    const targetEmployeeIds = currentParticipantEmpId ? [currentParticipantEmpId] : []
     if (targetEmployeeIds.length === 0) return
 
     const fetchConversationHistory = () =>
@@ -419,6 +445,10 @@ export default function ChatPage() {
             let timestamp = ''
             let rawSender = 'system'
             let text = ''
+            let parsedFromId = ''
+            let parsedFromName = ''
+            let parsedToId = ''
+            let parsedToName = ''
             if (row && typeof row === 'object' && !Array.isArray(row)) {
               timestamp = String(row.timestamp ?? '').trim()
               const structuredRow = row as Record<string, unknown>
@@ -436,6 +466,19 @@ export default function ChatPage() {
                     })
                   : String(structuredRow.sender ?? 'system').trim() || 'system'
               text = String(row.message ?? '').trim()
+              const directFrom = String(row.from ?? '').trim()
+              const directFromName = String(row.fromName ?? '').trim()
+              const directTo = String(row.toEmpID ?? '').trim()
+              const directToName = String(row.toName ?? '').trim()
+              if (directFrom || directTo) {
+                parsedFromId = directFrom.startsWith('emp-id:') ? directFrom : (directFrom ? `emp-id:${directFrom}` : '')
+                parsedFromName = directFromName
+                parsedToId = directTo.startsWith('emp-id:') ? directTo : (directTo ? `emp-id:${directTo}` : '')
+                parsedToName = directToName
+                rawSender = `from=${parsedFromId};fromName=${parsedFromName};to=${parsedToId};toName=${parsedToName}`
+              } else {
+                rawSender = String(row.sender ?? 'system').trim() || 'system'
+              }
             } else {
               const raw = String(row ?? '').trim()
               if (!raw) continue
@@ -448,13 +491,19 @@ export default function ChatPage() {
             if (!timestamp || !text) continue
 
             const meta = parseWebhookSenderMeta(rawSender)
-            const normalizedFromId = normalizeParticipantId(meta.fromId, meta.fromName, employees)
-            const normalizedToId = normalizeParticipantId(meta.toId, meta.toName, employees)
+            const normalizedFromId = normalizeParticipantId(parsedFromId || meta.fromId, parsedFromName || meta.fromName, employees)
+            const normalizedToId = normalizeParticipantId(parsedToId || meta.toId, parsedToName || meta.toName, employees)
+            const participantA = isEmpId(normalizedFromId)
+              ? String(normalizedFromId)
+              : toStableNonEmpId(normalizedFromId, parsedFromName || meta.fromName)
+            const participantB = isEmpId(normalizedToId)
+              ? String(normalizedToId)
+              : toStableNonEmpId(normalizedToId, parsedToName || meta.toName)
             const otherIdCandidate =
-              normalizedFromId && normalizedFromId !== currentSenderId
-                ? normalizedFromId
-                : normalizedToId && normalizedToId !== currentSenderId
-                  ? normalizedToId
+              participantA && participantA !== currentParticipantId
+                ? participantA
+                : participantB && participantB !== currentParticipantId
+                  ? participantB
                   : AI_SERVICE_USER.id
             const otherId = otherIdCandidate === AI_SERVICE_USER.id
               ? AI_SERVICE_USER.id
@@ -464,10 +513,10 @@ export default function ChatPage() {
                     : toStableNonEmpId(otherIdCandidate, meta.fromName || meta.toName)
                 )
             const otherName =
-              normalizedFromId && normalizedFromId !== currentSenderId
-                ? meta.fromName || 'Unknown'
-                : normalizedToId && normalizedToId !== currentSenderId
-                  ? meta.toName || 'Unknown'
+              normalizedFromId && normalizedFromId !== currentParticipantId
+                ? parsedFromName || meta.fromName || 'Unknown'
+                : normalizedToId && normalizedToId !== currentParticipantId
+                  ? parsedToName || meta.toName || 'Unknown'
                   : 'AI Service'
             if (otherId !== AI_SERVICE_USER.id) {
               const otherEmpId = getEmployeeIdFromChatUserId(otherId)
@@ -485,7 +534,7 @@ export default function ChatPage() {
             const senderLabel = normalizedFromId === currentSenderId ? currentSender : (meta.fromName || otherName)
 
             parsed.push({
-              id: buildMessageId(result.employeeId, timestamp, rawSender, text),
+              id: buildMessageId(participantA, participantB, timestamp, text),
               conversationId,
               sender: senderLabel,
               text,
@@ -519,7 +568,78 @@ export default function ChatPage() {
     return () => {
       if (timer != null) window.clearInterval(timer)
     }
-  }, [signedEmployee, employees, currentSenderId, currentSender, upsertMessages])
+  }, [currentParticipantEmpId, employees, currentParticipantId, currentSender, upsertMessages])
+
+  useEffect(() => {
+    if (!currentParticipantEmpId) return
+    const socketBase = buildSocketBaseUrl()
+    const socket: Socket = io(socketBase, {
+      transports: ['websocket', 'polling'],
+      withCredentials: true,
+    })
+
+    socket.on('connect', () => {
+      socket.emit('join', { employeeID: currentParticipantEmpId })
+    })
+
+    socket.on('message', (evt: {
+      timestamp?: string
+      senderEmpID?: string | number
+      senderName?: string
+      receiverEmpID?: string | number
+      receiverName?: string
+      message?: string
+    }) => {
+      const senderEmpId = Number(evt.senderEmpID)
+      const receiverEmpId = Number(evt.receiverEmpID)
+      const timestamp = String(evt.timestamp ?? '').trim()
+      const text = String(evt.message ?? '').trim()
+      if (!Number.isFinite(senderEmpId) || !Number.isFinite(receiverEmpId) || !timestamp || !text) return
+
+      const senderId = `emp-id:${senderEmpId}`
+      const receiverId = `emp-id:${receiverEmpId}`
+      const conversationId = getConversationId(senderId, receiverId)
+      const senderName = String(evt.senderName ?? '').trim()
+      const isOwn = senderEmpId === currentParticipantEmpId
+      const label = isOwn ? currentSender : (senderName || `Employee ${senderEmpId}`)
+
+      upsertMessages([
+        {
+          id: buildMessageId(senderId, receiverId, timestamp, text),
+          conversationId,
+          sender: label,
+          text,
+          timestamp,
+        },
+      ])
+
+      const peerEmpId = senderEmpId === currentParticipantEmpId ? receiverEmpId : senderEmpId
+      const peerId = `emp-id:${peerEmpId}`
+      const peerFromEmployees = employees.find((e) => Number(e.id) === peerEmpId)
+      const peerName =
+        String(peerFromEmployees?.name ?? '').trim() ||
+        (peerEmpId === senderEmpId ? senderName : String(evt.receiverName ?? '').trim()) ||
+        `Employee ${peerEmpId}`
+      setWebhookUsers((prev) => {
+        if (prev.some((u) => u.id === peerId)) return prev
+        return [
+          ...prev,
+          {
+            id: peerId,
+            name: peerName,
+            role: String(peerFromEmployees?.role ?? '').trim() || 'Employee',
+            photoUrl: peerFromEmployees?.photoUrl,
+            search: `${peerName} employee`.toLowerCase(),
+          },
+        ]
+      })
+    })
+
+    return () => {
+      socket.emit('leave', { employeeID: currentParticipantEmpId })
+      socket.disconnect()
+    }
+  }, [currentParticipantEmpId, currentSender, employees, upsertMessages])
 
   useEffect(() => {
     const roleFallbackEmployeeIds = employees
@@ -816,7 +936,7 @@ export default function ChatPage() {
             </p>
           ) : (
             filteredUsers.map((user) => {
-              const cid = getConversationId(currentSenderId, user.id)
+              const cid = getConversationId(currentParticipantId, user.id)
               const last = getLastMessageForConversation(cid)
               const isActive = selectedUser === user.id
               const unread = getUnreadCount(cid, currentSender)

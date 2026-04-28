@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { io, type Socket } from 'socket.io-client'
 import { useChat, getConversationId } from '../contexts/ChatContext'
 import { useEmployees } from '../contexts/EmployeesContext'
 import { apiRequest, getPortalAccountId, getPortalUsername } from '../api/client'
 import { getBaseUrl } from '../api/config'
+import { fetchStories, isStoryVideoUrl, mapStoriesForDashboard } from '../api/stories'
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
@@ -51,6 +52,14 @@ type ChatUser = {
   search: string
 }
 
+type StoryPreview = {
+  userId: string
+  mediaUrl: string
+  title: string
+  avatarUrl?: string
+  date?: string
+}
+
 type WebhookConversationResponse = {
   success?: boolean
   employeeName?: string
@@ -76,6 +85,8 @@ const AI_SERVICE_USER: ChatUser = {
   role: 'Assistant',
   search: 'ai service assistant',
 }
+
+const STORY_AUTOPLAY_MS = 5000
 
 function humanizeSegment(seg: string): string {
   return seg
@@ -117,6 +128,20 @@ function toCanonicalRoleKey(raw: string): string {
   if (key === 'coo' || key === 'co-ceo') return 'co-ceo'
   if (key === 'gm' || key === 'generalmanager') return 'general-manager'
   return key
+}
+
+function formatDeliveryStatus(status: 'sending' | 'sent' | 'delivered' | 'seen' | undefined): string {
+  if (status === 'sending') return 'Sending...'
+  if (status === 'sent') return 'Sent'
+  if (status === 'delivered') return 'Delivered'
+  if (status === 'seen') return 'Seen'
+  return ''
+}
+
+function isWithin24Hours(value?: string): boolean {
+  const ts = value ? Date.parse(value) : NaN
+  if (!Number.isFinite(ts)) return true
+  return Date.now() - ts < 24 * 60 * 60 * 1000
 }
 
 function getEmployeeIdFromChatUserId(id: string): number | null {
@@ -360,17 +385,40 @@ export default function ChatPage() {
     return byParticipantId || undefined
   }, [signedEmployee?.photoUrl, currentParticipantEmpId, employees])
 
-  const { getMessagesForConversation, getLastMessageForConversation, upsertMessages, addMessage, getUnreadCount, markConversationRead } = useChat()
+  const {
+    getMessagesForConversation,
+    getLastMessageForConversation,
+    upsertMessages,
+    addMessage,
+    setMessageStatus,
+    markLatestOwnMessageSeen,
+    getUnreadCount,
+    markConversationRead,
+  } = useChat()
   const [inputValue, setInputValue] = useState('')
   const [searchUser, setSearchUser] = useState('')
   const [selectedUser, setSelectedUser] = useState<string | null>(null)
+  const [activeMetaMessageId, setActiveMetaMessageId] = useState<string | null>(null)
   const [newChatOpen, setNewChatOpen] = useState(false)
   const [newChatQuery, setNewChatQuery] = useState('')
   const [tab, setTab] = useState<'all' | 'unread'>('all')
   const [webhookUsers, setWebhookUsers] = useState<ChatUser[]>([])
+  const [storyOwnerIds, setStoryOwnerIds] = useState<Set<string>>(new Set())
+  const [storyPreviewByUserId, setStoryPreviewByUserId] = useState<Record<string, string>>({})
+  const [storyItemByUserId, setStoryItemByUserId] = useState<Record<string, StoryPreview>>({})
+  const [chatStoryOwners, setChatStoryOwners] = useState<StoryPreview[]>([])
+  const [chatStoriesByOwner, setChatStoriesByOwner] = useState<Record<string, StoryPreview[]>>({})
+  const [openStoryOwnerId, setOpenStoryOwnerId] = useState<string | null>(null)
+  const [openStorySubIndex, setOpenStorySubIndex] = useState(0)
+  const [isStoryPaused, setIsStoryPaused] = useState(false)
+  const [storyProgressMs, setStoryProgressMs] = useState(0)
+  const storyFrameRef = useRef<number | null>(null)
+  const storyLastTickRef = useRef<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const newChatRef = useRef<HTMLDivElement>(null)
   const socketRef = useRef<Socket | null>(null)
+  const conversationItemRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const previousConversationTopsRef = useRef<Map<string, number>>(new Map())
 
   const allChatUsers = useMemo<ChatUser[]>(() => {
     const fromEmployees = employees
@@ -415,11 +463,22 @@ export default function ChatPage() {
   )
 
   const usersWithMessages = useMemo(
-    () =>
-      otherUsers.filter((user) => {
+    () => {
+      const list = otherUsers.filter((user) => {
         const cid = getConversationId(currentParticipantId, user.id)
         return Boolean(getLastMessageForConversation(cid))
-      }),
+      })
+      list.sort((a, b) => {
+        const cidA = getConversationId(currentParticipantId, a.id)
+        const cidB = getConversationId(currentParticipantId, b.id)
+        const tsA = Date.parse(String(getLastMessageForConversation(cidA)?.timestamp ?? ''))
+        const tsB = Date.parse(String(getLastMessageForConversation(cidB)?.timestamp ?? ''))
+        const safeA = Number.isFinite(tsA) ? tsA : 0
+        const safeB = Number.isFinite(tsB) ? tsB : 0
+        return safeB - safeA
+      })
+      return list
+    },
     [otherUsers, currentParticipantId, getLastMessageForConversation],
   )
 
@@ -462,8 +521,33 @@ export default function ChatPage() {
   }, [conversationId, messages, markConversationRead])
 
   useEffect(() => {
+    setActiveMetaMessageId(null)
+  }, [conversationId])
+
+  useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
   }, [messages])
+
+  useLayoutEffect(() => {
+    const nextTops = new Map<string, number>()
+    for (const user of filteredUsers) {
+      const el = conversationItemRefs.current[user.id]
+      if (!el) continue
+      const top = el.getBoundingClientRect().top
+      nextTops.set(user.id, top)
+      const prevTop = previousConversationTopsRef.current.get(user.id)
+      if (typeof prevTop === 'number') {
+        const deltaY = prevTop - top
+        if (Math.abs(deltaY) > 1) {
+          el.animate(
+            [{ transform: `translateY(${deltaY}px)` }, { transform: 'translateY(0)' }],
+            { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+          )
+        }
+      }
+    }
+    previousConversationTopsRef.current = nextTops
+  }, [filteredUsers])
 
   useEffect(() => {
     if (!newChatOpen) return
@@ -484,6 +568,181 @@ export default function ChatPage() {
       window.removeEventListener('keydown', onEsc)
     }
   }, [newChatOpen])
+
+  const ownerStories = openStoryOwnerId ? (chatStoriesByOwner[openStoryOwnerId] ?? []) : []
+  const safeSubIndex = ownerStories.length > 0 ? Math.min(Math.max(openStorySubIndex, 0), ownerStories.length - 1) : 0
+  const openStoryPreview = ownerStories[safeSubIndex] ?? null
+  const moveOwner = (delta: number) => {
+    if (chatStoryOwners.length === 0 || !openStoryOwnerId) return
+    const currentIdx = chatStoryOwners.findIndex((x) => x.userId === openStoryOwnerId)
+    if (currentIdx < 0) return
+    const nextOwnerIdx = (currentIdx + delta + chatStoryOwners.length) % chatStoryOwners.length
+    const nextOwner = chatStoryOwners[nextOwnerIdx]
+    if (!nextOwner) return
+    setOpenStoryOwnerId(nextOwner.userId)
+    setOpenStorySubIndex(0)
+  }
+  const goPrevStoryPreview = () => {
+    if (ownerStories.length === 0) return
+    if (ownerStories.length === 1) {
+      moveOwner(-1)
+      setStoryProgressMs(0)
+      return
+    }
+    setOpenStorySubIndex((prev) => (prev - 1 + ownerStories.length) % ownerStories.length)
+    setStoryProgressMs(0)
+  }
+  const goNextStoryPreview = () => {
+    if (ownerStories.length === 0) return
+    if (ownerStories.length === 1) {
+      moveOwner(1)
+      setStoryProgressMs(0)
+      return
+    }
+    setOpenStorySubIndex((prev) => (prev + 1) % ownerStories.length)
+    setStoryProgressMs(0)
+  }
+
+  useEffect(() => {
+    if (!openStoryOwnerId) return
+    const onEsc = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') setOpenStoryOwnerId(null)
+    }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [openStoryOwnerId])
+
+  useEffect(() => {
+    if (!openStoryPreview) return
+    setStoryProgressMs(0)
+  }, [openStoryOwnerId, safeSubIndex, openStoryPreview?.mediaUrl])
+
+  useEffect(() => {
+    if (!openStoryPreview || isStoryPaused) return
+    storyLastTickRef.current = null
+    const step = (ts: number) => {
+      const last = storyLastTickRef.current ?? ts
+      const delta = ts - last
+      storyLastTickRef.current = ts
+      setStoryProgressMs((prev) => {
+        const next = prev + Math.max(0, delta)
+        if (next >= STORY_AUTOPLAY_MS) {
+          // Move forward on next tick to avoid render thrash.
+          window.setTimeout(() => {
+            goNextStoryPreview()
+          }, 0)
+          return 0
+        }
+        return next
+      })
+      storyFrameRef.current = window.requestAnimationFrame(step)
+    }
+    storyFrameRef.current = window.requestAnimationFrame(step)
+    return () => {
+      if (storyFrameRef.current != null) {
+        window.cancelAnimationFrame(storyFrameRef.current)
+        storyFrameRef.current = null
+      }
+      storyLastTickRef.current = null
+    }
+  }, [openStoryPreview, isStoryPaused, goNextStoryPreview])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadStoryOwners = async () => {
+      try {
+        const rawStories = await fetchStories()
+        if (cancelled) return
+        const authorSource = employees.map((e) => ({
+          id: Number(e.id ?? 0),
+          accId: Number.isFinite(Number(e.accId ?? 0)) && Number(e.accId ?? 0) > 0 ? Number(e.accId ?? 0) : undefined,
+          name: String(e.name ?? '').trim() || `Employee ${Number(e.id ?? 0)}`,
+          photoUrl: typeof e.photoUrl === 'string' ? e.photoUrl : undefined,
+        }))
+        const mapped = mapStoriesForDashboard(rawStories as unknown[], authorSource)
+        const active = mapped.filter((s) => isWithin24Hours(s.date))
+        const next = new Set<string>()
+        const previewMap: Record<string, string> = {}
+        const itemMap: Record<string, StoryPreview> = {}
+        const groupedByOwner: Record<string, StoryPreview[]> = {}
+        for (const item of active) {
+          const media = String(item.mediaUrl ?? '').trim()
+          const hasUsablePreview = media && !isStoryVideoUrl(media)
+          const directOwnerKey = Number.isFinite(item.employeeId) && item.employeeId > 0 ? `emp-id:${item.employeeId}` : ''
+          const ownerByAcc = Number.isFinite(item.accId) && item.accId > 0
+            ? employees.find((e) => Number(e.accId ?? 0) === item.accId)
+            : undefined
+          const ownerKey = ownerByAcc?.id ? `emp-id:${ownerByAcc.id}` : directOwnerKey
+          const preview: StoryPreview = {
+            userId: ownerKey,
+            mediaUrl: media,
+            title: item.title || 'Story',
+            avatarUrl: item.authorPhotoUrl,
+            date: item.date,
+          }
+
+          if (hasUsablePreview) {
+            if (!groupedByOwner[ownerKey]) groupedByOwner[ownerKey] = []
+            groupedByOwner[ownerKey].push(preview)
+          }
+          if (Number.isFinite(item.employeeId) && item.employeeId > 0) {
+            const key = `emp-id:${item.employeeId}`
+            next.add(key)
+            if (hasUsablePreview && !previewMap[key]) {
+              previewMap[key] = media
+              itemMap[key] = { userId: key, mediaUrl: media, title: item.title || 'Story', avatarUrl: item.authorPhotoUrl, date: item.date }
+            }
+          }
+          if (Number.isFinite(item.accId) && item.accId > 0) {
+            const byAcc = employees.find((e) => Number(e.accId ?? 0) === item.accId)
+            if (byAcc?.id) {
+              const key = `emp-id:${byAcc.id}`
+              next.add(key)
+              if (hasUsablePreview && !previewMap[key]) {
+                previewMap[key] = media
+                itemMap[key] = { userId: key, mediaUrl: media, title: item.title || 'Story', avatarUrl: item.authorPhotoUrl, date: item.date }
+              }
+            }
+          }
+        }
+        for (const key of Object.keys(groupedByOwner)) {
+          groupedByOwner[key].sort((a, b) => {
+            const at = Date.parse(String(a.date ?? ''))
+            const bt = Date.parse(String(b.date ?? ''))
+            const sa = Number.isFinite(at) ? at : 0
+            const sb = Number.isFinite(bt) ? bt : 0
+            return sb - sa
+          })
+        }
+        const ownerList = Object.values(groupedByOwner)
+          .map((stories) => stories[0])
+          .filter((x): x is StoryPreview => Boolean(x))
+          .sort((a, b) => {
+            const at = Date.parse(String(a.date ?? ''))
+            const bt = Date.parse(String(b.date ?? ''))
+            const sa = Number.isFinite(at) ? at : 0
+            const sb = Number.isFinite(bt) ? bt : 0
+            return sb - sa
+          })
+        setStoryOwnerIds(next)
+        setStoryPreviewByUserId(previewMap)
+        setStoryItemByUserId(itemMap)
+        setChatStoriesByOwner(groupedByOwner)
+        setChatStoryOwners(ownerList)
+      } catch {
+        // Ignore story indicator failures in chat list.
+      }
+    }
+
+    void loadStoryOwners()
+    const timer = window.setInterval(() => {
+      void loadStoryOwners()
+    }, 60_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [employees])
 
   useEffect(() => {
     // Only poll the logged-in employee conversation endpoint.
@@ -515,7 +774,7 @@ export default function ChatPage() {
         ),
       ).then((results) => {
         const discoveredById = new Map<string, ChatUser>()
-        const parsed: Array<{ id: string; conversationId: string; sender: string; text: string; timestamp: string }> = []
+        const parsed: Array<{ id: string; conversationId: string; sender: string; text: string; timestamp: string; status?: 'delivered' }> = []
 
         for (const result of results) {
           const resultUserId = `emp-id:${result.employeeId}`
@@ -688,6 +947,7 @@ export default function ChatPage() {
               sender: senderLabel,
               text,
               timestamp,
+              status: senderLabel === currentSender ? 'delivered' : undefined,
             })
           }
         }
@@ -805,6 +1065,7 @@ export default function ChatPage() {
 
       const conversationId = getConversationId(currentSenderId, normalizedOtherId)
       const senderLabel = normalizedFromId === currentSenderId ? currentSender : (meta.fromName || 'Employee')
+      const deliveryStatus = normalizedFromId === currentSenderId ? 'delivered' : undefined
       upsertMessages([
         {
           id: buildMessageId(currentSenderId, normalizedOtherId, timestamp, text),
@@ -812,6 +1073,7 @@ export default function ChatPage() {
           sender: senderLabel,
           text,
           timestamp,
+          status: deliveryStatus,
         },
       ])
       const peerEmpId = senderEmpId === currentParticipantEmpId ? receiverEmpId : senderEmpId
@@ -843,6 +1105,9 @@ export default function ChatPage() {
           },
         ]
       })
+      if (normalizedFromId !== currentSenderId) {
+        markLatestOwnMessageSeen(conversationId, currentSender)
+      }
     }
 
     // Support multiple backend event names.
@@ -878,14 +1143,14 @@ export default function ChatPage() {
       socket.disconnect()
       socketRef.current = null
     }
-  }, [currentParticipantEmpId, currentSender, currentDisplayName, employees, upsertMessages, signedEmployee, currentSenderId])
+  }, [currentParticipantEmpId, currentSender, currentDisplayName, employees, upsertMessages, signedEmployee, currentSenderId, markLatestOwnMessageSeen])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const text = inputValue.trim()
     if (!text || !conversationId) return
     // Optimistic local append so the message doesn't "disappear" while waiting webhook/socket echo.
-    addMessage(conversationId, currentSender, text)
+    const optimisticId = addMessage(conversationId, currentSender, text, { status: 'sending' })
     setInputValue('')
 
     // Trigger webhook logging when sender/receiver employee IDs are resolvable.
@@ -906,6 +1171,9 @@ export default function ChatPage() {
           message: text,
         }),
         portal: { suppressFailureLog: true },
+      })
+      .then(() => {
+        if (optimisticId) setMessageStatus(optimisticId, 'sent')
       })
       .catch(() => {
         // Keep chat UX responsive even if webhook logging fails.
@@ -1038,30 +1306,54 @@ export default function ChatPage() {
               const last = getLastMessageForConversation(cid)
               const isActive = selectedUser === user.id
               const unread = getUnreadCount(cid, [currentSender, currentDisplayName])
+              const lastText = String(last?.text ?? '').trim()
+              const baseSubtitle = last
+                ? (last.sender === currentSender
+                    ? (lastText ? `Sent: ${lastText}` : 'Sent')
+                    : (lastText || 'New message'))
+                : user.role
+              const subtitle = unread >= 2
+                ? `${unread > 99 ? '99+' : unread} new message${unread > 1 ? 's' : ''}`
+                : unread === 1
+                  ? (
+                      last && last.sender !== currentSender
+                        ? (lastText || 'New message')
+                        : '1 new message'
+                    )
+                  : baseSubtitle
               return (
                 <button
                   key={user.id}
                   type="button"
                   className={`messenger-conv-item ${isActive ? 'active' : ''} ${unread > 0 ? 'has-unread' : ''}`}
+                  ref={(el) => {
+                    conversationItemRefs.current[user.id] = el
+                  }}
                   onClick={() => setSelectedUser(user.id)}
                   aria-current={isActive ? 'true' : undefined}
                 >
-                  <span className="messenger-conv-avatar" aria-hidden>
-                    {user.photoUrl ? (
-                      <img src={user.photoUrl} alt={`${user.name} profile`} className="messenger-avatar-image" />
+                  <span
+                    className={`messenger-conv-avatar ${storyOwnerIds.has(user.id) ? 'has-story' : ''}`}
+                    aria-hidden
+                    onClick={(event) => {
+                      const story = storyItemByUserId[user.id]
+                      if (!story) return
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setOpenStoryOwnerId(story.userId)
+                      setOpenStorySubIndex(0)
+                    }}
+                  >
+                    {(storyPreviewByUserId[user.id] || user.photoUrl) ? (
+                      <img src={storyPreviewByUserId[user.id] || user.photoUrl} alt={`${user.name} story preview`} className="messenger-avatar-image" />
                     ) : (
                       getInitials(user.name)
                     )}
                   </span>
                   <div className="messenger-conv-body">
                     <span className="messenger-conv-name">{user.name}</span>
-                    <span className="messenger-conv-role">{user.role}</span>
+                    <span className="messenger-conv-role">{subtitle}</span>
                   </div>
-                  {unread > 0 && (
-                    <span className="messenger-conv-unread" aria-label={`${unread} unread`}>
-                      {unread > 99 ? '99+' : unread}
-                    </span>
-                  )}
                   {last && unread === 0 && (
                     <span className="messenger-conv-time">{formatChatTime(last.timestamp)}</span>
                   )}
@@ -1106,8 +1398,16 @@ export default function ChatPage() {
               {messages.length === 0 ? (
                 <p className="messenger-empty">No messages yet. Say hello!</p>
               ) : (
-                messages.map((m) => {
+                messages.map((m, idx) => {
                   const isOwn = m.sender === currentSender || m.sender === currentDisplayName
+                  const next = messages[idx + 1]
+                  const nextIsOwn = next ? (next.sender === currentSender || next.sender === currentDisplayName) : false
+                  const sameIncomingSenderAsNext =
+                    Boolean(next) &&
+                    !isOwn &&
+                    !nextIsOwn &&
+                    String(next.sender ?? '').trim().toLowerCase() === String(m.sender ?? '').trim().toLowerCase()
+                  const showAvatar = !isOwn && !sameIncomingSenderAsNext
                   const peerName = String(selectedUserObj?.name ?? '').trim()
                   const senderNameForBubble = isOwn
                     ? String(currentDisplayName ?? '').trim() || m.sender
@@ -1115,19 +1415,41 @@ export default function ChatPage() {
                   const senderPhotoForBubble = isOwn
                     ? currentPhotoUrl
                     : selectedUserObj?.photoUrl
+                  const deliveryLabel = isOwn ? formatDeliveryStatus(m.status) : ''
+                  const showMeta = activeMetaMessageId === m.id
                   return (
                     <div key={m.id} className={`messenger-msg ${isOwn ? 'messenger-msg-own' : ''}`}>
-                      <span className="messenger-msg-avatar" aria-hidden>
-                        {senderPhotoForBubble ? (
-                          <img src={senderPhotoForBubble} alt={`${senderNameForBubble} profile`} className="messenger-avatar-image" />
-                        ) : (
-                          getInitials(senderNameForBubble)
-                        )}
-                      </span>
-                      <div className="messenger-msg-bubble">
-                        <span className="messenger-msg-sender">{toConversationFirstName(senderNameForBubble)}</span>
+                      {showAvatar ? (
+                        <span className="messenger-msg-avatar" aria-hidden>
+                          {senderPhotoForBubble ? (
+                            <img src={senderPhotoForBubble} alt={`${senderNameForBubble} profile`} className="messenger-avatar-image" />
+                          ) : (
+                            getInitials(senderNameForBubble)
+                          )}
+                        </span>
+                      ) : (
+                        <span className="messenger-msg-avatar is-hidden" aria-hidden />
+                      )}
+                      <div
+                        className="messenger-msg-bubble"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setActiveMetaMessageId((prev) => (prev === m.id ? null : m.id))}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setActiveMetaMessageId((prev) => (prev === m.id ? null : m.id))
+                          }
+                        }}
+                        aria-label="Toggle message details"
+                      >
                         <p className="messenger-msg-text">{m.text}</p>
-                        <span className="messenger-msg-time">{formatChatTime(m.timestamp)}</span>
+                        {showMeta && (
+                          <span className="messenger-msg-time">
+                            {formatChatTime(m.timestamp)}
+                            {deliveryLabel ? ` · ${deliveryLabel}` : ''}
+                          </span>
+                        )}
                       </div>
                     </div>
                   )
@@ -1164,6 +1486,123 @@ export default function ChatPage() {
           </div>
         )}
       </main>
+
+      {openStoryPreview && (
+        <div className="dashboard-announcement-dialog-backdrop" role="presentation" onClick={() => setOpenStoryOwnerId(null)}>
+          <div className="dashboard-story-viewer chat-story-viewer--dashboard" role="dialog" aria-modal="true" aria-label={`${openStoryPreview.title} story`} onClick={(e) => e.stopPropagation()}>
+            <aside className="dashboard-story-viewer__sidebar">
+              <div className="dashboard-story-viewer__sidebar-head">
+                <h3 className="dashboard-story-viewer__sidebar-title">Stories</h3>
+                <button type="button" className="dashboard-announcement-dialog__close" onClick={() => setOpenStoryOwnerId(null)} aria-label="Close story preview">×</button>
+              </div>
+              <div className="dashboard-story-viewer__list">
+                {chatStoryOwners.map((item) => (
+                  <button
+                    key={`chat-story-item-${item.userId}`}
+                    type="button"
+                    className={`dashboard-story-viewer__list-item ${item.userId === openStoryOwnerId ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setOpenStoryOwnerId(item.userId)
+                      setOpenStorySubIndex(0)
+                    }}
+                    aria-label={`Open ${item.title} story`}
+                  >
+                    <span className="dashboard-story-viewer__list-avatar">
+                      <img src={item.mediaUrl} alt="" />
+                    </span>
+                    <span className="dashboard-story-viewer__list-copy">
+                      <strong>{item.title}</strong>
+                      <small>{item.date ? formatChatTime(item.date) : 'Story'}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </aside>
+            <div className="dashboard-story-viewer__stage">
+              <article className="dashboard-story-viewer__card chat-story-preview--dashboard">
+                <div className="dashboard-story-media-wrap">
+                  {ownerStories.length > 0 && (
+                    <div className="dashboard-story-progress" aria-label="Story progress">
+                      {ownerStories.map((item, idx) => (
+                        <span
+                          key={`chat-story-progress-${item.userId}-${idx}`}
+                          className={`dashboard-story-progress__segment ${idx <= safeSubIndex ? 'is-active' : ''}`}
+                          style={
+                            idx < safeSubIndex
+                              ? { background: 'rgba(241, 245, 249, 0.95)' }
+                              : idx === safeSubIndex
+                                ? {
+                                    background: `linear-gradient(to right, rgba(241,245,249,0.95) ${Math.min(100, Math.max(0, (storyProgressMs / STORY_AUTOPLAY_MS) * 100))}%, rgba(148,163,184,0.45) ${Math.min(100, Math.max(0, (storyProgressMs / STORY_AUTOPLAY_MS) * 100))}%)`,
+                                  }
+                                : undefined
+                          }
+                          aria-hidden
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <div className="dashboard-story-topbar">
+                    <div className="dashboard-story-topbar__author">
+                      <span className="dashboard-story-topbar__avatar" aria-hidden>
+                        {openStoryPreview.avatarUrl ? <img src={openStoryPreview.avatarUrl} alt="" /> : <span>{(openStoryPreview.title || 'U').trim().slice(0, 1).toUpperCase()}</span>}
+                      </span>
+                      <span className="dashboard-story-topbar__copy">
+                        <strong>{openStoryPreview.title}</strong>
+                        <small>{openStoryPreview.date ? formatChatTime(openStoryPreview.date) : 'Story'}</small>
+                      </span>
+                    </div>
+                    <div className="dashboard-story-topbar__actions">
+                      <button type="button" className="dashboard-story-topbar__icon-btn" aria-label="Sound" title="Sound">🔊</button>
+                      <button
+                        type="button"
+                        className="dashboard-story-topbar__icon-btn"
+                        aria-label={isStoryPaused ? 'Play' : 'Pause'}
+                        title={isStoryPaused ? 'Play' : 'Pause'}
+                        onClick={() => setIsStoryPaused((prev) => !prev)}
+                      >
+                        {isStoryPaused ? '▶' : '⏸'}
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="dashboard-story-viewer__tap-zone dashboard-story-viewer__tap-zone--prev"
+                    onClick={goPrevStoryPreview}
+                    aria-label="Previous story"
+                  />
+                  <img
+                    key={openStoryPreview.mediaUrl}
+                    src={openStoryPreview.mediaUrl}
+                    alt={`${openStoryPreview.title} story`}
+                    className="dashboard-announcement-dialog__image chat-story-preview__image--smooth"
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      const x = event.clientX - rect.left
+                      if (x < rect.width / 2) goPrevStoryPreview()
+                      else goNextStoryPreview()
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="dashboard-story-viewer__tap-zone dashboard-story-viewer__tap-zone--next"
+                    onClick={goNextStoryPreview}
+                    aria-label="Next story"
+                  />
+                </div>
+                <footer className="dashboard-story-viewer__footer">
+                  <div className="dashboard-story-viewer__message">Send message...</div>
+                  <div className="dashboard-story-reactions" aria-label="Story reactions">
+                    <button type="button" className="dashboard-story-reaction-btn" aria-label="Like">👍</button>
+                    <button type="button" className="dashboard-story-reaction-btn" aria-label="Love">❤️</button>
+                    <button type="button" className="dashboard-story-reaction-btn" aria-label="Fire">🔥</button>
+                    <button type="button" className="dashboard-story-reaction-btn" aria-label="Clap">👏</button>
+                  </div>
+                </footer>
+              </article>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

@@ -3466,7 +3466,21 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
 }
 
 .messenger-conv-item.has-unread .messenger-conv-name {
-  font-weight: 700;
+  font-weight: 600;
+}
+
+.messenger-conv-item.has-unread {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.messenger-conv-item.has-unread .messenger-conv-avatar {
+  outline: 2px solid rgba(59, 130, 246, 0.85);
+  outline-offset: 1px;
+}
+
+.messenger-conv-item.has-unread .messenger-conv-role {
+  color: #93c5fd;
+  font-weight: 600;
 }
 
 .messenger-conv-unread {
@@ -3502,6 +3516,7 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   border: none;
+  border-bottom: 1px solid var(--aa-content-border);
   width: 100%;
   background: transparent;
   color: inherit;
@@ -3510,6 +3525,10 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   transition: background 0.15s;
   border-radius: 0;
   font: inherit;
+}
+
+.messenger-conversations .messenger-conv-item:last-child {
+  border-bottom: none;
 }
 
 .messenger-conv-item:hover {
@@ -3536,6 +3555,22 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   flex-shrink: 0;
 }
 
+.messenger-conv-avatar.has-story {
+  position: relative;
+  padding: 2px;
+  background: linear-gradient(140deg, #38bdf8 0%, #2563eb 45%, #22c55e 100%);
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.22);
+}
+
+.messenger-conv-avatar.has-story::after {
+  display: none;
+}
+
+.messenger-conv-avatar.has-story .messenger-avatar-image {
+  border-radius: 50%;
+  border: 2px solid #0f172a;
+}
+
 .messenger-avatar-image {
   width: 100%;
   height: 100%;
@@ -3555,6 +3590,9 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   font-size: 0.9375rem;
   font-weight: 600;
   color: var(--msg-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .messenger-conv-role {
@@ -3715,6 +3753,7 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   width: 28px;
   height: 28px;
   border-radius: 50%;
+  overflow: hidden;
   background: var(--msg-bg-tertiary);
   color: var(--msg-text-muted);
   font-size: 0.625rem;
@@ -3723,6 +3762,18 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+.messenger-msg-avatar.is-hidden {
+  visibility: hidden;
+}
+
+.messenger-msg-avatar .messenger-avatar-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: 50%;
 }
 
 .messenger-msg-bubble {
@@ -3774,6 +3825,93 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
 
 .messenger-msg-own .messenger-msg-time {
   color: rgba(255, 255, 255, 0.8);
+}
+
+.chat-story-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+
+.chat-story-preview {
+  width: min(420px, calc(100vw - 2rem));
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 14px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.45);
+}
+
+.chat-story-preview__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.76);
+  color: #f8fafc;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.chat-story-preview__image {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
+  display: block;
+}
+
+.chat-story-preview__image--smooth {
+  animation: chatStoryFadeIn 180ms ease-out;
+  will-change: opacity, transform;
+}
+
+@keyframes chatStoryFadeIn {
+  from {
+    opacity: 0.82;
+    transform: scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.chat-story-preview__meta {
+  padding: 0.6rem 0.8rem;
+  color: #e2e8f0;
+}
+
+.chat-story-preview--dashboard {
+  width: min(440px, calc(100vw - 2rem));
+  max-height: min(92vh, 780px);
+}
+
+.chat-story-preview--dashboard .dashboard-story-media-wrap {
+  width: 100%;
+  max-width: none;
+  border-radius: 16px;
+}
+
+.chat-story-preview__close-inline {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.76);
+  color: #f8fafc;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .messenger-composer {

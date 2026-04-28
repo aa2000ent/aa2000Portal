@@ -6,6 +6,14 @@ export type ChatMessage = {
   sender: string
   text: string
   timestamp: string
+  status?: 'sending' | 'sent' | 'delivered' | 'seen'
+}
+
+const DELIVERY_RANK: Record<NonNullable<ChatMessage['status']>, number> = {
+  sending: 0,
+  sent: 1,
+  delivered: 2,
+  seen: 3,
 }
 
 /** Get a stable conversation id for two participants (order-independent). */
@@ -17,8 +25,15 @@ type ChatContextValue = {
   messages: ChatMessage[]
   getMessagesForConversation: (conversationId: string) => ChatMessage[]
   getLastMessageForConversation: (conversationId: string) => ChatMessage | undefined
-  addMessage: (conversationId: string, sender: string, text: string) => void
+  addMessage: (
+    conversationId: string,
+    sender: string,
+    text: string,
+    options?: { status?: ChatMessage['status'] }
+  ) => string | null
   upsertMessages: (entries: ChatMessage[]) => void
+  setMessageStatus: (messageId: string, status: NonNullable<ChatMessage['status']>) => void
+  markLatestOwnMessageSeen: (conversationId: string, sender: string) => void
   getUnreadCount: (conversationId: string, currentUsers: string | string[]) => number
   markConversationRead: (conversationId: string) => void
   panelOpen: boolean
@@ -114,17 +129,49 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [messages]
   )
 
-  const addMessage = useCallback((conversationId: string, sender: string, text: string) => {
+  const addMessage = useCallback((conversationId: string, sender: string, text: string, options?: { status?: ChatMessage['status'] }) => {
     const trimmed = text.trim()
-    if (!trimmed) return
+    if (!trimmed) return null
+    const nextId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
     const entry: ChatMessage = {
-      id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      id: nextId,
       conversationId,
       sender,
       text: trimmed,
       timestamp: new Date().toISOString(),
+      status: options?.status ?? 'sent',
     }
     setMessages((prev) => [...prev.slice(-(MAX_MESSAGES - 1)), entry])
+    return nextId
+  }, [])
+
+  const setMessageStatus = useCallback((messageId: string, status: NonNullable<ChatMessage['status']>) => {
+    if (!messageId) return
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId) return m
+        const currentRank = DELIVERY_RANK[m.status ?? 'sent']
+        const nextRank = DELIVERY_RANK[status]
+        return nextRank >= currentRank ? { ...m, status } : m
+      })
+    )
+  }, [])
+
+  const markLatestOwnMessageSeen = useCallback((conversationId: string, sender: string) => {
+    setMessages((prev) => {
+      let updated = false
+      const next = [...prev]
+      for (let i = next.length - 1; i >= 0; i -= 1) {
+        const m = next[i]
+        if (m.conversationId !== conversationId || m.sender !== sender) continue
+        const rank = DELIVERY_RANK[m.status ?? 'sent']
+        if (rank >= DELIVERY_RANK.seen) break
+        next[i] = { ...m, status: 'seen' }
+        updated = true
+        break
+      }
+      return updated ? next : prev
+    })
   }, [])
 
   const upsertMessages = useCallback((entries: ChatMessage[]) => {
@@ -139,10 +186,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           byKey.set(key, m)
           return
         }
+        const existingRank = DELIVERY_RANK[existing.status ?? 'sent']
+        const nextRank = DELIVERY_RANK[m.status ?? 'sent']
         // Prefer non-optimistic ids when available.
         if (existing.id.startsWith('chat-') && !m.id.startsWith('chat-')) {
-          byKey.set(key, m)
+          byKey.set(key, nextRank >= existingRank ? m : { ...m, status: existing.status })
+          return
         }
+        if (nextRank > existingRank) byKey.set(key, { ...existing, status: m.status })
       }
 
       for (const m of prev) put(m)
@@ -190,12 +241,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       getLastMessageForConversation,
       addMessage,
       upsertMessages,
+      setMessageStatus,
+      markLatestOwnMessageSeen,
       getUnreadCount,
       markConversationRead,
       panelOpen,
       setPanelOpen,
     }),
-    [messages, getMessagesForConversation, getLastMessageForConversation, addMessage, upsertMessages, getUnreadCount, markConversationRead, panelOpen]
+    [messages, getMessagesForConversation, getLastMessageForConversation, addMessage, upsertMessages, setMessageStatus, markLatestOwnMessageSeen, getUnreadCount, markConversationRead, panelOpen]
   )
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>

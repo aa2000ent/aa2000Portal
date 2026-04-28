@@ -24,6 +24,7 @@ const STORY_REACTIONS: Array<{ key: StoryReaction; emoji: string; label: string 
 
 const STORY_REACTION_STORAGE_KEY = 'aa2000.storyReactions'
 const STORY_VIEWED_STORAGE_KEY = 'aa2000.storyViewed'
+const STORY_AUTOPLAY_MS = 5000
 
 function sortNewestFirst(list: DashboardStoryItem[]): DashboardStoryItem[] {
   return [...list].sort((a, b) => {
@@ -203,8 +204,12 @@ export default function DashboardStories() {
   const [composerBusy, setComposerBusy] = useState(false)
   const [deleteBusyId, setDeleteBusyId] = useState<number | null>(null)
   const [storyMenuOpen, setStoryMenuOpen] = useState(false)
+  const [isStoryPaused, setIsStoryPaused] = useState(false)
+  const [storyProgressMs, setStoryProgressMs] = useState(0)
   const preloadedMediaRef = useRef<Set<string>>(new Set())
   const preloadPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
+  const storyFrameRef = useRef<number | null>(null)
+  const storyLastTickRef = useRef<number | null>(null)
   const composerPreviewRef = useRef<HTMLDivElement | null>(null)
   const composerTextRef = useRef<HTMLDivElement | null>(null)
   const composerPhotoInputRef = useRef<HTMLInputElement | null>(null)
@@ -442,6 +447,19 @@ export default function DashboardStories() {
     const idx = selectedOwnerStories.findIndex((item) => item.storyId === selected.storyId)
     return idx >= 0 ? idx : 0
   }, [selected, selectedOwnerStories])
+  const selectedOwnerKey = useMemo(() => (selected ? storyOwnerKey(selected) : null), [selected])
+  const ownerKeysInOrder = useMemo(() => groupedOwnerItems.map((item) => storyOwnerKey(item)), [groupedOwnerItems])
+  const moveOwner = (delta: number) => {
+    if (!selectedOwnerKey || ownerKeysInOrder.length === 0) return
+    const currentOwnerIndex = ownerKeysInOrder.findIndex((key) => key === selectedOwnerKey)
+    if (currentOwnerIndex < 0) return
+    const nextOwnerIndex = (currentOwnerIndex + delta + ownerKeysInOrder.length) % ownerKeysInOrder.length
+    const nextOwnerKey = ownerKeysInOrder[nextOwnerIndex]
+    const nextStoryIndex = items.findIndex((item) => storyOwnerKey(item) === nextOwnerKey)
+    if (nextStoryIndex < 0) return
+    setSelectedIndex(nextStoryIndex)
+    setStoryProgressMs(0)
+  }
   useEffect(() => {
     if (!selected || items.length === 0) return
     const toPreload = new Set<string>()
@@ -511,13 +529,63 @@ export default function DashboardStories() {
     setOpenComposer(false)
   }
   const goPrevStory = () => {
-    if (items.length === 0) return
-    setSelectedIndex((prev) => (prev === null ? 0 : (prev - 1 + items.length) % items.length))
+    if (selectedOwnerStories.length === 0) return
+    if (selectedOwnerStories.length === 1) {
+      moveOwner(-1)
+      return
+    }
+    const nextOwnerStory = selectedOwnerStories[(selectedOwnerStoryIndex - 1 + selectedOwnerStories.length) % selectedOwnerStories.length]
+    const nextGlobalIndex = items.findIndex((item) => item.storyId === nextOwnerStory.storyId)
+    if (nextGlobalIndex < 0) return
+    setSelectedIndex(nextGlobalIndex)
+    setStoryProgressMs(0)
   }
   const goNextStory = () => {
-    if (items.length === 0) return
-    setSelectedIndex((prev) => (prev === null ? 0 : (prev + 1) % items.length))
+    if (selectedOwnerStories.length === 0) return
+    if (selectedOwnerStories.length === 1) {
+      moveOwner(1)
+      return
+    }
+    const nextOwnerStory = selectedOwnerStories[(selectedOwnerStoryIndex + 1) % selectedOwnerStories.length]
+    const nextGlobalIndex = items.findIndex((item) => item.storyId === nextOwnerStory.storyId)
+    if (nextGlobalIndex < 0) return
+    setSelectedIndex(nextGlobalIndex)
+    setStoryProgressMs(0)
   }
+
+  useEffect(() => {
+    if (!selected) return
+    setStoryProgressMs(0)
+  }, [selected?.storyId, selectedOwnerStoryIndex])
+
+  useEffect(() => {
+    if (!selected || isStoryPaused) return
+    storyLastTickRef.current = null
+    const step = (ts: number) => {
+      const last = storyLastTickRef.current ?? ts
+      const delta = ts - last
+      storyLastTickRef.current = ts
+      setStoryProgressMs((prev) => {
+        const next = prev + Math.max(0, delta)
+        if (next >= STORY_AUTOPLAY_MS) {
+          window.setTimeout(() => {
+            goNextStory()
+          }, 0)
+          return 0
+        }
+        return next
+      })
+      storyFrameRef.current = window.requestAnimationFrame(step)
+    }
+    storyFrameRef.current = window.requestAnimationFrame(step)
+    return () => {
+      if (storyFrameRef.current != null) {
+        window.cancelAnimationFrame(storyFrameRef.current)
+        storyFrameRef.current = null
+      }
+      storyLastTickRef.current = null
+    }
+  }, [selected, isStoryPaused, goNextStory])
 
   const handleDeleteSelectedStory = async () => {
     if (!selected || !canDeleteSelected || deleteBusyId !== null) return
@@ -802,13 +870,23 @@ export default function DashboardStories() {
                 >
                   {selectedOwnerStories.length > 0 && (
                     <div className="dashboard-story-progress" aria-label="Story progress">
-                      {selectedOwnerStories.map((ownerStory, idx) => (
-                        <span
-                          key={`story-progress-${ownerStory.storyId}`}
-                          className={`dashboard-story-progress__segment ${idx <= selectedOwnerStoryIndex ? 'is-active' : ''}`}
-                          aria-hidden
-                        />
-                      ))}
+                      {selectedOwnerStories.map((ownerStory, idx) => {
+                        const isPast = idx < selectedOwnerStoryIndex
+                        const isCurrent = idx === selectedOwnerStoryIndex
+                        const progressPct = Math.min(100, Math.max(0, (storyProgressMs / STORY_AUTOPLAY_MS) * 100))
+                        return (
+                          <span
+                            key={`story-progress-${ownerStory.storyId}`}
+                            className={`dashboard-story-progress__segment ${isPast || isCurrent ? 'is-active' : ''}`}
+                            style={isCurrent
+                              ? {
+                                  background: `linear-gradient(to right, rgba(241,245,249,0.95) ${progressPct}%, rgba(148,163,184,0.45) ${progressPct}%)`,
+                                }
+                              : undefined}
+                            aria-hidden
+                          />
+                        )
+                      })}
                     </div>
                   )}
                   <div className="dashboard-story-topbar" onClick={(event) => event.stopPropagation()}>
@@ -829,8 +907,14 @@ export default function DashboardStories() {
                       <button type="button" className="dashboard-story-topbar__icon-btn" aria-label="Sound" title="Sound">
                         🔊
                       </button>
-                      <button type="button" className="dashboard-story-topbar__icon-btn" aria-label="Play" title="Play">
-                        ▶
+                      <button
+                        type="button"
+                        className="dashboard-story-topbar__icon-btn"
+                        onClick={() => setIsStoryPaused((prev) => !prev)}
+                        aria-label={isStoryPaused ? 'Play' : 'Pause'}
+                        title={isStoryPaused ? 'Play' : 'Pause'}
+                      >
+                        {isStoryPaused ? '▶' : '⏸'}
                       </button>
                       {canDeleteSelected && (
                         <div className="dashboard-story-menu-wrap">

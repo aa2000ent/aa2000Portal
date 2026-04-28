@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { io, type Socket } from 'socket.io-client'
 import { useChat, getConversationId } from '../contexts/ChatContext'
 import { useEmployees } from '../contexts/EmployeesContext'
 import { apiRequest, getPortalUsername } from '../api/client'
-import { getBaseUrl } from '../api/config'
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
@@ -95,6 +93,27 @@ function getEmployeeIdFromChatUserId(id: string): number | null {
   return null
 }
 
+function resolveCurrentSenderEmployeeId(params: {
+  signedEmployeeId?: number | string
+  currentSenderId: string
+  currentSender: string
+  employees: Array<{ id: number; name?: string; email?: string }>
+}): number | null {
+  const signed = Number(params.signedEmployeeId)
+  if (Number.isFinite(signed) && signed > 0) return signed
+
+  const fromCurrentId = getEmployeeIdFromChatUserId(params.currentSenderId)
+  if (fromCurrentId) return fromCurrentId
+
+  const senderKey = params.currentSender.trim().toLowerCase()
+  if (!senderKey) return null
+  const byEmail = params.employees.find((e) => String(e.email ?? '').trim().toLowerCase() === senderKey)
+  if (byEmail?.id) return Number(byEmail.id)
+  const byName = params.employees.find((e) => String(e.name ?? '').trim().toLowerCase() === senderKey)
+  if (byName?.id) return Number(byName.id)
+  return null
+}
+
 function isEmpId(id: string | undefined): boolean {
   return typeof id === 'string' && /^emp-id:\d+$/i.test(id.trim())
 }
@@ -105,19 +124,6 @@ function toStableNonEmpId(rawId: string | undefined, rawName: string | undefined
   const name = String(rawName ?? '').trim().toLowerCase()
   if (!name) return AI_SERVICE_USER.id
   return `user:${name.replace(/\s+/g, '-')}`
-}
-
-function escapeMetaValue(v: string): string {
-  return v.replace(/[|;]/g, ' ').trim()
-}
-
-function buildWebhookSenderMeta(params: {
-  fromId: string
-  fromName: string
-  toId: string
-  toName: string
-}): string {
-  return `from=${escapeMetaValue(params.fromId)};fromName=${escapeMetaValue(params.fromName)};to=${escapeMetaValue(params.toId)};toName=${escapeMetaValue(params.toName)}`
 }
 
 function parseWebhookSenderMeta(rawSender: string): { fromId?: string; fromName?: string; toId?: string; toName?: string } {
@@ -189,18 +195,6 @@ function buildMessageId(employeeId: number, timestamp: string, sender: string, t
   return `webhook-${employeeId}-${timestamp}-${sender}-${text}`.slice(0, 220)
 }
 
-function buildSocketBaseUrl(): string {
-  const raw = String(import.meta.env.VITE_SOCKET_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? '').trim()
-  if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '')
-  try {
-    const base = getBaseUrl()
-    if (/^https?:\/\//i.test(base)) return base.replace(/\/$/, '')
-  } catch {
-    // ignore
-  }
-  return window.location.origin
-}
-
 export default function ChatPage() {
   const location = useLocation()
   const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
@@ -231,8 +225,6 @@ export default function ChatPage() {
   const [webhookUsers, setWebhookUsers] = useState<ChatUser[]>([])
   const listRef = useRef<HTMLDivElement>(null)
   const newChatRef = useRef<HTMLDivElement>(null)
-  const initialWebhookLoadedRef = useRef(false)
-  const socketRef = useRef<Socket | null>(null)
 
   const allChatUsers = useMemo<ChatUser[]>(() => {
     const fromEmployees = employees
@@ -448,7 +440,11 @@ export default function ChatPage() {
               ? String(normalizedFromId)
               : toStableNonEmpId(normalizedFromId, meta.fromName)
             const conversationId = getConversationId(normalizedSenderId, otherId)
-            const senderLabel = normalizedFromId === normalizedSenderId ? currentSender : (meta.fromName || otherName)
+            const fromName = String(meta.fromName ?? '').trim()
+            const isOwnMessage =
+              normalizedFromId === currentSenderId ||
+              (!normalizedFromId && fromName.toLowerCase() === currentSender.toLowerCase())
+            const senderLabel = isOwnMessage ? currentSender : (fromName || otherName)
 
             parsed.push({
               id: buildMessageId(result.employeeId, timestamp, rawSender, text),
@@ -472,76 +468,16 @@ export default function ChatPage() {
         if (parsed.length > 0) upsertMessages(parsed)
       })
 
-    // First load: trigger GET immediately when Chat page opens.
-    if (!initialWebhookLoadedRef.current) {
-      initialWebhookLoadedRef.current = true
+    // Poll every second so message history stays updated from the API.
+    void fetchConversationHistory()
+    const pollHandle = window.setInterval(() => {
       void fetchConversationHistory()
-    }
-    return
-  }, [signedEmployee, employees, currentSenderId, currentSender, upsertMessages])
-
-  useEffect(() => {
-    const roleFallbackEmployeeIds = employees
-      .map((e) => Number(e.id))
-      .filter((id) => Number.isFinite(id) && id > 0)
-    const targetEmployeeIds = signedEmployee?.id ? [signedEmployee.id] : roleFallbackEmployeeIds
-    if (targetEmployeeIds.length === 0) return
-
-    const socketBase = buildSocketBaseUrl()
-    const socket = io(socketBase, {
-      transports: ['websocket', 'polling'],
-      withCredentials: true,
-    })
-    socketRef.current = socket
-
-    socket.on('connect', () => {
-      for (const employeeId of targetEmployeeIds) {
-        socket.emit('join', { employeeID: employeeId })
-      }
-    })
-
-    socket.on('message', (evt: { employeeID?: string | number; sender?: string; message?: string; timestamp?: string }) => {
-      const employeeId = Number(evt.employeeID)
-      const timestamp = String(evt.timestamp ?? '').trim()
-      const rawSender = String(evt.sender ?? 'system').trim() || 'system'
-      const text = String(evt.message ?? '').trim()
-      if (!Number.isFinite(employeeId) || employeeId < 1 || !timestamp || !text) return
-
-      const meta = parseWebhookSenderMeta(rawSender)
-      const normalizedFromId = normalizeParticipantId(meta.fromId, meta.fromName, employees)
-      const normalizedToId = normalizeParticipantId(meta.toId, meta.toName, employees)
-      const senderId = isEmpId(normalizedFromId)
-        ? String(normalizedFromId)
-        : toStableNonEmpId(normalizedFromId, meta.fromName)
-      const otherId =
-        normalizedFromId && normalizedFromId !== senderId
-          ? normalizedFromId
-          : normalizedToId && normalizedToId !== senderId
-            ? normalizedToId
-            : `emp-id:${employeeId}`
-      const normalizedOtherId = isEmpId(otherId) ? otherId : toStableNonEmpId(otherId, meta.toName)
-
-      const conversationId = getConversationId(senderId, normalizedOtherId)
-      const senderLabel = normalizedFromId === senderId ? currentSender : (meta.fromName || 'Employee')
-      upsertMessages([
-        {
-          id: buildMessageId(employeeId, timestamp, rawSender, text),
-          conversationId,
-          sender: senderLabel,
-          text,
-          timestamp,
-        },
-      ])
-    })
+    }, 1000)
 
     return () => {
-      for (const employeeId of targetEmployeeIds) {
-        socket.emit('leave', { employeeID: employeeId })
-      }
-      socket.disconnect()
-      socketRef.current = null
+      window.clearInterval(pollHandle)
     }
-  }, [employees, signedEmployee, currentSenderId, currentSender, upsertMessages])
+  }, [signedEmployee, employees, currentSenderId, currentSender, upsertMessages])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -549,31 +485,48 @@ export default function ChatPage() {
     if (!text || !conversationId) return
     setInputValue('')
 
-    // Trigger webhook logging for each sent message.
-    // Prefer current signed-in employee id, fallback to selected chat user id.
     const selectedEmployeeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
-    const firstEmployeeId = employees.find((emp) => Number(emp.id) > 0)?.id
-    const webhookEmployeeId = signedEmployee?.id ?? selectedEmployeeId ?? firstEmployeeId
+    const senderEmployeeId = resolveCurrentSenderEmployeeId({
+      signedEmployeeId: signedEmployee?.id,
+      currentSenderId,
+      currentSender,
+      employees,
+    })
+    if (!selectedEmployeeId) return
 
-    if (webhookEmployeeId && webhookEmployeeId > 0) {
-      const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
-      const senderMeta = buildWebhookSenderMeta({
-        fromId: currentSenderId,
-        fromName: currentSender,
-        toId: selectedMeta.id,
-        toName: selectedMeta.name,
-      })
-      void apiRequest(`/ai-services-conversation-chat/webhook/conversation/${webhookEmployeeId}`, {
-        method: 'POST',
-        body: JSON.stringify({
-          sender: senderMeta,
-          message: text,
-        }),
-        portal: { suppressFailureLog: true },
-      }).catch(() => {
-        // Keep chat UX responsive even if webhook logging fails.
-      })
+    const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
+    const optimisticTimestamp = new Date().toISOString()
+    upsertMessages([
+      {
+        id: buildMessageId(
+          selectedEmployeeId,
+          optimisticTimestamp,
+          `from=emp-id:${senderEmployeeId ?? 'unknown'}`,
+          text,
+        ),
+        conversationId,
+        sender: currentSender,
+        text,
+        timestamp: optimisticTimestamp,
+      },
+    ])
+
+    if (!senderEmployeeId) {
+      console.warn('[Chat] senderEmpID unresolved; POST is still triggered and may be rejected by API validation.')
     }
+
+    void apiRequest(`/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        senderEmpID: String(senderEmployeeId ?? ''),
+        senderName: currentSender,
+        receiverName: selectedMeta.name,
+        message: text,
+      }),
+      portal: { suppressFailureLog: true },
+    }).catch(() => {
+      // Keep chat UX responsive even if webhook logging fails.
+    })
   }
 
   return (
@@ -701,6 +654,7 @@ export default function ChatPage() {
               const last = getLastMessageForConversation(cid)
               const isActive = selectedUser === user.id
               const unread = getUnreadCount(cid, currentSender)
+              const preview = last ? `${last.sender}: ${last.text}` : ''
               return (
                 <button
                   key={user.id}
@@ -718,7 +672,13 @@ export default function ChatPage() {
                   </span>
                   <div className="messenger-conv-body">
                     <span className="messenger-conv-name">{user.name}</span>
-                    <span className="messenger-conv-role">{user.role}</span>
+                    {last ? (
+                      <span className="messenger-conv-preview" title={preview}>
+                        {preview}
+                      </span>
+                    ) : (
+                      <span className="messenger-conv-role">{user.role}</span>
+                    )}
                   </div>
                   {unread > 0 && (
                     <span className="messenger-conv-unread" aria-label={`${unread} unread`}>

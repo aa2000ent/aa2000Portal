@@ -3178,7 +3178,8 @@ html[data-theme="dark"] .dashboard-graph-desc {
   --msg-bubble-other: #fff;
   --msg-bubble-self: var(--dash-primary);
   display: flex;
-  min-height: calc(100vh - 4rem);
+  height: calc(100vh - 4rem);
+  max-height: calc(100vh - 4rem);
   width: 100%;
   background: var(--msg-bg);
   border-radius: var(--dash-radius-lg);
@@ -3317,6 +3318,7 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   background: var(--msg-bg-secondary);
   border-right: 1px solid var(--msg-border);
 }
@@ -3500,6 +3502,7 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   width: 48px;
   height: 48px;
   border-radius: 50%;
+  overflow: hidden;
   background: var(--dash-primary);
   color: #fff;
   font-size: 0.875rem;
@@ -3508,6 +3511,13 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+.messenger-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .messenger-conv-body {
@@ -3522,6 +3532,14 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   font-size: 0.9375rem;
   font-weight: 600;
   color: var(--msg-text);
+}
+
+.messenger-conv-role {
+  font-size: 0.75rem;
+  color: var(--msg-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .messenger-conv-preview {
@@ -3542,6 +3560,7 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
 .messenger-thread {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--msg-bg);
@@ -3616,10 +3635,22 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
 }
 
 .messenger-thread-name {
-  flex: 1;
   font-size: 1rem;
   font-weight: 600;
   color: var(--msg-text);
+}
+
+.messenger-thread-name-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.messenger-thread-role {
+  font-size: 0.75rem;
+  color: var(--msg-text-muted);
 }
 
 .messenger-thread-actions {

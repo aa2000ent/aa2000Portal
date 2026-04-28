@@ -18,6 +18,7 @@ type ChatContextValue = {
   getMessagesForConversation: (conversationId: string) => ChatMessage[]
   getLastMessageForConversation: (conversationId: string) => ChatMessage | undefined
   addMessage: (conversationId: string, sender: string, text: string) => void
+  upsertMessages: (entries: ChatMessage[]) => void
   getUnreadCount: (conversationId: string, currentUser: string) => number
   markConversationRead: (conversationId: string) => void
   panelOpen: boolean
@@ -26,75 +27,22 @@ type ChatContextValue = {
 
 const ChatContext = createContext<ChatContextValue | null>(null)
 
-const STORAGE_KEY = 'aa2000_chat_messages'
-const LAST_READ_KEY = 'aa2000_chat_last_read'
 const MAX_MESSAGES = 1000
 
-function loadFromStorage(): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter(
-      (m: unknown): m is ChatMessage =>
-        typeof m === 'object' &&
-        m !== null &&
-        typeof (m as ChatMessage).id === 'string' &&
-        typeof (m as ChatMessage).conversationId === 'string' &&
-        typeof (m as ChatMessage).sender === 'string' &&
-        typeof (m as ChatMessage).text === 'string' &&
-        typeof (m as ChatMessage).timestamp === 'string'
-    )
-  } catch {
-    return []
-  }
-}
-
-function loadLastRead(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(LAST_READ_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null) return {}
-    const out: Record<string, string> = {}
-    for (const [k, v] of Object.entries(parsed)) {
-      if (typeof k === 'string' && typeof v === 'string') out[k] = v
-    }
-    return out
-  } catch {
-    return {}
-  }
-}
-
-function saveToStorage(messages: ChatMessage[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-MAX_MESSAGES)))
-  } catch {
-    // ignore
-  }
-}
-
-function saveLastRead(lastRead: Record<string, string>) {
-  try {
-    localStorage.setItem(LAST_READ_KEY, JSON.stringify(lastRead))
-  } catch {
-    // ignore
-  }
-}
-
 export function ChatProvider({ children }: { children: ReactNode }) {
-  const [messages, setMessages] = useState<ChatMessage[]>(loadFromStorage)
-  const [lastReadAt, setLastReadAt] = useState<Record<string, string>>(loadLastRead)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [lastReadAt, setLastReadAt] = useState<Record<string, string>>({})
   const [panelOpen, setPanelOpen] = useState(false)
 
   useEffect(() => {
-    saveToStorage(messages)
-  }, [messages])
-
-  useEffect(() => {
-    saveLastRead(lastReadAt)
-  }, [lastReadAt])
+    // Ensure previous chat persistence is removed.
+    try {
+      localStorage.removeItem('aa2000_chat_messages')
+      localStorage.removeItem('aa2000_chat_last_read')
+    } catch {
+      // ignore
+    }
+  }, [])
 
   const getUnreadCount = useCallback(
     (conversationId: string, currentUser: string) => {
@@ -141,18 +89,34 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages((prev) => [...prev.slice(-(MAX_MESSAGES - 1)), entry])
   }, [])
 
+  const upsertMessages = useCallback((entries: ChatMessage[]) => {
+    if (!Array.isArray(entries) || entries.length === 0) return
+    setMessages((prev) => {
+      const byId = new Map<string, ChatMessage>()
+      for (const m of prev) byId.set(m.id, m)
+      for (const m of entries) {
+        if (!m || !m.id || !m.conversationId || !m.sender || !m.text || !m.timestamp) continue
+        byId.set(m.id, m)
+      }
+      return Array.from(byId.values())
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+        .slice(-MAX_MESSAGES)
+    })
+  }, [])
+
   const value = useMemo(
     () => ({
       messages,
       getMessagesForConversation,
       getLastMessageForConversation,
       addMessage,
+      upsertMessages,
       getUnreadCount,
       markConversationRead,
       panelOpen,
       setPanelOpen,
     }),
-    [messages, getMessagesForConversation, getLastMessageForConversation, addMessage, getUnreadCount, markConversationRead, panelOpen]
+    [messages, getMessagesForConversation, getLastMessageForConversation, addMessage, upsertMessages, getUnreadCount, markConversationRead, panelOpen]
   )
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>

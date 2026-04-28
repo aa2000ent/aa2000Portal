@@ -67,7 +67,7 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
   }, [location.lat, location.lon])
 
   return (
-    <div className="w-full h-56 rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
+    <div className="w-full h-96 rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
       <div ref={mapRef} className="w-full h-full" />
     </div>
   )
@@ -1160,7 +1160,7 @@ export default function AdminEmployees() {
                   </p>
                 )}
               </div>
-              <div className="modal-field space-y-3">
+              <div className="modal-field space-y-3 md:col-span-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <MapPin className="h-4 w-4 text-blue-600" aria-hidden />
@@ -1493,7 +1493,7 @@ export default function AdminEmployees() {
                   </p>
                 )}
               </div>
-              <div className="modal-field space-y-3">
+              <div className="modal-field space-y-3 md:col-span-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <MapPin className="h-4 w-4 text-blue-600" aria-hidden />

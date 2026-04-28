@@ -1,4 +1,4 @@
-import { apiRequest, hasApiBase } from './client'
+import { apiRequest, getPortalAccountId, hasApiBase } from './client'
 import type { CustomerAddressPayload } from './customers'
 import type { RoleOption } from './roles'
 import type { Employee } from '../contexts/EmployeesContext'
@@ -116,6 +116,17 @@ function base64ToDataUrl(base64: string): string {
 }
 
 function getEmployeePhotoUrl(row: Record<string, unknown>): string | undefined {
+  function isTinyGifPlaceholder(value: string): boolean {
+    const v = value.trim()
+    if (!v) return true
+    // Any GIF whose base64 payload is under 200 chars is a 1×1 placeholder — real avatars are >>1 KB
+    if (v.startsWith('data:image/gif;base64,')) {
+      const b64 = v.slice('data:image/gif;base64,'.length).replace(/\s/g, '')
+      if (b64.length < 200) return true
+    }
+    return false
+  }
+
   const raw =
     row.Emp_photo ??
     row.emp_photo ??
@@ -196,6 +207,7 @@ function getEmployeePhotoUrl(row: Record<string, unknown>): string | undefined {
       if (!/image.*base64/i.test(k)) continue
       const candidate = v.trim()
       if (candidate) {
+        if (isTinyGifPlaceholder(candidate)) return undefined
         if (isLikelyBase64(candidate)) return base64ToDataUrl(candidate)
         // If it's already a data url, return it as-is.
         if (candidate.startsWith('data:')) return candidate
@@ -208,7 +220,7 @@ function getEmployeePhotoUrl(row: Record<string, unknown>): string | undefined {
   if (!s.length) return undefined
 
   // If we already store as a data URL, we can render directly.
-  if (s.startsWith('data:')) return s
+  if (s.startsWith('data:')) return isTinyGifPlaceholder(s) ? undefined : s
 
   // If backend stored raw base64 only, convert to a safe data URL for rendering.
   if (isLikelyBase64(s)) return base64ToDataUrl(s)
@@ -291,6 +303,7 @@ function normalizeRow(row: unknown, roleOptions?: RoleOption[]): Employee {
 }
 
 let _cachedEmpFetchPath: string | null = null
+let _cachedFallbackAddressId: number | undefined
 
 async function tryFetchEmployeesAt(path: string, roleOptions?: RoleOption[]): Promise<Employee[] | null> {
   try {
@@ -330,23 +343,29 @@ export async function fetchEmployees(roleOptions?: RoleOption[]): Promise<Employ
   // Fast path: reuse the endpoint that worked last time
   if (_cachedEmpFetchPath) {
     const emps = await tryFetchEmployeesAt(_cachedEmpFetchPath, roleOptions)
-    if (emps) return emps
+    if (emps) {
+      _seedFallbackAddressId(emps)
+      return emps
+    }
     _cachedEmpFetchPath = null
   }
 
-  // Fire all paths in parallel — first success wins
-  try {
-    return await Promise.any(
-      paths.map(async (p) => {
-        const emps = await tryFetchEmployeesAt(p, roleOptions)
-        if (!emps) throw new Error('no data')
-        _cachedEmpFetchPath = p
-        return emps
-      }),
-    )
-  } catch {
-    return []
+  // Try paths sequentially to avoid noisy 404s from parallel probes.
+  for (const p of paths) {
+    const emps = await tryFetchEmployeesAt(p, roleOptions)
+    if (emps) {
+      _cachedEmpFetchPath = p
+      _seedFallbackAddressId(emps)
+      return emps
+    }
   }
+  return []
+}
+
+function _seedFallbackAddressId(emps: Employee[]): void {
+  if (_cachedFallbackAddressId) return
+  const found = emps.find((e) => e.addressId != null && (e.addressId as number) > 0)
+  if (found?.addressId) _cachedFallbackAddressId = found.addressId
 }
 
 type EmployeeCreateInput = {
@@ -388,13 +407,18 @@ function attachLocationFieldsToBody(body: Record<string, unknown>, addressPayloa
 
 function defaultEmpAddressId(): number | undefined {
   const n = parseInt(String(import.meta.env.VITE_DEFAULT_EMP_ADDRESS_ID ?? ''), 10)
-  return Number.isFinite(n) && n > 0 ? n : undefined
+  if (Number.isFinite(n) && n > 0) return n
+  return _cachedFallbackAddressId
 }
 
 function defaultAccId(): number | undefined {
+  const sessionAccId = Number(getPortalAccountId() ?? 0)
+  if (Number.isFinite(sessionAccId) && sessionAccId > 0) return sessionAccId
   const n = parseInt(String(import.meta.env.VITE_DEFAULT_ACC_ID ?? ''), 10)
   return Number.isFinite(n) && n > 0 ? n : undefined
 }
+
+const _deadAddressPaths = new Set<string>()
 
 /** Try to create an Address row (same JSON shapes as customer/supplier) and return Addrss_ID. */
 async function tryCreateAddressRow(payload: CustomerAddressPayload): Promise<number | null> {
@@ -412,8 +436,15 @@ async function tryCreateAddressRow(payload: CustomerAddressPayload): Promise<num
     Addrss_province: payload.province ?? '',
     Addrss_postal: payload.postal ?? '',
   }
-  const paths = ['/addresses/add/address', '/addresses/add/addresses', '/address/add/address', '/api/addresses']
+  const paths = [
+    '/employees/addresses/add/address', // employees router mounted at /employees
+    '/addresses/add/address',
+    '/addresses/add/addresses',
+    '/address/add/address',
+    '/api/addresses',
+  ]
   for (const path of paths) {
+    if (_deadAddressPaths.has(path)) continue
     try {
       const res = await apiRequest<unknown>(path, { method: 'POST', body: JSON.stringify(body) })
       if (res == null || typeof res !== 'object' || Array.isArray(res)) continue
@@ -422,7 +453,7 @@ async function tryCreateAddressRow(payload: CustomerAddressPayload): Promise<num
       const id = Number(inner.Addrss_ID ?? inner.addrss_ID ?? r.Addrss_ID ?? inner.id ?? 0)
       if (id > 0) return id
     } catch {
-      continue
+      _deadAddressPaths.add(path)
     }
   }
   return null
@@ -458,7 +489,7 @@ async function resolveEmpAddressIdForUpdate(
  */
 function employeeToExpressPayload(
   input: EmployeeCreateInput,
-  empAddressId: number,
+  empAddressId: number | undefined,
   opts: { accId?: number },
 ): Record<string, unknown> {
   const roleValue = typeof input.roleId === 'number' && input.roleId > 0 ? input.roleId : input.roleName
@@ -466,9 +497,9 @@ function employeeToExpressPayload(
     Emp_fname: input.fname,
     Emp_lname: input.lname,
     Emp_email: input.email,
-    Emp_AddressID: empAddressId,
     Emp_role: roleValue,
   }
+  if (empAddressId != null && empAddressId > 0) out.Emp_AddressID = empAddressId
   if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
   if (input.contact) out.Emp_cnum = input.contact
   if (input.empImageBase64 !== undefined) {
@@ -489,18 +520,22 @@ export type EmployeeUpdateInput = Omit<EmployeeCreateInput, 'empAddressId'> & {
 
 function employeeUpdateToExpressPayload(
   input: EmployeeUpdateInput,
-  empAddressId: number,
+  empAddressId: number | undefined,
 ): Record<string, unknown> {
   const roleValue = typeof input.roleId === 'number' && input.roleId > 0 ? input.roleId : input.roleName
   const out: Record<string, unknown> = {
     Emp_fname: input.fname,
     Emp_lname: input.lname,
     Emp_email: input.email,
-    Emp_AddressID: empAddressId,
     Emp_role: roleValue,
   }
+  if (empAddressId != null && empAddressId > 0) out.Emp_AddressID = empAddressId
   if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
-  if (input.contact) out.Emp_cnum = input.contact
+  if (input.contact !== undefined) out.Emp_cnum = input.contact
+  if (input.status) {
+    out.Emp_status = input.status
+    out.status = input.status
+  }
   if (input.empImageBase64 !== undefined) {
     out.Emp_imageBase64 = input.empImageBase64
     out.empImageBase64 = input.empImageBase64
@@ -512,7 +547,7 @@ function employeeUpdateToExpressPayload(
 function buildFallbackEmployeeFromUpdate(
   id: number,
   input: EmployeeUpdateInput,
-  empAddressId: number,
+  empAddressId: number | undefined,
   roleOptions?: RoleOption[],
 ): Employee {
   const row: Record<string, unknown> = {
@@ -522,7 +557,7 @@ function buildFallbackEmployeeFromUpdate(
     Emp_lname: input.lname,
     Emp_email: input.email.trim(),
     Emp_cnum: input.contact ?? '',
-    Emp_AddressID: empAddressId,
+    ...(empAddressId != null && empAddressId > 0 ? { Emp_AddressID: empAddressId } : {}),
   }
   if (input.empImageBase64 != null && String(input.empImageBase64).trim()) row.Emp_imageBase64 = input.empImageBase64
   const matched = roleOptions?.find((r) => r.role_name === input.roleName)
@@ -573,7 +608,7 @@ async function tryUpdateEmployeeAtPath(
   roleOptions: RoleOption[] | undefined,
   method: 'PUT' | 'PATCH',
   input: EmployeeUpdateInput,
-  empAddressId: number,
+  empAddressId: number | undefined,
 ): Promise<Employee | null> {
   try {
     const res = await apiRequest<unknown>(path, { method, body: JSON.stringify(body) })
@@ -601,10 +636,6 @@ export async function updateEmployee(
   if (!Number.isFinite(id) || id < 1 || !trimmedEmail) return null
 
   const empAddressIdResolved = await resolveEmpAddressIdForUpdate({ ...input, email: trimmedEmail }, addressPayload)
-  if (!empAddressIdResolved || empAddressIdResolved < 1) {
-    console.warn('[Portal] Employee update needs Emp_AddressID (map pin / env / existing row)')
-    return null
-  }
 
   const payload = employeeUpdateToExpressPayload({ ...input, email: trimmedEmail }, empAddressIdResolved)
   attachLocationFieldsToBody(payload, addressPayload)
@@ -705,15 +736,15 @@ export async function createEmployee(
   if (!trimmedEmail || !trimmedName) return null
 
   const empAddressId = await resolveEmpAddressIdForCreate(input, addressPayload)
-  if (!empAddressId || empAddressId < 1) {
-    console.warn(
-      '[Portal] Employee create needs Emp_AddressID: create an Address row (API), use map + /addresses, or set VITE_DEFAULT_EMP_ADDRESS_ID in .env',
-    )
-    return null
-  }
 
   const accId = input.accId ?? defaultAccId()
-  const payload = employeeToExpressPayload(input, empAddressId, accId != null ? { accId } : {})
+  // Use resolved address ID if available; backend will validate and reject if required
+  const addrId = (empAddressId != null && empAddressId > 0) ? empAddressId : 0
+  const payload = employeeToExpressPayload(
+    input,
+    addrId > 0 ? addrId : (undefined as unknown as number),
+    accId != null ? { accId } : {},
+  )
   attachLocationFieldsToBody(payload, addressPayload)
 
   if (hasApiBase()) {
@@ -737,8 +768,8 @@ export async function createEmployee(
     Emp_fname: input.fname,
     Emp_lname: input.lname,
     Emp_email: trimmedEmail,
-    Emp_AddressID: empAddressId,
     Emp_role: typeof input.roleId === 'number' && input.roleId > 0 ? input.roleId : input.roleName,
+    ...(addrId > 0 ? { Emp_AddressID: addrId } : {}),
     ...(input.empImageBase64 !== undefined ? { Emp_imageBase64: input.empImageBase64, empImageBase64: input.empImageBase64 } : {}),
     ...(accId != null ? { acc_ID: accId } : {}),
   }

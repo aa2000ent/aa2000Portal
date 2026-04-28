@@ -160,6 +160,7 @@ async function composeStoryImageWithText(
 
 export default function DashboardStories() {
   const [items, setItems] = useState<DashboardStoryItem[]>([])
+  const [currentUserPhotoUrl, setCurrentUserPhotoUrl] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
@@ -204,6 +205,9 @@ export default function DashboardStories() {
       const mapped = mapStoriesForDashboard(rawStories as unknown[], employees)
       const merged = sortNewestFirst(mapped).slice(0, 12)
       setItems(merged)
+      const currentAccId = Number(getPortalAccountId() ?? 0)
+      const me = currentAccId > 0 ? employees.find((emp) => Number(emp.accId ?? 0) === currentAccId) : undefined
+      setCurrentUserPhotoUrl(me?.photoUrl)
       const nextEmp: Record<number, number> = {}
       for (const emp of employees) {
         const accId = Number(emp.accId ?? 0)
@@ -625,7 +629,8 @@ export default function DashboardStories() {
           <div className="dashboard-stories__rail">
             {canCreateStories && (
               <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
-                <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
+                <span className={`dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add ${currentUserPhotoUrl ? 'dashboard-story__avatar-wrap--with-photo' : ''}`}>
+                  {currentUserPhotoUrl ? <img src={currentUserPhotoUrl} alt="" className="dashboard-story__avatar" /> : null}
                   <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
                 </span>
                 <span className="dashboard-story__label">Add story</span>
@@ -637,7 +642,8 @@ export default function DashboardStories() {
           <div className="dashboard-stories__rail">
             {canCreateStories && (
               <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
-                <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
+                <span className={`dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add ${currentUserPhotoUrl ? 'dashboard-story__avatar-wrap--with-photo' : ''}`}>
+                  {currentUserPhotoUrl ? <img src={currentUserPhotoUrl} alt="" className="dashboard-story__avatar" /> : null}
                   <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
                 </span>
                 <span className="dashboard-story__label">Add story</span>
@@ -701,7 +707,8 @@ export default function DashboardStories() {
               </div>
               {canCreateStories && (
                 <button type="button" className="dashboard-story dashboard-story--add dashboard-story--add-sidebar" onClick={handleAddStory}>
-                  <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
+                  <span className={`dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add ${currentUserPhotoUrl ? 'dashboard-story__avatar-wrap--with-photo' : ''}`}>
+                    {currentUserPhotoUrl ? <img src={currentUserPhotoUrl} alt="" className="dashboard-story__avatar" /> : null}
                     <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
                   </span>
                   <span className="dashboard-story__label">Create story</span>

@@ -6,7 +6,7 @@ import {
   type AnnouncementItem,
   type AnnouncementType,
 } from '../api/announcements'
-import { getPortalAccountId } from '../api/client'
+import { getPortalAccountId, getPortalUsername } from '../api/client'
 
 type StoryReaction = 'like' | 'love' | 'fire' | 'clap'
 type StoryReactionMap = Record<string, StoryReaction>
@@ -51,6 +51,73 @@ function toBase64(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('Failed to read image file.'))
     reader.readAsDataURL(file)
   })
+}
+
+async function composeStoryImageWithText(
+  imageSrc: string,
+  text: string,
+  textPos: { x: number; y: number },
+  previewEl: HTMLDivElement,
+  textEl: HTMLDivElement,
+): Promise<string> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Failed to load story image for text composition.'))
+    img.src = imageSrc
+  })
+
+  const iw = image.naturalWidth || image.width
+  const ih = image.naturalHeight || image.height
+  if (!iw || !ih) throw new Error('Story image dimensions are invalid.')
+
+  const previewRect = previewEl.getBoundingClientRect()
+  const pw = Math.max(1, previewRect.width)
+  const ph = Math.max(1, previewRect.height)
+  const scale = Math.max(pw / iw, ph / ih) // object-fit: cover
+  const renderedW = iw * scale
+  const renderedH = ih * scale
+  const offsetX = (pw - renderedW) / 2
+  const offsetY = (ph - renderedH) / 2
+
+  const canvas = document.createElement('canvas')
+  canvas.width = iw
+  canvas.height = ih
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Cannot compose story image.')
+
+  ctx.drawImage(image, 0, 0, iw, ih)
+
+  const computed = window.getComputedStyle(textEl)
+  const previewFontSize = parseFloat(computed.fontSize || '16')
+  const previewLineHeight = parseFloat(computed.lineHeight || String(previewFontSize * 1.35))
+  const fontWeight = computed.fontWeight || '700'
+  const fontFamily = computed.fontFamily || 'system-ui'
+  const fillColor = computed.color || '#ffffff'
+
+  const x = Math.max(0, Math.min(iw, (textPos.x - offsetX) / scale))
+  const y = Math.max(0, Math.min(ih, (textPos.y - offsetY) / scale))
+  const fontSize = Math.max(12, previewFontSize / scale)
+  const lineHeight = Math.max(fontSize * 1.2, previewLineHeight / scale)
+
+  ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+
+  const shadowBlur = Math.max(2, 10 / scale)
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)'
+  ctx.shadowBlur = shadowBlur
+  ctx.shadowOffsetX = 0
+  ctx.shadowOffsetY = Math.max(1, 2 / scale)
+  ctx.fillStyle = fillColor
+
+  const lines = text.split('\n')
+  lines.forEach((line, index) => {
+    ctx.fillText(line, x, y + index * lineHeight)
+  })
+
+  return canvas.toDataURL('image/jpeg', 0.92)
 }
 
 export default function DashboardStories() {
@@ -284,12 +351,23 @@ export default function DashboardStories() {
     setComposerError(null)
     try {
       const text = composerText.trim()
-      const fallbackTitle = `Story ${new Date().toLocaleDateString()}`
+      const posterName = String(getPortalUsername() ?? '').trim()
+      const fallbackTitle = `User ${accId}`
+      let finalImage = composerImage.trim()
+      if (text && composerPreviewRef.current && composerTextRef.current) {
+        finalImage = await composeStoryImageWithText(
+          finalImage,
+          text,
+          composerTextPos,
+          composerPreviewRef.current,
+          composerTextRef.current,
+        )
+      }
       await createAnnouncement({
         acc_ID: accId,
-        Title: text || fallbackTitle,
+        Title: posterName || fallbackTitle,
         Description: text || '',
-        Image: composerImage.trim(),
+        Image: finalImage,
         Status: 'ACTIVE',
         type: composerType,
       })
@@ -399,7 +477,7 @@ export default function DashboardStories() {
                       {item.Image ? <img src={item.Image} alt={item.Title || 'Story'} /> : <span>{item.type === 'MEMO' ? 'M' : 'A'}</span>}
                     </span>
                     <span className="dashboard-story-viewer__list-copy">
-                      <strong>{item.Title || 'Untitled'}</strong>
+                      <strong>{storyAuthorLabel(item)}</strong>
                       <small>{formatDateLabel(item.Date)}</small>
                     </span>
                   </button>

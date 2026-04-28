@@ -55,6 +55,30 @@ function toDataUrl(base64: string, mime = 'image/jpeg'): string {
   return `data:${mime};base64,${clean}`
 }
 
+function parseEmployeeFromStoryRow(row: RawStory): StoryAuthorSource | undefined {
+  const rawEmp = row.Employee ?? row.employee
+  if (!rawEmp || typeof rawEmp !== 'object' || Array.isArray(rawEmp)) return undefined
+  const emp = rawEmp as Record<string, unknown>
+  const id = Number(emp.Emp_ID ?? emp.emp_ID ?? emp.EmployeeID ?? emp.employeeId ?? 0)
+  if (!Number.isFinite(id) || id <= 0) return undefined
+  const accIdRaw = Number(emp.acc_ID ?? emp.accId ?? emp.account_id ?? 0)
+  const accId = Number.isFinite(accIdRaw) && accIdRaw > 0 ? accIdRaw : undefined
+  const fullName = String(emp.fullName ?? '').trim()
+  const name =
+    fullName ||
+    [emp.Emp_fname, emp.Emp_mname, emp.Emp_lname]
+      .map((v) => String(v ?? '').trim())
+      .filter(Boolean)
+      .join(' ')
+      .trim() ||
+    `Employee ${id}`
+  let photoUrl = String(emp.Emp_imageBase64 ?? emp.emp_imageBase64 ?? emp.photoUrl ?? '').trim()
+  if (photoUrl && !photoUrl.startsWith('data:') && isLikelyBase64(photoUrl)) {
+    photoUrl = toDataUrl(photoUrl)
+  }
+  return { id, accId, name, photoUrl: photoUrl || undefined }
+}
+
 /**
  * Turn a DB `StoriesPath` into a URL the browser can load.
  * - Already `http(s)://` → returned as-is.
@@ -139,7 +163,8 @@ export function mapStoriesForDashboard(
     const row = raw as RawStory
     const parsed = parseStoryRow(row)
     if (!parsed) continue
-    const emp = byEmpId.get(parsed.employeeId)
+    const embeddedEmp = parseEmployeeFromStoryRow(row)
+    const emp = embeddedEmp ?? byEmpId.get(parsed.employeeId)
     const title = emp?.name?.trim() || (parsed.employeeId > 0 ? `Employee ${parsed.employeeId}` : 'Unknown')
     const accId = emp?.accId && emp.accId > 0 ? emp.accId : 0
     out.push({

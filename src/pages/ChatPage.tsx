@@ -1419,7 +1419,7 @@ export default function ChatPage() {
                   const showMeta = activeMetaMessageId === m.id
                   return (
                     <div key={m.id} className={`messenger-msg ${isOwn ? 'messenger-msg-own' : ''}`}>
-                      {showAvatar ? (
+                      {!isOwn && (showAvatar ? (
                         <span className="messenger-msg-avatar" aria-hidden>
                           {senderPhotoForBubble ? (
                             <img src={senderPhotoForBubble} alt={`${senderNameForBubble} profile`} className="messenger-avatar-image" />
@@ -1429,7 +1429,7 @@ export default function ChatPage() {
                         </span>
                       ) : (
                         <span className="messenger-msg-avatar is-hidden" aria-hidden />
-                      )}
+                      ))}
                       <div
                         className="messenger-msg-bubble"
                         role="button"

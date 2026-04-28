@@ -597,77 +597,6 @@ export default function ChatPage() {
   }, [currentParticipantEmpId, employees, currentParticipantId, currentSender, upsertMessages])
 
   useEffect(() => {
-    if (!currentParticipantEmpId) return
-    const socketBase = buildSocketBaseUrl()
-    const socket: Socket = io(socketBase, {
-      transports: ['websocket', 'polling'],
-      withCredentials: true,
-    })
-
-    socket.on('connect', () => {
-      socket.emit('join', { employeeID: currentParticipantEmpId })
-    })
-
-    socket.on('message', (evt: {
-      timestamp?: string
-      senderEmpID?: string | number
-      senderName?: string
-      receiverEmpID?: string | number
-      receiverName?: string
-      message?: string
-    }) => {
-      const senderEmpId = Number(evt.senderEmpID)
-      const receiverEmpId = Number(evt.receiverEmpID)
-      const timestamp = String(evt.timestamp ?? '').trim()
-      const text = String(evt.message ?? '').trim()
-      if (!Number.isFinite(senderEmpId) || !Number.isFinite(receiverEmpId) || !timestamp || !text) return
-
-      const senderId = `emp-id:${senderEmpId}`
-      const receiverId = `emp-id:${receiverEmpId}`
-      const conversationId = getConversationId(senderId, receiverId)
-      const senderName = String(evt.senderName ?? '').trim()
-      const isOwn = senderEmpId === currentParticipantEmpId
-      const label = isOwn ? currentSender : (senderName || `Employee ${senderEmpId}`)
-
-      upsertMessages([
-        {
-          id: buildMessageId(senderId, receiverId, timestamp, text),
-          conversationId,
-          sender: label,
-          text,
-          timestamp,
-        },
-      ])
-
-      const peerEmpId = senderEmpId === currentParticipantEmpId ? receiverEmpId : senderEmpId
-      const peerId = `emp-id:${peerEmpId}`
-      const peerFromEmployees = employees.find((e) => Number(e.id) === peerEmpId)
-      const peerName =
-        String(peerFromEmployees?.name ?? '').trim() ||
-        (peerEmpId === senderEmpId ? senderName : String(evt.receiverName ?? '').trim()) ||
-        `Employee ${peerEmpId}`
-      setWebhookUsers((prev) => {
-        if (prev.some((u) => u.id === peerId)) return prev
-        return [
-          ...prev,
-          {
-            id: peerId,
-            name: peerName,
-            role: String(peerFromEmployees?.role ?? '').trim() || 'Employee',
-            photoUrl: peerFromEmployees?.photoUrl,
-            search: `${peerName} employee`.toLowerCase(),
-          },
-        ]
-      })
-    })
-
-    return () => {
-      socket.emit('leave', { employeeID: currentParticipantEmpId })
-      socket.disconnect()
-    }
-  }, [currentParticipantEmpId, currentSender, employees, upsertMessages])
-
-  useEffect(() => {
     const roleFallbackEmployeeIds = employees
       .map((e) => Number(e.id))
       .filter((id) => Number.isFinite(id) && id > 0)
@@ -809,22 +738,6 @@ export default function ChatPage() {
       const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
       const senderEmpID = senderEmployeeId && senderEmployeeId > 0 ? String(senderEmployeeId) : ''
       if (!senderEmpID) return
-      const wsPayload = {
-        senderEmpID,
-        senderName: currentSender,
-        receiverEmpID: String(selectedEmployeeId),
-        receiverName: selectedMeta.name,
-        message: text,
-        timestamp: new Date().toISOString(),
-      }
-      const socket = socketRef.current
-      if (socket?.connected) {
-        // Support common websocket send event names.
-        socket.emit('message', wsPayload)
-        socket.emit('send_message', wsPayload)
-        socket.emit('sendMessage', wsPayload)
-        socket.emit('chat_message', wsPayload)
-      }
       void apiRequest(`/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`, {
         method: 'POST',
         body: JSON.stringify({

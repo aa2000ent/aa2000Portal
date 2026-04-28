@@ -64,6 +64,8 @@ type WebhookConversationResponse = {
     fromName?: string
     toEmpID?: string
     toName?: string
+    senderImage?: string
+    receiverImage?: string
   }>
 }
 
@@ -93,6 +95,27 @@ function formatChatTime(iso: string) {
 function getInitials(name: string) {
   if (name === 'General Manager') return 'GM'
   return name.slice(0, 2).toUpperCase() || '?'
+}
+
+function toConversationFirstName(rawName: string): string {
+  const trimmed = String(rawName ?? '').trim()
+  if (!trimmed) return 'Unknown'
+  const base = trimmed.includes('@') ? trimmed.split('@')[0] : trimmed
+  const firstPart = base.split(/[\s._-]+/).filter(Boolean)[0] || base
+  if (!firstPart) return 'Unknown'
+  return firstPart.charAt(0).toUpperCase() + firstPart.slice(1).toLowerCase()
+}
+
+function toCanonicalRoleKey(raw: string): string {
+  const key = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
+  if (!key) return 'employee'
+  if (key === 'sales') return 'sale'
+  if (key === 'coo' || key === 'co-ceo') return 'co-ceo'
+  if (key === 'gm' || key === 'generalmanager') return 'general-manager'
+  return key
 }
 
 function getEmployeeIdFromChatUserId(id: string): number | null {
@@ -208,6 +231,27 @@ function toImageSrc(raw: unknown): string | undefined {
   return `data:image/jpeg;base64,${s}`
 }
 
+function mergeChatUsers(existing: ChatUser, incoming: ChatUser): ChatUser {
+  const existingName = String(existing.name ?? '').trim()
+  const incomingName = String(incoming.name ?? '').trim()
+  const existingRole = String(existing.role ?? '').trim()
+  const incomingRole = String(incoming.role ?? '').trim()
+
+  const pickName = incomingName || existingName || 'Unknown'
+  const pickRole = incomingRole || existingRole || 'Employee'
+  const pickPhoto = incoming.photoUrl || existing.photoUrl
+
+  return {
+    ...existing,
+    ...incoming,
+    id: existing.id,
+    name: pickName,
+    role: pickRole,
+    photoUrl: pickPhoto,
+    search: `${pickName} ${pickRole}`.toLowerCase(),
+  }
+}
+
 function buildMessageId(senderId: string, receiverId: string, timestamp: string, text: string): string {
   return `webhook-${senderId}->${receiverId}-${timestamp}-${text}`.slice(0, 240)
 }
@@ -237,7 +281,7 @@ export default function ChatPage() {
     ? `emp-id:${signedEmployee.id}`
     : signedUsername
       ? `user:${signedUsername.toLowerCase()}`
-      : `role:${roleLabel.toLowerCase()}`
+      : `role:${toCanonicalRoleKey(roleLabel)}`
   const currentParticipantId = useMemo(() => {
     const resolvedSenderEmpId = resolveCurrentSenderEmployeeId({
       signedEmployeeId: signedEmployee?.id,
@@ -249,6 +293,23 @@ export default function ChatPage() {
     return resolvedSenderEmpId ? `emp-id:${resolvedSenderEmpId}` : currentSenderId
   }, [signedEmployee?.id, signedAccountId, currentSenderId, currentSender, employees])
   const currentParticipantEmpId = useMemo(() => getEmployeeIdFromChatUserId(currentParticipantId), [currentParticipantId])
+  const currentDisplayName = useMemo(() => {
+    const signedName = String(signedEmployee?.name ?? '').trim()
+    if (signedName) return signedName
+    const byParticipantId = currentParticipantEmpId
+      ? String(employees.find((e) => Number(e.id) === currentParticipantEmpId)?.name ?? '').trim()
+      : ''
+    if (byParticipantId) return byParticipantId
+    return currentSender
+  }, [signedEmployee?.name, currentParticipantEmpId, employees, currentSender])
+  const currentPhotoUrl = useMemo(() => {
+    const signedPhoto = String(signedEmployee?.photoUrl ?? '').trim()
+    if (signedPhoto) return signedPhoto
+    const byParticipantId = currentParticipantEmpId
+      ? String(employees.find((e) => Number(e.id) === currentParticipantEmpId)?.photoUrl ?? '').trim()
+      : ''
+    return byParticipantId || undefined
+  }, [signedEmployee?.photoUrl, currentParticipantEmpId, employees])
 
   const { getMessagesForConversation, getLastMessageForConversation, upsertMessages, getUnreadCount, markConversationRead } = useChat()
   const [inputValue, setInputValue] = useState('')
@@ -279,7 +340,7 @@ export default function ChatPage() {
       .filter((u): u is ChatUser => u !== null)
 
     const fallbackUsers = ALL_USERS.map((label) => ({
-      id: `role:${label.toLowerCase()}`,
+      id: `role:${toCanonicalRoleKey(label)}`,
       name: label,
       role: label,
       search: label.toLowerCase(),
@@ -287,7 +348,13 @@ export default function ChatPage() {
     const dedup = new Map<string, ChatUser>()
     for (const u of [...fromEmployees, ...fallbackUsers, ...webhookUsers, AI_SERVICE_USER]) {
       const canonicalId = getCanonicalUserId(u, employees)
-      if (!dedup.has(canonicalId)) dedup.set(canonicalId, { ...u, id: canonicalId })
+      const normalized = { ...u, id: canonicalId }
+      const prev = dedup.get(canonicalId)
+      if (!prev) {
+        dedup.set(canonicalId, normalized)
+      } else {
+        dedup.set(canonicalId, mergeChatUsers(prev, normalized))
+      }
     }
     return Array.from(dedup.values())
   }, [employees, webhookUsers])
@@ -308,13 +375,13 @@ export default function ChatPage() {
 
   const usersWithUnread = useMemo(
     () =>
-      usersWithMessages.filter((user) => getUnreadCount(getConversationId(currentParticipantId, user.id), currentSender) > 0),
-    [usersWithMessages, currentParticipantId, currentSender, getUnreadCount]
+      usersWithMessages.filter((user) => getUnreadCount(getConversationId(currentParticipantId, user.id), [currentSender, currentDisplayName]) > 0),
+    [usersWithMessages, currentParticipantId, currentSender, currentDisplayName, getUnreadCount]
   )
 
   const totalUnread = useMemo(
-    () => usersWithUnread.reduce((sum, user) => sum + getUnreadCount(getConversationId(currentParticipantId, user.id), currentSender), 0),
-    [usersWithUnread, currentParticipantId, currentSender, getUnreadCount]
+    () => usersWithUnread.reduce((sum, user) => sum + getUnreadCount(getConversationId(currentParticipantId, user.id), [currentSender, currentDisplayName]), 0),
+    [usersWithUnread, currentParticipantId, currentSender, currentDisplayName, getUnreadCount]
   )
 
   const filteredUsers = useMemo(() => {
@@ -342,7 +409,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (conversationId) markConversationRead(conversationId)
-  }, [conversationId, markConversationRead])
+  }, [conversationId, messages, markConversationRead])
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
@@ -425,6 +492,8 @@ export default function ChatPage() {
             let parsedFromName = ''
             let parsedToId = ''
             let parsedToName = ''
+            let parsedSenderImage: string | undefined
+            let parsedReceiverImage: string | undefined
             if (row && typeof row === 'object' && !Array.isArray(row)) {
               timestamp = String(row.timestamp ?? '').trim()
               text = String(row.message ?? '').trim()
@@ -432,6 +501,8 @@ export default function ChatPage() {
               const directFromName = String(row.fromName ?? '').trim()
               const directTo = String(row.toEmpID ?? '').trim()
               const directToName = String(row.toName ?? '').trim()
+              parsedSenderImage = toImageSrc(row.senderImage)
+              parsedReceiverImage = toImageSrc(row.receiverImage)
               if (directFrom || directTo) {
                 parsedFromId = directFrom.startsWith('emp-id:') ? directFrom : (directFrom ? `emp-id:${directFrom}` : '')
                 parsedFromName = directFromName
@@ -484,20 +555,69 @@ export default function ChatPage() {
               const otherEmpId = getEmployeeIdFromChatUserId(otherId)
               const otherFromEmployees = otherEmpId ? employees.find((e) => Number(e.id) === Number(otherEmpId)) : undefined
               const otherFullName = String(otherFromEmployees?.name ?? '').trim() || otherName
+              const otherPhotoFromThread =
+                normalizedFromId && normalizedFromId !== currentParticipantId
+                  ? parsedSenderImage
+                  : normalizedToId && normalizedToId !== currentParticipantId
+                    ? parsedReceiverImage
+                    : undefined
               discoveredById.set(otherId, {
                 id: otherId,
                 name: otherFullName,
                 role: String(otherFromEmployees?.role ?? '').trim() || 'Employee',
-                photoUrl: otherFromEmployees?.photoUrl,
+                photoUrl: otherPhotoFromThread || otherFromEmployees?.photoUrl,
                 search: `${otherFullName} employee`.toLowerCase(),
               })
             }
+
+            if (normalizedFromId && isEmpId(normalizedFromId)) {
+              const fromEmpId = getEmployeeIdFromChatUserId(normalizedFromId)
+              if (fromEmpId) {
+                const fromEmp = employees.find((e) => Number(e.id) === fromEmpId)
+                const fromNameResolved = String(fromEmp?.name ?? '').trim() || parsedFromName || meta.fromName || `Employee ${fromEmpId}`
+                discoveredById.set(normalizedFromId, {
+                  id: normalizedFromId,
+                  name: fromNameResolved,
+                  role: String(fromEmp?.role ?? '').trim() || 'Employee',
+                  photoUrl: parsedSenderImage || fromEmp?.photoUrl,
+                  search: `${fromNameResolved} employee`.toLowerCase(),
+                })
+              }
+            }
+
+            if (normalizedToId && isEmpId(normalizedToId)) {
+              const toEmpId = getEmployeeIdFromChatUserId(normalizedToId)
+              if (toEmpId) {
+                const toEmp = employees.find((e) => Number(e.id) === toEmpId)
+                const toNameResolved = String(toEmp?.name ?? '').trim() || parsedToName || meta.toName || `Employee ${toEmpId}`
+                discoveredById.set(normalizedToId, {
+                  id: normalizedToId,
+                  name: toNameResolved,
+                  role: String(toEmp?.role ?? '').trim() || 'Employee',
+                  photoUrl: parsedReceiverImage || toEmp?.photoUrl,
+                  search: `${toNameResolved} employee`.toLowerCase(),
+                })
+              }
+            }
             const conversationId = getConversationId(participantA, participantB)
             const fromName = String(parsedFromName || meta.fromName || '').trim()
-            const isOwnMessage =
+            const fromKey = fromName.toLowerCase()
+            const currentSenderKey = currentSender.toLowerCase()
+            const currentDisplayKey = currentDisplayName.toLowerCase()
+            const fromFirst = toConversationFirstName(fromName).toLowerCase()
+            const currentFirst = toConversationFirstName(currentDisplayName).toLowerCase()
+            const currentRoleId = `role:${toCanonicalRoleKey(currentSender)}`
+            const senderIsCurrentById =
               participantA === currentParticipantId ||
-              (!participantA && fromName.toLowerCase() === currentSender.toLowerCase())
-            const senderLabel = isOwnMessage ? currentSender : (fromName || otherName)
+              participantA === currentSenderId ||
+              participantA === currentRoleId
+            const senderIsCurrentByName =
+              fromKey === currentSenderKey ||
+              fromKey === currentDisplayKey ||
+              fromFirst === currentFirst
+            const isOwnMessage =
+              senderIsCurrentById || senderIsCurrentByName
+            const senderLabel = isOwnMessage ? currentDisplayName : (fromName || otherName)
 
             parsed.push({
               id: buildMessageId(participantA, participantB, timestamp, text),
@@ -513,7 +633,12 @@ export default function ChatPage() {
           setWebhookUsers((prev) => {
             const merged = new Map(prev.map((u) => [u.id, u] as const))
             for (const [id, user] of discoveredById.entries()) {
-              if (!merged.has(id)) merged.set(id, user)
+              const existing = merged.get(id)
+              if (!existing) {
+                merged.set(id, user)
+              } else {
+                merged.set(id, mergeChatUsers(existing, user))
+              }
             }
             return Array.from(merged.values())
           })
@@ -530,7 +655,7 @@ export default function ChatPage() {
     return () => {
       window.clearInterval(pollHandle)
     }
-  }, [currentParticipantEmpId, employees, currentParticipantId, currentSender, upsertMessages])
+  }, [currentParticipantEmpId, employees, currentParticipantId, currentSender, currentDisplayName, upsertMessages])
 
   useEffect(() => {
     if (!currentParticipantEmpId) return
@@ -548,8 +673,10 @@ export default function ChatPage() {
       timestamp?: string
       senderEmpID?: string | number
       senderName?: string
+      senderImage?: string
       receiverEmpID?: string | number
       receiverName?: string
+      receiverImage?: string
       message?: string
     }) => {
       const senderEmpId = Number(evt.senderEmpID)
@@ -563,7 +690,7 @@ export default function ChatPage() {
       const conversationId = getConversationId(senderId, receiverId)
       const senderName = String(evt.senderName ?? '').trim()
       const isOwn = senderEmpId === currentParticipantEmpId
-      const label = isOwn ? currentSender : (senderName || `Employee ${senderEmpId}`)
+      const label = isOwn ? currentDisplayName : (senderName || `Employee ${senderEmpId}`)
 
       upsertMessages([
         {
@@ -578,19 +705,28 @@ export default function ChatPage() {
       const peerEmpId = senderEmpId === currentParticipantEmpId ? receiverEmpId : senderEmpId
       const peerId = `emp-id:${peerEmpId}`
       const peerFromEmployees = employees.find((e) => Number(e.id) === peerEmpId)
+      const peerImageFromSocket = senderEmpId === currentParticipantEmpId
+        ? toImageSrc(evt.receiverImage)
+        : toImageSrc(evt.senderImage)
       const peerName =
         String(peerFromEmployees?.name ?? '').trim() ||
         (peerEmpId === senderEmpId ? senderName : String(evt.receiverName ?? '').trim()) ||
         `Employee ${peerEmpId}`
       setWebhookUsers((prev) => {
-        if (prev.some((u) => u.id === peerId)) return prev
+        const existing = prev.find((u) => u.id === peerId)
+        if (existing) {
+          if (!existing.photoUrl && peerImageFromSocket) {
+            return prev.map((u) => (u.id === peerId ? { ...u, photoUrl: peerImageFromSocket } : u))
+          }
+          return prev
+        }
         return [
           ...prev,
           {
             id: peerId,
             name: peerName,
             role: String(peerFromEmployees?.role ?? '').trim() || 'Employee',
-            photoUrl: peerFromEmployees?.photoUrl,
+            photoUrl: peerImageFromSocket || peerFromEmployees?.photoUrl,
             search: `${peerName} employee`.toLowerCase(),
           },
         ]
@@ -601,7 +737,7 @@ export default function ChatPage() {
       socket.emit('leave', { employeeID: currentParticipantEmpId })
       socket.disconnect()
     }
-  }, [currentParticipantEmpId, currentSender, employees, upsertMessages])
+  }, [currentParticipantEmpId, currentSender, currentDisplayName, employees, upsertMessages])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -627,7 +763,7 @@ export default function ChatPage() {
     }
 
     const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
-    const receiverName = String(selectedMeta.name ?? '').trim() || 'Unknown receiver'
+    const receiverName = toConversationFirstName(String(selectedMeta.name ?? '').trim() || 'Unknown receiver')
     const senderName = String(currentSender ?? '').trim() || 'Unknown sender'
     setInputValue('')
 
@@ -769,7 +905,7 @@ export default function ChatPage() {
               const cid = getConversationId(currentParticipantId, user.id)
               const last = getLastMessageForConversation(cid)
               const isActive = selectedUser === user.id
-              const unread = getUnreadCount(cid, currentSender)
+              const unread = getUnreadCount(cid, [currentSender, currentDisplayName])
               const preview = last ? `${last.sender}: ${last.text}` : ''
               return (
                 <button
@@ -846,12 +982,25 @@ export default function ChatPage() {
                 <p className="messenger-empty">No messages yet. Say hello!</p>
               ) : (
                 messages.map((m) => {
-                  const isOwn = m.sender === currentSender
+                  const isOwn = m.sender === currentSender || m.sender === currentDisplayName
+                  const peerName = String(selectedUserObj?.name ?? '').trim()
+                  const senderNameForBubble = isOwn
+                    ? String(currentDisplayName ?? '').trim() || m.sender
+                    : peerName || m.sender
+                  const senderPhotoForBubble = isOwn
+                    ? currentPhotoUrl
+                    : selectedUserObj?.photoUrl
                   return (
                     <div key={m.id} className={`messenger-msg ${isOwn ? 'messenger-msg-own' : ''}`}>
-                      <span className="messenger-msg-avatar" aria-hidden>{getInitials(m.sender)}</span>
+                      <span className="messenger-msg-avatar" aria-hidden>
+                        {senderPhotoForBubble ? (
+                          <img src={senderPhotoForBubble} alt={`${senderNameForBubble} profile`} className="messenger-avatar-image" />
+                        ) : (
+                          getInitials(senderNameForBubble)
+                        )}
+                      </span>
                       <div className="messenger-msg-bubble">
-                        <span className="messenger-msg-sender">{m.sender}</span>
+                        <span className="messenger-msg-sender">{toConversationFirstName(senderNameForBubble)}</span>
                         <p className="messenger-msg-text">{m.text}</p>
                         <span className="messenger-msg-time">{formatChatTime(m.timestamp)}</span>
                       </div>

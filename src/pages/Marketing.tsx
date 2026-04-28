@@ -86,12 +86,12 @@ export default function Marketing() {
 
   return (
     <div className="dashboard-page dashboard-page--marketing">
-      <header className="dashboard-page-header">
-        <h1 className="dashboard-page-title">Marketing</h1>
-        <p className="dashboard-page-subtitle">Applications overview</p>
-      </header>
       <div className="dashboard-page-content">
         <DashboardStories />
+        <header className="dashboard-page-header">
+          <h1 className="dashboard-page-title">Marketing</h1>
+          <p className="dashboard-page-subtitle">Applications overview</p>
+        </header>
         <section className="dashboard-stats" aria-label="Marketing metrics">
           <div className="dashboard-stat-card" style={{ animationDelay: '0ms' }}>
             <span className="dashboard-stat-value">{marketingApps.length}</span>

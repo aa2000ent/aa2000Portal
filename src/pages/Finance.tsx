@@ -24,12 +24,12 @@ export default function Finance() {
 
   return (
     <div className="dashboard-page dashboard-page--finance">
-      <header className="dashboard-page-header">
-        <h1 className="dashboard-page-title">Finance</h1>
-        <p className="dashboard-page-subtitle">Financial access overview and approvals activity</p>
-      </header>
       <div className="dashboard-page-content">
         <DashboardStories />
+        <header className="dashboard-page-header">
+          <h1 className="dashboard-page-title">Finance</h1>
+          <p className="dashboard-page-subtitle">Financial access overview and approvals activity</p>
+        </header>
         <section className="dashboard-stats" aria-label="Finance metrics">
           <div className="dashboard-stat-card" style={{ animationDelay: '0ms' }}>
             <span className="dashboard-stat-value">{financeApps.length}</span>

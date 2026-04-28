@@ -24,12 +24,12 @@ export default function Engineering() {
 
   return (
     <div className="dashboard-page dashboard-page--engineering">
-      <header className="dashboard-page-header">
-        <h1 className="dashboard-page-title">Engineering</h1>
-        <p className="dashboard-page-subtitle">Technical workspace and engineering activity</p>
-      </header>
       <div className="dashboard-page-content">
         <DashboardStories />
+        <header className="dashboard-page-header">
+          <h1 className="dashboard-page-title">Engineering</h1>
+          <p className="dashboard-page-subtitle">Technical workspace and engineering activity</p>
+        </header>
         <section className="dashboard-stats" aria-label="Engineering metrics">
           <div className="dashboard-stat-card" style={{ animationDelay: '0ms' }}>
             <span className="dashboard-stat-value">{engApps.length}</span>

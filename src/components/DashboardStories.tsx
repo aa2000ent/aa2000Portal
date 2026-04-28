@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
-import {
-  createAnnouncement,
-  fetchAnnouncementsByType,
-  type AnnouncementItem,
-  type AnnouncementType,
-} from '../api/announcements'
 import { getPortalAccountId, getPortalUsername } from '../api/client'
+import { fetchEmployees } from '../api/employees'
+import {
+  createStory,
+  dataUrlToFile,
+  deleteStory,
+  fetchStories,
+  isStoryVideoUrl,
+  mapStoriesForDashboard,
+  type DashboardStoryItem,
+} from '../api/stories'
 
 type StoryReaction = 'like' | 'love' | 'fire' | 'clap'
 type StoryReactionMap = Record<string, StoryReaction>
@@ -21,13 +24,13 @@ const STORY_REACTIONS: Array<{ key: StoryReaction; emoji: string; label: string 
 
 const STORY_REACTION_STORAGE_KEY = 'aa2000.storyReactions'
 const STORY_VIEWED_STORAGE_KEY = 'aa2000.storyViewed'
-const STORY_CREATOR_SEGMENTS = new Set(['admin', 'ceo', 'general-manager'])
 
-function sortNewestFirst(list: AnnouncementItem[]): AnnouncementItem[] {
+function sortNewestFirst(list: DashboardStoryItem[]): DashboardStoryItem[] {
   return [...list].sort((a, b) => {
-    const at = new Date(a.Date || 0).getTime()
-    const bt = new Date(b.Date || 0).getTime()
-    return bt - at
+    const at = new Date(a.date || 0).getTime()
+    const bt = new Date(b.date || 0).getTime()
+    if (bt !== at) return bt - at
+    return b.storyId - a.storyId
   })
 }
 
@@ -38,12 +41,6 @@ function formatDateLabel(value?: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function storyAuthorLabel(item: AnnouncementItem): string {
-  if (item.authorName?.trim()) return item.authorName.trim()
-  if (item.acc_ID > 0) return `User ${item.acc_ID}`
-  return 'Unknown user'
-}
-
 function toBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -51,6 +48,47 @@ function toBase64(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('Failed to read image file.'))
     reader.readAsDataURL(file)
   })
+}
+
+function createTextStoryBackground(): string {
+  const canvas = document.createElement('canvas')
+  canvas.width = 1080
+  canvas.height = 1920
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return ''
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
+  gradient.addColorStop(0, '#4f46e5')
+  gradient.addColorStop(0.5, '#60a5fa')
+  gradient.addColorStop(1, '#ec4899')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', 0.92)
+}
+
+async function optimizeStoryImage(imageSrc: string, maxDim = 1600): Promise<string> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Failed to optimize story image.'))
+    img.src = imageSrc
+  })
+
+  const iw = image.naturalWidth || image.width
+  const ih = image.naturalHeight || image.height
+  if (!iw || !ih) return imageSrc
+
+  const scale = Math.min(1, maxDim / Math.max(iw, ih))
+  const ow = Math.max(1, Math.round(iw * scale))
+  const oh = Math.max(1, Math.round(ih * scale))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = ow
+  canvas.height = oh
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return imageSrc
+  ctx.drawImage(image, 0, 0, ow, oh)
+  return canvas.toDataURL('image/jpeg', 0.88)
 }
 
 async function composeStoryImageWithText(
@@ -75,7 +113,7 @@ async function composeStoryImageWithText(
   const previewRect = previewEl.getBoundingClientRect()
   const pw = Math.max(1, previewRect.width)
   const ph = Math.max(1, previewRect.height)
-  const scale = Math.max(pw / iw, ph / ih) // object-fit: cover
+  const scale = Math.min(pw / iw, ph / ih) // object-fit: contain
   const renderedW = iw * scale
   const renderedH = ih * scale
   const offsetX = (pw - renderedW) / 2
@@ -121,26 +159,34 @@ async function composeStoryImageWithText(
 }
 
 export default function DashboardStories() {
-  const location = useLocation()
-  const [items, setItems] = useState<AnnouncementItem[]>([])
+  const [items, setItems] = useState<DashboardStoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [reactions, setReactions] = useState<StoryReactionMap>({})
   const [viewedStories, setViewedStories] = useState<StoryViewedMap>({})
+  const [mediaAttemptIndex, setMediaAttemptIndex] = useState<Record<number, number>>({})
   const [openComposer, setOpenComposer] = useState(false)
-  const [composerType, setComposerType] = useState<AnnouncementType>('ANNOUNCEMENT')
+  const [empIdByAccId, setEmpIdByAccId] = useState<Record<number, number>>({})
+  const [composerKind, setComposerKind] = useState<'photo' | 'text' | null>(null)
   const [composerImage, setComposerImage] = useState('')
   const [composerText, setComposerText] = useState('')
-  const [composerMode, setComposerMode] = useState<'gallery' | 'editor'>('gallery')
+  const [composerTextColor, setComposerTextColor] = useState('#ffffff')
+  const [composerTextSize, setComposerTextSize] = useState(34)
+  const [composerMode, setComposerMode] = useState<'entry' | 'gallery' | 'editor'>('entry')
   const [composerShowTextInput, setComposerShowTextInput] = useState(false)
   const [composerTextPos, setComposerTextPos] = useState({ x: 46, y: 60 })
   const [composerDragging, setComposerDragging] = useState(false)
   const [composerCustomImage, setComposerCustomImage] = useState('')
   const [composerError, setComposerError] = useState<string | null>(null)
   const [composerBusy, setComposerBusy] = useState(false)
+  const [deleteBusyId, setDeleteBusyId] = useState<number | null>(null)
+  const [storyMenuOpen, setStoryMenuOpen] = useState(false)
+  const preloadedMediaRef = useRef<Set<string>>(new Set())
+  const preloadPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
   const composerPreviewRef = useRef<HTMLDivElement | null>(null)
   const composerTextRef = useRef<HTMLDivElement | null>(null)
+  const composerPhotoInputRef = useRef<HTMLInputElement | null>(null)
   const dragRef = useRef<{
     startX: number
     startY: number
@@ -154,12 +200,17 @@ export default function DashboardStories() {
     setLoading(true)
     setError(null)
     try {
-      const [announcementList, memoList] = await Promise.all([
-        fetchAnnouncementsByType('ANNOUNCEMENT'),
-        fetchAnnouncementsByType('MEMO'),
-      ])
-      const merged = sortNewestFirst([...announcementList, ...memoList]).filter((x) => x.Status === 'ACTIVE')
-      setItems(merged.slice(0, 12))
+      const [rawStories, employees] = await Promise.all([fetchStories(), fetchEmployees()])
+      const mapped = mapStoriesForDashboard(rawStories as unknown[], employees)
+      const merged = sortNewestFirst(mapped).slice(0, 12)
+      setItems(merged)
+      const nextEmp: Record<number, number> = {}
+      for (const emp of employees) {
+        const accId = Number(emp.accId ?? 0)
+        const id = Number(emp.id ?? 0)
+        if (accId > 0 && id > 0) nextEmp[accId] = id
+      }
+      setEmpIdByAccId(nextEmp)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load stories.')
     } finally {
@@ -229,39 +280,183 @@ export default function DashboardStories() {
   }, [selectedIndex, items.length])
 
   useEffect(() => {
+    setStoryMenuOpen(false)
+  }, [selectedIndex])
+
+  useEffect(() => {
     if (selectedIndex === null) return
     const selectedItem = items[selectedIndex]
     if (!selectedItem) return
-    const key = String(selectedItem.an_ID)
+    const key = String(selectedItem.storyId)
     setViewedStories((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
   }, [selectedIndex, items])
 
+  useEffect(() => {
+    // Reset URL fallback attempts whenever story data is refreshed.
+    setMediaAttemptIndex({})
+  }, [items])
+  useEffect(() => {
+    if (items.length === 0) return
+    const allImageUrls = new Set<string>()
+    for (const item of items) {
+      const src = resolveMediaSrc(item)
+      if (!src || isStoryVideoUrl(src)) continue
+      allImageUrls.add(src)
+    }
+    for (const src of allImageUrls) {
+      if (preloadedMediaRef.current.has(src)) continue
+      if (preloadPromisesRef.current.has(src)) continue
+      const p = new Promise<void>((resolve) => {
+        const img = new Image()
+        img.decoding = 'async'
+        img.fetchPriority = 'high'
+        img.onload = () => {
+          preloadedMediaRef.current.add(src)
+          preloadPromisesRef.current.delete(src)
+          resolve()
+        }
+        img.onerror = () => {
+          preloadPromisesRef.current.delete(src)
+          resolve()
+        }
+        img.src = src
+      })
+      preloadPromisesRef.current.set(src, p)
+    }
+  }, [items, mediaAttemptIndex])
+
   const hasItems = useMemo(() => items.length > 0, [items])
-  const firstPathSegment = useMemo(() => location.pathname.split('/').filter(Boolean)[0] ?? '', [location.pathname])
-  const canCreateStories = useMemo(() => STORY_CREATOR_SEGMENTS.has(firstPathSegment), [firstPathSegment])
+  const currentAccId = useMemo(() => Number(getPortalAccountId() ?? 0), [])
+  const canCreateStories = true
   const isStoryViewed = (id: number): boolean => Boolean(viewedStories[String(id)])
+  const storyOwnerKey = (item: DashboardStoryItem): string => {
+    if (item.accId > 0) return `acc:${item.accId}`
+    if (item.employeeId > 0) return `emp:${item.employeeId}`
+    return `title:${item.title.trim().toLowerCase()}`
+  }
   const railItems = useMemo(() => {
-    const unseen = items.filter((item) => !isStoryViewed(item.an_ID))
-    const seen = items.filter((item) => isStoryViewed(item.an_ID))
-    return [...unseen, ...seen]
+    const byOwner = new Map<string, { item: DashboardStoryItem; hasUnseen: boolean }>()
+    for (const item of items) {
+      const key = storyOwnerKey(item)
+      const unseen = !isStoryViewed(item.storyId)
+      const existing = byOwner.get(key)
+      if (!existing) {
+        // `items` is newest-first; first item for this owner is their latest story.
+        byOwner.set(key, { item, hasUnseen: unseen })
+      } else if (unseen) {
+        existing.hasUnseen = true
+      }
+    }
+    const grouped = [...byOwner.values()]
+    const unseenOwners = grouped.filter((x) => x.hasUnseen)
+    const seenOwners = grouped.filter((x) => !x.hasUnseen)
+    return [...unseenOwners, ...seenOwners]
   }, [items, viewedStories])
+  const groupedOwnerItems = useMemo(() => railItems.map((x) => x.item), [railItems])
 
   const handleAddStory = () => {
     if (!canCreateStories) return
     setSelectedIndex(null)
-    setComposerType(firstPathSegment === 'admin' ? 'ANNOUNCEMENT' : 'MEMO')
+    setComposerKind(null)
     setComposerImage('')
-    setComposerMode('gallery')
+    setComposerMode('entry')
     setComposerShowTextInput(false)
     setComposerCustomImage('')
     setComposerText('')
+    setComposerTextColor('#ffffff')
+    setComposerTextSize(34)
     setComposerTextPos({ x: 46, y: 60 })
     setComposerError(null)
     setOpenComposer(true)
   }
 
+  const handleChoosePhotoStory = () => {
+    setComposerKind('photo')
+    setComposerImage('')
+    setComposerMode('entry')
+    setComposerShowTextInput(false)
+    setComposerError(null)
+    // Open device storage picker immediately (FB-like photo story flow).
+    composerPhotoInputRef.current?.click()
+  }
+
+  const handleChooseTextStory = () => {
+    const background = createTextStoryBackground()
+    setComposerKind('text')
+    setComposerImage(background)
+    setComposerMode('editor')
+    setComposerShowTextInput(true)
+    setComposerTextColor('#ffffff')
+    setComposerTextSize(42)
+    setComposerTextPos({ x: 120, y: 220 })
+    setComposerError(null)
+  }
+
   const selected = selectedIndex !== null ? items[selectedIndex] ?? null : null
-  const selectedReaction = selected ? reactions[String(selected.an_ID)] : undefined
+  const selectedReaction = selected ? reactions[String(selected.storyId)] : undefined
+  const canDeleteSelected = Boolean(selected && currentAccId > 0 && selected.accId === currentAccId)
+  const selectedOwnerStories = useMemo(() => {
+    if (!selected) return [] as DashboardStoryItem[]
+    const key = storyOwnerKey(selected)
+    return items.filter((item) => storyOwnerKey(item) === key)
+  }, [items, selected])
+  const selectedOwnerStoryIndex = useMemo(() => {
+    if (!selected) return 0
+    const idx = selectedOwnerStories.findIndex((item) => item.storyId === selected.storyId)
+    return idx >= 0 ? idx : 0
+  }, [selected, selectedOwnerStories])
+  useEffect(() => {
+    if (!selected || items.length === 0) return
+    const toPreload = new Set<string>()
+    const selectedIdx = items.findIndex((x) => x.storyId === selected.storyId)
+    if (selectedIdx < 0) return
+    const neighborIndexes = [
+      (selectedIdx + 1) % items.length,
+      (selectedIdx - 1 + items.length) % items.length,
+    ]
+    for (const idx of neighborIndexes) {
+      const candidate = resolveMediaSrc(items[idx])
+      if (candidate && !isStoryVideoUrl(candidate)) toPreload.add(candidate)
+    }
+    for (const ownerStory of selectedOwnerStories) {
+      const candidate = resolveMediaSrc(ownerStory)
+      if (candidate && !isStoryVideoUrl(candidate)) toPreload.add(candidate)
+    }
+    for (const src of toPreload) {
+      if (preloadedMediaRef.current.has(src)) continue
+      preloadedMediaRef.current.add(src)
+      const existing = preloadPromisesRef.current.get(src)
+      if (existing) continue
+      const p = new Promise<void>((resolve) => {
+        const img = new Image()
+        img.decoding = 'async'
+        img.fetchPriority = 'high'
+        img.onload = () => {
+          preloadedMediaRef.current.add(src)
+          preloadPromisesRef.current.delete(src)
+          resolve()
+        }
+        img.onerror = () => {
+          preloadPromisesRef.current.delete(src)
+          resolve()
+        }
+        img.src = src
+      })
+      preloadPromisesRef.current.set(src, p)
+    }
+  }, [selected, items, selectedOwnerStories])
+  const resolveMediaSrc = (item: DashboardStoryItem): string => {
+    const idx = mediaAttemptIndex[item.storyId] ?? 0
+    return item.mediaCandidates[idx] ?? item.mediaCandidates[0] ?? item.mediaUrl
+  }
+  const advanceMediaFallback = (item: DashboardStoryItem) => {
+    if (!item.mediaCandidates || item.mediaCandidates.length <= 1) return
+    setMediaAttemptIndex((prev) => {
+      const current = prev[item.storyId] ?? 0
+      if (current >= item.mediaCandidates.length - 1) return prev
+      return { ...prev, [item.storyId]: current + 1 }
+    })
+  }
 
   const toggleReaction = (storyId: string, reaction: StoryReaction) => {
     setReactions((prev) => {
@@ -278,6 +473,35 @@ export default function DashboardStories() {
     if (composerBusy) return
     setOpenComposer(false)
   }
+  const goPrevStory = () => {
+    if (items.length === 0) return
+    setSelectedIndex((prev) => (prev === null ? 0 : (prev - 1 + items.length) % items.length))
+  }
+  const goNextStory = () => {
+    if (items.length === 0) return
+    setSelectedIndex((prev) => (prev === null ? 0 : (prev + 1) % items.length))
+  }
+
+  const handleDeleteSelectedStory = async () => {
+    if (!selected || !canDeleteSelected || deleteBusyId !== null) return
+    const ok = window.confirm('Delete this story? This cannot be undone.')
+    if (!ok) return
+    setDeleteBusyId(selected.storyId)
+    setStoryMenuOpen(false)
+    try {
+      const removed = await deleteStory(selected.storyId)
+      if (!removed) {
+        setError('Failed to delete story. Please try again.')
+        return
+      }
+      setSelectedIndex(null)
+      await loadStories()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete story.')
+    } finally {
+      setDeleteBusyId(null)
+    }
+  }
 
   const composerGallery = useMemo(() => {
     const uniq = new Set<string>()
@@ -287,10 +511,10 @@ export default function DashboardStories() {
       result.push(composerCustomImage)
     }
     for (const item of items) {
-      if (!item.Image) continue
-      if (uniq.has(item.Image)) continue
-      uniq.add(item.Image)
-      result.push(item.Image)
+      if (!item.mediaUrl) continue
+      if (uniq.has(item.mediaUrl)) continue
+      uniq.add(item.mediaUrl)
+      result.push(item.mediaUrl)
     }
     return result
   }, [composerCustomImage, items])
@@ -350,10 +574,17 @@ export default function DashboardStories() {
     setComposerBusy(true)
     setComposerError(null)
     try {
+      const employeeId = empIdByAccId[accId]
+      if (!employeeId) {
+        setComposerError(
+          'Your account is not linked to an employee record. Ask an admin to link your portal account to an employee so you can post stories.',
+        )
+        return
+      }
       const text = composerText.trim()
       const posterName = String(getPortalUsername() ?? '').trim()
       const fallbackTitle = `User ${accId}`
-      let finalImage = composerImage.trim()
+      let finalImage = await optimizeStoryImage(composerImage.trim())
       if (text && composerPreviewRef.current && composerTextRef.current) {
         finalImage = await composeStoryImageWithText(
           finalImage,
@@ -363,13 +594,12 @@ export default function DashboardStories() {
           composerTextRef.current,
         )
       }
-      await createAnnouncement({
-        acc_ID: accId,
-        Title: posterName || fallbackTitle,
-        Description: text || '',
-        Image: finalImage,
-        Status: 'ACTIVE',
-        type: composerType,
+      const file = dataUrlToFile(finalImage, 'story.jpg')
+      await createStory({
+        file,
+        filename: file.name,
+        caption: text || posterName || fallbackTitle,
+        employeeId,
       })
       setOpenComposer(false)
       await loadStories()
@@ -382,7 +612,7 @@ export default function DashboardStories() {
 
   return (
     <>
-      <section className="dashboard-stories" aria-label="Announcement stories">
+      <section className="dashboard-stories" aria-label="Team stories">
         <div className="dashboard-stories__head">
           <h2 className="dashboard-stories__title">Stories</h2>
           <span className="dashboard-stories__hint">Latest stories</span>
@@ -413,28 +643,41 @@ export default function DashboardStories() {
                 <span className="dashboard-story__label">Add story</span>
               </button>
             )}
-            {railItems.map((item) => (
+            {railItems.map(({ item, hasUnseen }) => (
               <button
-                key={`story-${item.an_ID}`}
+                key={`story-${item.storyId}`}
                 type="button"
-                className={`dashboard-story ${isStoryViewed(item.an_ID) ? 'is-seen' : ''}`}
+                className={`dashboard-story ${hasUnseen ? '' : 'is-seen'}`}
                 onClick={() => {
-                  const originalIndex = items.findIndex((row) => row.an_ID === item.an_ID)
+                  const ownerKey = storyOwnerKey(item)
+                  const originalIndex = items.findIndex((row) => storyOwnerKey(row) === ownerKey)
                   if (originalIndex >= 0) setSelectedIndex(originalIndex)
                 }}
-                aria-label={`Open story ${item.Title || 'Untitled'}`}
+                aria-label={`Open story ${item.title || 'Untitled'}`}
               >
                 <span className="dashboard-story__avatar-wrap">
-                  {item.Image ? (
-                    <img src={item.Image} alt={item.Title || 'Story'} className="dashboard-story__avatar" />
+                  {resolveMediaSrc(item) ? (
+                    isStoryVideoUrl(resolveMediaSrc(item)) ? (
+                      <video
+                        src={resolveMediaSrc(item)}
+                        className="dashboard-story__avatar"
+                        muted
+                        playsInline
+                        preload="metadata"
+                        aria-hidden
+                        onError={() => advanceMediaFallback(item)}
+                      />
+                    ) : (
+                      <img src={resolveMediaSrc(item)} alt="" className="dashboard-story__avatar" onError={() => advanceMediaFallback(item)} />
+                    )
                   ) : (
                     <span className="dashboard-story__avatar dashboard-story__avatar--placeholder">
-                      {item.type === 'MEMO' ? 'M' : 'A'}
+                      {(item.title || 'S').trim().slice(0, 1).toUpperCase()}
                     </span>
                   )}
-                  <span className="dashboard-story__author">{storyAuthorLabel(item)}</span>
+                  <span className="dashboard-story__author">{item.title}</span>
                 </span>
-                <span className="dashboard-story__label">{item.Title || 'Untitled'}</span>
+                <span className="dashboard-story__label">{item.title || 'Untitled'}</span>
               </button>
             ))}
           </div>
@@ -443,7 +686,7 @@ export default function DashboardStories() {
 
       {selected && (
         <div className="dashboard-announcement-dialog-backdrop" role="presentation" onClick={() => setSelectedIndex(null)}>
-          <div className="dashboard-story-viewer" role="dialog" aria-modal="true" aria-label={selected.Title || 'Story details'} onClick={(event) => event.stopPropagation()}>
+          <div className="dashboard-story-viewer" role="dialog" aria-modal="true" aria-label={selected.title || 'Story details'} onClick={(event) => event.stopPropagation()}>
             <aside className="dashboard-story-viewer__sidebar">
               <div className="dashboard-story-viewer__sidebar-head">
                 <h3 className="dashboard-story-viewer__sidebar-title">Stories</h3>
@@ -465,20 +708,32 @@ export default function DashboardStories() {
                 </button>
               )}
               <div className="dashboard-story-viewer__list">
-                {items.map((item, index) => (
+                {groupedOwnerItems.map((item) => (
                   <button
-                    key={`viewer-item-${item.an_ID}`}
+                    key={`viewer-item-${item.storyId}`}
                     type="button"
-                    className={`dashboard-story-viewer__list-item ${index === selectedIndex ? 'is-active' : ''} ${isStoryViewed(item.an_ID) ? 'is-seen' : ''}`}
-                    onClick={() => setSelectedIndex(index)}
-                    aria-label={`Open ${item.Title || 'Untitled'} story`}
+                    className={`dashboard-story-viewer__list-item ${selected && storyOwnerKey(selected) === storyOwnerKey(item) ? 'is-active' : ''} ${isStoryViewed(item.storyId) ? 'is-seen' : ''}`}
+                    onClick={() => {
+                      const ownerKey = storyOwnerKey(item)
+                      const ownerFirstIndex = items.findIndex((row) => storyOwnerKey(row) === ownerKey)
+                      if (ownerFirstIndex >= 0) setSelectedIndex(ownerFirstIndex)
+                    }}
+                    aria-label={`Open ${item.title || 'Untitled'} story`}
                   >
                     <span className="dashboard-story-viewer__list-avatar">
-                      {item.Image ? <img src={item.Image} alt={item.Title || 'Story'} /> : <span>{item.type === 'MEMO' ? 'M' : 'A'}</span>}
+                      {resolveMediaSrc(item) ? (
+                        isStoryVideoUrl(resolveMediaSrc(item)) ? (
+                          <video src={resolveMediaSrc(item)} muted playsInline preload="metadata" aria-hidden onError={() => advanceMediaFallback(item)} />
+                        ) : (
+                          <img src={resolveMediaSrc(item)} alt="" onError={() => advanceMediaFallback(item)} />
+                        )
+                      ) : (
+                        <span>{(item.title || 'S').trim().slice(0, 1).toUpperCase()}</span>
+                      )}
                     </span>
                     <span className="dashboard-story-viewer__list-copy">
-                      <strong>{storyAuthorLabel(item)}</strong>
-                      <small>{formatDateLabel(item.Date)}</small>
+                      <strong>{item.title}</strong>
+                      <small>{formatDateLabel(item.date)}</small>
                     </span>
                   </button>
                 ))}
@@ -488,32 +743,115 @@ export default function DashboardStories() {
             <div className="dashboard-story-viewer__stage">
               <button
                 type="button"
-                className="dashboard-story-viewer__nav dashboard-story-viewer__nav--prev"
-                onClick={() => setSelectedIndex((prev) => (prev === null ? 0 : (prev - 1 + items.length) % items.length))}
+                className="dashboard-story-viewer__tap-zone dashboard-story-viewer__tap-zone--prev"
+                onClick={goPrevStory}
                 aria-label="Previous story"
-              >
-                ‹
-              </button>
+              />
               <article className="dashboard-story-viewer__card">
-                {selected.Image ? (
-                  <img src={selected.Image} alt={selected.Title} className="dashboard-announcement-dialog__image" />
-                ) : (
-                  <div className="dashboard-announcement-dialog__image dashboard-announcement-dialog__image--placeholder">
-                    <div className="dashboard-story-viewer__no-image-copy">
-                      <strong>{selected.Title || 'Untitled'}</strong>
-                      <p>{selected.Description || 'No image available for this story.'}</p>
+                <div
+                  className="dashboard-story-media-wrap"
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    const x = event.clientX - rect.left
+                    if (x < rect.width / 2) goPrevStory()
+                    else goNextStory()
+                  }}
+                >
+                  {selectedOwnerStories.length > 0 && (
+                    <div className="dashboard-story-progress" aria-label="Story progress">
+                      {selectedOwnerStories.map((ownerStory, idx) => (
+                        <span
+                          key={`story-progress-${ownerStory.storyId}`}
+                          className={`dashboard-story-progress__segment ${idx <= selectedOwnerStoryIndex ? 'is-active' : ''}`}
+                          aria-hidden
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <div className="dashboard-story-topbar" onClick={(event) => event.stopPropagation()}>
+                    <div className="dashboard-story-topbar__author">
+                      <span className="dashboard-story-topbar__avatar" aria-hidden>
+                        {selected.authorPhotoUrl ? (
+                          <img src={selected.authorPhotoUrl} alt="" />
+                        ) : (
+                          <span>{(selected.title || 'U').trim().slice(0, 1).toUpperCase()}</span>
+                        )}
+                      </span>
+                      <span className="dashboard-story-topbar__copy">
+                        <strong>{selected.title || 'Unknown user'}</strong>
+                        <small>{formatDateLabel(selected.date)} · 🌐</small>
+                      </span>
+                    </div>
+                    <div className="dashboard-story-topbar__actions">
+                      <button type="button" className="dashboard-story-topbar__icon-btn" aria-label="Sound" title="Sound">
+                        🔊
+                      </button>
+                      <button type="button" className="dashboard-story-topbar__icon-btn" aria-label="Play" title="Play">
+                        ▶
+                      </button>
+                      {canDeleteSelected && (
+                        <div className="dashboard-story-menu-wrap">
+                          <button
+                            type="button"
+                            className="dashboard-story-topbar__icon-btn"
+                            onClick={() => setStoryMenuOpen((v) => !v)}
+                            aria-label="Story options"
+                            title="Story options"
+                          >
+                            ⋯
+                          </button>
+                          {storyMenuOpen && (
+                            <div className="dashboard-story-menu dashboard-story-menu--top" role="menu" aria-label="Story options menu">
+                              <button
+                                type="button"
+                                className="dashboard-story-menu__item"
+                                onClick={handleDeleteSelectedStory}
+                                disabled={deleteBusyId === selected?.storyId}
+                              >
+                                {deleteBusyId === selected?.storyId ? 'Deleting...' : 'Delete story'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
+                  {resolveMediaSrc(selected) ? (
+                    isStoryVideoUrl(resolveMediaSrc(selected)) ? (
+                      <video
+                        src={resolveMediaSrc(selected)}
+                        controls
+                        className="dashboard-announcement-dialog__image"
+                        playsInline
+                        onError={() => advanceMediaFallback(selected)}
+                      />
+                    ) : (
+                      <img
+                        src={resolveMediaSrc(selected)}
+                        alt={selected.title}
+                        className="dashboard-announcement-dialog__image"
+                        loading="eager"
+                        fetchPriority="high"
+                        decoding="sync"
+                        onError={() => advanceMediaFallback(selected)}
+                      />
+                    )
+                  ) : (
+                    <div className="dashboard-announcement-dialog__image dashboard-announcement-dialog__image--placeholder">
+                      <div className="dashboard-story-viewer__no-image-copy">
+                        <strong>{selected.title || 'Untitled'}</strong>
+                        <p>{selected.caption || 'No media available for this story.'}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </article>
               <button
                 type="button"
-                className="dashboard-story-viewer__nav dashboard-story-viewer__nav--next"
-                onClick={() => setSelectedIndex((prev) => (prev === null ? 0 : (prev + 1) % items.length))}
+                className="dashboard-story-viewer__tap-zone dashboard-story-viewer__tap-zone--next"
+                onClick={goNextStory}
                 aria-label="Next story"
-              >
-                ›
-              </button>
+              />
               <footer className="dashboard-story-viewer__footer">
                 <div className="dashboard-story-viewer__message">Send message...</div>
                 <div className="dashboard-story-reactions" aria-label="Story reactions">
@@ -524,7 +862,7 @@ export default function DashboardStories() {
                         key={reaction.key}
                         type="button"
                         className={`dashboard-story-reaction-btn ${isActive ? 'is-active' : ''}`}
-                        onClick={() => toggleReaction(String(selected.an_ID), reaction.key)}
+                        onClick={() => toggleReaction(String(selected.storyId), reaction.key)}
                         aria-label={reaction.label}
                         title={reaction.label}
                       >
@@ -542,6 +880,29 @@ export default function DashboardStories() {
       {openComposer && canCreateStories && (
         <div className="modal-overlay dashboard-story-creator-overlay" onClick={closeComposer} role="dialog" aria-modal="true">
           <div className="dashboard-story-creator" onClick={(event) => event.stopPropagation()}>
+            <input
+              ref={composerPhotoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (!file) return
+                void toBase64(file)
+                  .then((base64) => {
+                    setComposerCustomImage(base64)
+                    setComposerImage(base64)
+                    setComposerMode('editor')
+                    setComposerShowTextInput(false)
+                    setComposerError(null)
+                  })
+                  .catch((e) => setComposerError(e instanceof Error ? e.message : 'Failed to load image.'))
+                  .finally(() => {
+                    // Allow selecting the same file again later.
+                    event.target.value = ''
+                  })
+              }}
+            />
             <div className="dashboard-story-creator__header">
               <button type="button" className="dashboard-story-creator__close" onClick={closeComposer} aria-label="Close create story form">
                 ×
@@ -550,7 +911,26 @@ export default function DashboardStories() {
               <button type="button" className="dashboard-story-creator__gear" aria-label="Story settings">⚙</button>
             </div>
             <form onSubmit={handleCreateStory}>
-              {composerMode === 'gallery' ? (
+              {composerMode === 'entry' ? (
+                <div className="dashboard-story-choice">
+                  <button
+                    type="button"
+                    className="dashboard-story-choice__card dashboard-story-choice__card--photo"
+                    onClick={handleChoosePhotoStory}
+                  >
+                    <span className="dashboard-story-choice__icon" aria-hidden>🖼️</span>
+                    <span className="dashboard-story-choice__label">Create a photo story</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-story-choice__card dashboard-story-choice__card--text"
+                    onClick={handleChooseTextStory}
+                  >
+                    <span className="dashboard-story-choice__icon" aria-hidden>Aa</span>
+                    <span className="dashboard-story-choice__label">Create a text story</span>
+                  </button>
+                </div>
+              ) : composerMode === 'gallery' ? (
                 <>
                   <div className="dashboard-story-creator__tool-row">
                     <button type="button" className="dashboard-story-creator__tool dashboard-story-creator__tool--active">Text</button>
@@ -611,7 +991,7 @@ export default function DashboardStories() {
                         <div
                           ref={composerTextRef}
                           className="dashboard-story-composer__overlay-text"
-                          style={{ left: composerTextPos.x, top: composerTextPos.y }}
+                          style={{ left: composerTextPos.x, top: composerTextPos.y, color: composerTextColor, fontSize: `${composerTextSize}px` }}
                           onMouseDown={beginComposerTextDrag}
                         >
                           {composerText}
@@ -641,15 +1021,42 @@ export default function DashboardStories() {
                         onChange={(event) => setComposerText(event.target.value)}
                         placeholder="Type text then drag on image"
                       />
+                      <div className="dashboard-story-creator__text-controls">
+                        <label className="dashboard-story-creator__text-control">
+                          <span>Color</span>
+                          <input
+                            type="color"
+                            value={composerTextColor}
+                            onChange={(event) => setComposerTextColor(event.target.value)}
+                            aria-label="Text color"
+                          />
+                        </label>
+                        <label className="dashboard-story-creator__text-control dashboard-story-creator__text-control--size">
+                          <span>Size</span>
+                          <input
+                            type="range"
+                            min={20}
+                            max={76}
+                            step={1}
+                            value={composerTextSize}
+                            onChange={(event) => setComposerTextSize(Number(event.target.value))}
+                            aria-label="Text size"
+                          />
+                          <strong>{composerTextSize}px</strong>
+                        </label>
+                      </div>
                     </div>
                   )}
                   <div className="dashboard-story-creator__footer">
-                    <div className="dashboard-story-creator__privacy">{composerType === 'ANNOUNCEMENT' ? 'Public' : 'Memo'}</div>
+                    <div className="dashboard-story-creator__privacy">Shared with your team</div>
                     <div className="dashboard-story-creator__actions">
                       <button
                         type="button"
                         className="employees-btn employees-btn-secondary"
-                        onClick={() => setComposerMode('gallery')}
+                        onClick={() => {
+                          if (composerKind === 'photo') setComposerMode('gallery')
+                          else setComposerMode('entry')
+                        }}
                         disabled={composerBusy}
                       >
                         Back

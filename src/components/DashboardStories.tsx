@@ -656,8 +656,6 @@ export default function DashboardStories() {
         </div>
         {loading ? (
           <div className="dashboard-stories__empty">Loading stories...</div>
-        ) : error ? (
-          <div className="dashboard-stories__empty">{error}</div>
         ) : !hasItems ? (
           <div className="dashboard-stories__rail">
             {canCreateStories && (
@@ -669,57 +667,62 @@ export default function DashboardStories() {
                 <span className="dashboard-story__label">Add story</span>
               </button>
             )}
-            <div className="dashboard-stories__empty">No active stories.</div>
+            <div className="dashboard-stories__empty">
+              {error ? `${error} You can still add a story.` : 'No active stories.'}
+            </div>
           </div>
         ) : (
-          <div className="dashboard-stories__rail">
-            {canCreateStories && (
-              <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
-                <span className={`dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add ${currentUserPhotoUrl ? 'dashboard-story__avatar-wrap--with-photo' : ''}`}>
-                  {currentUserPhotoUrl ? <img src={currentUserPhotoUrl} alt="" className="dashboard-story__avatar" /> : null}
-                  <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
-                </span>
-                <span className="dashboard-story__label">Add story</span>
-              </button>
-            )}
-            {railItems.map(({ item, hasUnseen }) => (
-              <button
-                key={`story-${item.storyId}`}
-                type="button"
-                className={`dashboard-story ${hasUnseen ? '' : 'is-seen'}`}
-                onClick={() => {
-                  const ownerKey = storyOwnerKey(item)
-                  const originalIndex = items.findIndex((row) => storyOwnerKey(row) === ownerKey)
-                  if (originalIndex >= 0) setSelectedIndex(originalIndex)
-                }}
-                aria-label={`Open story ${item.title || 'Untitled'}`}
-              >
-                <span className="dashboard-story__avatar-wrap">
-                  {resolveMediaSrc(item) ? (
-                    isStoryVideoUrl(resolveMediaSrc(item)) ? (
-                      <video
-                        src={resolveMediaSrc(item)}
-                        className="dashboard-story__avatar"
-                        muted
-                        playsInline
-                        preload="metadata"
-                        aria-hidden
-                        onError={() => advanceMediaFallback(item)}
-                      />
+          <>
+            {error && <div className="dashboard-stories__empty">{error}</div>}
+            <div className="dashboard-stories__rail">
+              {canCreateStories && (
+                <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
+                  <span className={`dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add ${currentUserPhotoUrl ? 'dashboard-story__avatar-wrap--with-photo' : ''}`}>
+                    {currentUserPhotoUrl ? <img src={currentUserPhotoUrl} alt="" className="dashboard-story__avatar" /> : null}
+                    <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
+                  </span>
+                  <span className="dashboard-story__label">Add story</span>
+                </button>
+              )}
+              {railItems.map(({ item, hasUnseen }) => (
+                <button
+                  key={`story-${item.storyId}`}
+                  type="button"
+                  className={`dashboard-story ${hasUnseen ? '' : 'is-seen'}`}
+                  onClick={() => {
+                    const ownerKey = storyOwnerKey(item)
+                    const originalIndex = items.findIndex((row) => storyOwnerKey(row) === ownerKey)
+                    if (originalIndex >= 0) setSelectedIndex(originalIndex)
+                  }}
+                  aria-label={`Open story ${item.title || 'Untitled'}`}
+                >
+                  <span className="dashboard-story__avatar-wrap">
+                    {resolveMediaSrc(item) ? (
+                      isStoryVideoUrl(resolveMediaSrc(item)) ? (
+                        <video
+                          src={resolveMediaSrc(item)}
+                          className="dashboard-story__avatar"
+                          muted
+                          playsInline
+                          preload="metadata"
+                          aria-hidden
+                          onError={() => advanceMediaFallback(item)}
+                        />
+                      ) : (
+                        <img src={resolveMediaSrc(item)} alt="" className="dashboard-story__avatar" onError={() => advanceMediaFallback(item)} />
+                      )
                     ) : (
-                      <img src={resolveMediaSrc(item)} alt="" className="dashboard-story__avatar" onError={() => advanceMediaFallback(item)} />
-                    )
-                  ) : (
-                    <span className="dashboard-story__avatar dashboard-story__avatar--placeholder">
-                      {(item.title || 'S').trim().slice(0, 1).toUpperCase()}
-                    </span>
-                  )}
-                  <span className="dashboard-story__author">{item.title}</span>
-                </span>
-                <span className="dashboard-story__label">{item.title || 'Untitled'}</span>
-              </button>
-            ))}
-          </div>
+                      <span className="dashboard-story__avatar dashboard-story__avatar--placeholder">
+                        {(item.title || 'S').trim().slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="dashboard-story__author">{item.title}</span>
+                  </span>
+                  <span className="dashboard-story__label">{item.title || 'Untitled'}</span>
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </section>
 

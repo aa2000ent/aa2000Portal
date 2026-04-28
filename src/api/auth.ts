@@ -1,4 +1,4 @@
-import { apiRequest, getSessionId, setPortalAccountId, setPortalUsername, setSessionId } from './client'
+import { apiRequest, setPortalAccountId, setPortalUsername, setSessionId } from './client'
 import { getExecutiveTitleDefaultRoute, getLogoutCandidatePaths, getRoleIdRouteOverride } from './config'
 import { fetchRoleById, fetchRoles } from './roles'
 import { fetchEmployees } from './employees'
@@ -48,8 +48,6 @@ export async function loginVerification(
     username: payload.username,
     password: payload.password,
   }
-  const existingSession = getSessionId()
-  if (existingSession) body.s_name = existingSession
   const res = await apiRequest<LoginVerificationResponse>('/security/login/verification', {
     method: 'POST',
     body: JSON.stringify(body),

@@ -46,13 +46,150 @@ function isLikelyBase64(value: string): boolean {
   if (!t || t.length < 20) return false
   if (t.startsWith('data:')) return true
   if (/^https?:\/\//i.test(t)) return false
-  if (t.includes('\\') || t.includes('/')) return false
-  return /^[A-Za-z0-9+/]+={0,2}$/.test(t)
+  if (t.includes('\\')) return false // Windows absolute path
+  // Normalize base64url → standard base64, then validate charset
+  // Note: do NOT reject on '/' — standard base64 uses it
+  const normalized = t.replace(/-/g, '+').replace(/_/g, '/')
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(normalized)
 }
 
 function toDataUrl(base64: string, mime = 'image/jpeg'): string {
   const clean = base64.trim().replace(/\s/g, '')
   return `data:${mime};base64,${clean}`
+}
+
+function detectImageMimeFromBase64(base64: string): string {
+  try {
+    const bin = atob(base64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+    if (
+      bytes.length >= 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47 &&
+      bytes[4] === 0x0d &&
+      bytes[5] === 0x0a &&
+      bytes[6] === 0x1a &&
+      bytes[7] === 0x0a
+    ) {
+      return 'image/png'
+    }
+    if (bytes.length >= 4 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) {
+      return 'image/gif'
+    }
+    if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+      const ascii = (start: number) =>
+        String.fromCharCode(bytes[start] ?? 0, bytes[start + 1] ?? 0, bytes[start + 2] ?? 0, bytes[start + 3] ?? 0)
+      if (ascii(8) === 'WEBP') return 'image/webp'
+    }
+  } catch {
+    // ignore
+  }
+  return 'image/jpeg'
+}
+
+function base64ToDataUrl(base64: string): string {
+  let normalized = base64.trim().replace(/\s/g, '').replace(/^data:[^,]+,/, '')
+  normalized = normalized.replace(/-/g, '+').replace(/_/g, '/')
+  const mime = detectImageMimeFromBase64(normalized)
+  return `data:${mime};base64,${normalized}`
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const sub = bytes.subarray(i, i + chunkSize)
+    binary += String.fromCharCode(...sub)
+  }
+  return btoa(binary)
+}
+
+function base64FromBufferLike(value: unknown): string | undefined {
+  if (value == null) return undefined
+  if (value instanceof Uint8Array) return bytesToBase64(value)
+  if (Array.isArray(value)) return bytesToBase64(new Uint8Array(value))
+  if (typeof value === 'object') {
+    const maybe = value as Record<string, unknown>
+    if (maybe.type === 'Buffer' && Array.isArray(maybe.data)) {
+      return bytesToBase64(new Uint8Array(maybe.data as number[]))
+    }
+    if (Array.isArray(maybe.data)) {
+      return bytesToBase64(new Uint8Array(maybe.data as number[]))
+    }
+  }
+  return undefined
+}
+
+function extractEmployeePhotoUrl(emp: Record<string, unknown>): string | undefined {
+  function isTinyGifPlaceholder(value: string): boolean {
+    const v = value.trim()
+    if (!v) return true
+    if (v.startsWith('data:image/gif;base64,')) {
+      const b64 = v.slice('data:image/gif;base64,'.length).replace(/\s/g, '')
+      if (b64.length < 200) return true
+    }
+    return false
+  }
+
+  const candidates: unknown[] = [
+    emp.Emp_photo,
+    emp.emp_photo,
+    emp.Emp_image,
+    emp.emp_image,
+    emp.Emp_img,
+    emp.emp_img,
+    emp.Emp_avatar,
+    emp.emp_avatar,
+    emp.photo,
+    emp.picture,
+    emp.profile_picture,
+    emp.profilePicture,
+    emp.Emp_imageBase64,
+    emp.emp_imageBase64,
+    emp.Emp_imagebase64,
+    emp.empImageBase64,
+    emp.Emp_image_base64,
+    emp.emp_image_base64,
+    emp.photoUrl,
+    emp.photo_url,
+    emp.avatarUrl,
+    emp.avatar_url,
+    emp.imageUrl,
+    emp.image_url,
+    emp.image,
+  ]
+
+  for (const raw of candidates) {
+    if (raw == null) continue
+    if (typeof raw === 'string') {
+      const v = raw.trim()
+      if (!v || v === '[object Object]') continue
+      if (v.startsWith('data:')) return isTinyGifPlaceholder(v) ? undefined : v
+      if (isLikelyBase64(v)) return base64ToDataUrl(v)
+      return v
+    }
+    const b64 = base64FromBufferLike(raw)
+    if (b64) return base64ToDataUrl(b64)
+  }
+
+  // Extra fallback to mirror employee parser behavior across unknown key casing.
+  for (const [k, v] of Object.entries(emp)) {
+    if (!/image.*base64/i.test(k)) continue
+    if (typeof v === 'string') {
+      const candidate = v.trim()
+      if (!candidate) continue
+      if (candidate.startsWith('data:')) return isTinyGifPlaceholder(candidate) ? undefined : candidate
+      if (isLikelyBase64(candidate)) return base64ToDataUrl(candidate)
+      return candidate
+    }
+    const b64 = base64FromBufferLike(v)
+    if (b64) return base64ToDataUrl(b64)
+  }
+  return undefined
 }
 
 function parseEmployeeFromStoryRow(row: RawStory): StoryAuthorSource | undefined {
@@ -72,10 +209,7 @@ function parseEmployeeFromStoryRow(row: RawStory): StoryAuthorSource | undefined
       .join(' ')
       .trim() ||
     `Employee ${id}`
-  let photoUrl = String(emp.Emp_imageBase64 ?? emp.emp_imageBase64 ?? emp.photoUrl ?? '').trim()
-  if (photoUrl && !photoUrl.startsWith('data:') && isLikelyBase64(photoUrl)) {
-    photoUrl = toDataUrl(photoUrl)
-  }
+  const photoUrl = extractEmployeePhotoUrl(emp)
   return { id, accId, name, photoUrl: photoUrl || undefined }
 }
 
@@ -138,7 +272,10 @@ export function resolveStoryMediaUrls(row: RawStory): string[] {
 
 function parseStoryRow(row: RawStory): Omit<DashboardStoryItem, 'title' | 'accId'> | null {
   const storyId = Number(row.id ?? row.StoriesID ?? row.stories_ID ?? row.story_ID ?? 0)
-  const employeeId = Number(row.EmployeeID ?? row.employeeID ?? row.employeeId ?? 0)
+  const employeeId = Number(
+    row.EmployeeID ?? row.employeeID ?? row.employeeId ??
+    row.Emp_ID ?? row.emp_ID ?? row.employee_id ?? row.EmpID ?? 0
+  )
   const caption = String(row.Caption ?? row.caption ?? '').trim()
   const date = String(
     row.createdAt ??
@@ -168,8 +305,10 @@ export function mapStoriesForDashboard(
   employees: StoryAuthorSource[],
 ): DashboardStoryItem[] {
   const byEmpId = new Map<number, StoryAuthorSource>()
+  const byAccId = new Map<number, StoryAuthorSource>()
   for (const e of employees) {
     if (Number.isFinite(e.id) && e.id > 0) byEmpId.set(e.id, e)
+    if (Number.isFinite(e.accId) && (e.accId as number) > 0) byAccId.set(e.accId as number, e)
   }
   const out: DashboardStoryItem[] = []
   for (const raw of rawList) {
@@ -178,14 +317,28 @@ export function mapStoriesForDashboard(
     const parsed = parseStoryRow(row)
     if (!parsed) continue
     const embeddedEmp = parseEmployeeFromStoryRow(row)
-    const emp = embeddedEmp ?? byEmpId.get(parsed.employeeId)
-    const title = emp?.name?.trim() || (parsed.employeeId > 0 ? `Employee ${parsed.employeeId}` : 'Unknown')
-    const accId = emp?.accId && emp.accId > 0 ? emp.accId : 0
+    // acc_ID may live directly on the story row (e.g. joined from accounts table)
+    const rowAccId = Number(row.acc_ID ?? row.accId ?? row.account_id ?? row.AccountID ?? 0)
+    const listedEmp =
+      byEmpId.get(parsed.employeeId) ??
+      (rowAccId > 0 ? byAccId.get(rowAccId) : undefined) ??
+      (embeddedEmp?.accId ? byAccId.get(embeddedEmp.accId) : undefined)
+    const title =
+      embeddedEmp?.name?.trim() ||
+      listedEmp?.name?.trim() ||
+      (parsed.employeeId > 0 ? `Employee ${parsed.employeeId}` : 'Unknown')
+    const accId =
+      (embeddedEmp?.accId && embeddedEmp.accId > 0 ? embeddedEmp.accId : 0) ||
+      (listedEmp?.accId && listedEmp.accId > 0 ? listedEmp.accId : 0) ||
+      rowAccId || 0
+    const authorPhotoUrl =
+      (embeddedEmp?.photoUrl?.trim() || undefined) ??
+      (listedEmp?.photoUrl?.trim() || undefined)
     out.push({
       ...parsed,
       title,
       accId,
-      authorPhotoUrl: String(emp?.photoUrl ?? '').trim() || undefined,
+      authorPhotoUrl,
     })
   }
   return out

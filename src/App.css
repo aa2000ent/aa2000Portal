@@ -168,17 +168,17 @@
   clip-path: inset(0 round 14px);
 }
 
-.dashboard-story--add {
+.dashboard-stories__rail .dashboard-story--add {
   gap: 0;
   position: relative;
 }
 
-.dashboard-story--add .dashboard-story__avatar-wrap {
+.dashboard-stories__rail .dashboard-story--add .dashboard-story__avatar-wrap {
   height: 162px;
   border-radius: 12px;
 }
 
-.dashboard-story--add .dashboard-story__avatar {
+.dashboard-stories__rail .dashboard-story--add .dashboard-story__avatar {
   border: 0;
   border-radius: 10px;
 }

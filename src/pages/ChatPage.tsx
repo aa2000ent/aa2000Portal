@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
+import { io, type Socket } from 'socket.io-client'
 import { useChat, getConversationId } from '../contexts/ChatContext'
 import { useEmployees } from '../contexts/EmployeesContext'
-import { getPortalUsername } from '../api/client'
+import { apiRequest, getPortalUsername } from '../api/client'
+import { getBaseUrl } from '../api/config'
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
@@ -43,8 +45,25 @@ const ALL_USERS = [
 
 type ChatUser = {
   id: string
-  label: string
+  name: string
+  role: string
+  photoUrl?: string
   search: string
+}
+
+type WebhookConversationResponse = {
+  success?: boolean
+  employeeName?: string
+  employeeRole?: string | number
+  employeeImage?: string
+  data?: Array<string | { employeeID?: string | number; sender?: string; message?: string; timestamp?: string }>
+}
+
+const AI_SERVICE_USER: ChatUser = {
+  id: 'role:ai-service',
+  name: 'AI Service',
+  role: 'Assistant',
+  search: 'ai service assistant',
 }
 
 function humanizeSegment(seg: string): string {
@@ -68,6 +87,120 @@ function getInitials(name: string) {
   return name.slice(0, 2).toUpperCase() || '?'
 }
 
+function getEmployeeIdFromChatUserId(id: string): number | null {
+  if (id.startsWith('emp-id:')) {
+    const n = Number(id.slice('emp-id:'.length))
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+  return null
+}
+
+function isEmpId(id: string | undefined): boolean {
+  return typeof id === 'string' && /^emp-id:\d+$/i.test(id.trim())
+}
+
+function toStableNonEmpId(rawId: string | undefined, rawName: string | undefined): string {
+  const id = String(rawId ?? '').trim().toLowerCase()
+  if (id) return id.startsWith('user:') || id.startsWith('role:') ? id : `user:${id}`
+  const name = String(rawName ?? '').trim().toLowerCase()
+  if (!name) return AI_SERVICE_USER.id
+  return `user:${name.replace(/\s+/g, '-')}`
+}
+
+function escapeMetaValue(v: string): string {
+  return v.replace(/[|;]/g, ' ').trim()
+}
+
+function buildWebhookSenderMeta(params: {
+  fromId: string
+  fromName: string
+  toId: string
+  toName: string
+}): string {
+  return `from=${escapeMetaValue(params.fromId)};fromName=${escapeMetaValue(params.fromName)};to=${escapeMetaValue(params.toId)};toName=${escapeMetaValue(params.toName)}`
+}
+
+function parseWebhookSenderMeta(rawSender: string): { fromId?: string; fromName?: string; toId?: string; toName?: string } {
+  const out: { fromId?: string; fromName?: string; toId?: string; toName?: string } = {}
+  const parts = rawSender.split(';').map((p) => p.trim()).filter(Boolean)
+  for (const part of parts) {
+    const idx = part.indexOf('=')
+    if (idx < 1) continue
+    const k = part.slice(0, idx).trim()
+    const v = part.slice(idx + 1).trim()
+    if (!v) continue
+    if (k === 'from') out.fromId = v
+    if (k === 'fromName') out.fromName = v
+    if (k === 'to') out.toId = v
+    if (k === 'toName') out.toName = v
+  }
+  return out
+}
+
+function normalizeParticipantId(rawId: string | undefined, rawName: string | undefined, employees: Array<{ id: number; name?: string; email?: string }>): string | undefined {
+  const id = String(rawId ?? '').trim()
+  const name = String(rawName ?? '').trim().toLowerCase()
+  if (!id && !name) return undefined
+
+  if (id.startsWith('emp-id:')) return id
+
+  if (id.startsWith('emp:')) {
+    const email = id.slice('emp:'.length).trim().toLowerCase()
+    if (email) {
+      const byEmail = employees.find((e) => String(e.email ?? '').trim().toLowerCase() === email)
+      if (byEmail?.id) return `emp-id:${byEmail.id}`
+    }
+  }
+
+  if (id.startsWith('user:')) {
+    const userKey = id.slice('user:'.length).trim().toLowerCase()
+    if (userKey) {
+      const byEmail = employees.find((e) => String(e.email ?? '').trim().toLowerCase() === userKey)
+      if (byEmail?.id) return `emp-id:${byEmail.id}`
+      const byName = employees.find((e) => String(e.name ?? '').trim().toLowerCase() === userKey)
+      if (byName?.id) return `emp-id:${byName.id}`
+    }
+  }
+
+  if (name) {
+    const byName = employees.find((e) => String(e.name ?? '').trim().toLowerCase() === name)
+    if (byName?.id) return `emp-id:${byName.id}`
+    const byEmail = employees.find((e) => String(e.email ?? '').trim().toLowerCase() === name)
+    if (byEmail?.id) return `emp-id:${byEmail.id}`
+  }
+
+  return id || undefined
+}
+
+function getCanonicalUserId(user: ChatUser, employees: Array<{ id: number; name?: string; email?: string }>): string {
+  return normalizeParticipantId(user.id, user.name, employees) || user.id
+}
+
+function toImageSrc(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  const s = raw.trim()
+  if (!s) return undefined
+  if (s.startsWith('data:image')) return s
+  if (s.startsWith('http://') || s.startsWith('https://')) return s
+  return `data:image/jpeg;base64,${s}`
+}
+
+function buildMessageId(employeeId: number, timestamp: string, sender: string, text: string): string {
+  return `webhook-${employeeId}-${timestamp}-${sender}-${text}`.slice(0, 220)
+}
+
+function buildSocketBaseUrl(): string {
+  const raw = String(import.meta.env.VITE_SOCKET_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? '').trim()
+  if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '')
+  try {
+    const base = getBaseUrl()
+    if (/^https?:\/\//i.test(base)) return base.replace(/\/$/, '')
+  } catch {
+    // ignore
+  }
+  return window.location.origin
+}
+
 export default function ChatPage() {
   const location = useLocation()
   const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
@@ -75,51 +208,65 @@ export default function ChatPage() {
   const signedUsername = String(getPortalUsername() ?? '').trim()
   const roleLabel = ROLE_LABELS[path] ?? humanizeSegment(path)
   const currentSender = signedUsername || roleLabel
-  const currentSenderId = signedUsername
-    ? `user:${signedUsername.toLowerCase()}`
-    : `role:${roleLabel.toLowerCase()}`
+  const signedKey = signedUsername.toLowerCase()
+  const signedEmployee = useMemo(
+    () =>
+      employees.find((emp) => String(emp.email ?? '').trim().toLowerCase() === signedKey) ??
+      employees.find((emp) => String(emp.name ?? '').trim().toLowerCase() === signedKey),
+    [employees, signedKey],
+  )
+  const currentSenderId = signedEmployee?.id
+    ? `emp-id:${signedEmployee.id}`
+    : signedUsername
+      ? `user:${signedUsername.toLowerCase()}`
+      : `role:${roleLabel.toLowerCase()}`
 
-  const { getMessagesForConversation, getLastMessageForConversation, addMessage, getUnreadCount, markConversationRead } = useChat()
+  const { getMessagesForConversation, getLastMessageForConversation, upsertMessages, getUnreadCount, markConversationRead } = useChat()
   const [inputValue, setInputValue] = useState('')
   const [searchUser, setSearchUser] = useState('')
   const [selectedUser, setSelectedUser] = useState<string | null>(null)
   const [newChatOpen, setNewChatOpen] = useState(false)
   const [newChatQuery, setNewChatQuery] = useState('')
   const [tab, setTab] = useState<'all' | 'unread'>('all')
-  const [detailsOpen, setDetailsOpen] = useState<string | null>('info')
+  const [webhookUsers, setWebhookUsers] = useState<ChatUser[]>([])
   const listRef = useRef<HTMLDivElement>(null)
   const newChatRef = useRef<HTMLDivElement>(null)
+  const initialWebhookLoadedRef = useRef(false)
+  const socketRef = useRef<Socket | null>(null)
 
   const allChatUsers = useMemo<ChatUser[]>(() => {
     const fromEmployees = employees
-      .map((e) => {
+      .map((e): ChatUser | null => {
         const name = String(e.name ?? '').trim()
         const email = String(e.email ?? '').trim()
-        const label = name || email
-        if (!label) return null
-        const id = email ? `emp:${email.toLowerCase()}` : `emp-id:${e.id}`
-        const search = `${label} ${email} ${e.role}`.toLowerCase()
-        return { id, label, search }
+        const displayName = name || email
+        if (!displayName) return null
+        const id = Number(e.id) > 0 ? `emp-id:${e.id}` : (email ? `emp:${email.toLowerCase()}` : `emp-id:${e.id}`)
+        const role = String(e.role ?? '').trim() || 'Employee'
+        const photoUrl = typeof e.photoUrl === 'string' && e.photoUrl.trim() ? e.photoUrl.trim() : undefined
+        const search = `${displayName} ${email} ${role}`.toLowerCase()
+        return photoUrl
+          ? { id, name: displayName, role, photoUrl, search }
+          : { id, name: displayName, role, search }
       })
-      .filter((u): u is ChatUser => Boolean(u))
+      .filter((u): u is ChatUser => u !== null)
 
-    if (fromEmployees.length > 0) {
-      const dedup = new Map<string, ChatUser>()
-      for (const u of fromEmployees) {
-        if (!dedup.has(u.id)) dedup.set(u.id, u)
-      }
-      return Array.from(dedup.values())
-    }
-
-    return ALL_USERS.map((label) => ({
+    const fallbackUsers = ALL_USERS.map((label) => ({
       id: `role:${label.toLowerCase()}`,
-      label,
+      name: label,
+      role: label,
       search: label.toLowerCase(),
     }))
-  }, [employees])
+    const dedup = new Map<string, ChatUser>()
+    for (const u of [...fromEmployees, ...fallbackUsers, ...webhookUsers, AI_SERVICE_USER]) {
+      const canonicalId = getCanonicalUserId(u, employees)
+      if (!dedup.has(canonicalId)) dedup.set(canonicalId, { ...u, id: canonicalId })
+    }
+    return Array.from(dedup.values())
+  }, [employees, webhookUsers])
 
   const otherUsers = useMemo(
-    () => allChatUsers.filter((u) => u.id !== currentSenderId && u.label.toLowerCase() !== currentSender.toLowerCase()),
+    () => allChatUsers.filter((u) => u.id !== currentSenderId && u.name.toLowerCase() !== currentSender.toLowerCase()),
     [allChatUsers, currentSenderId, currentSender],
   )
 
@@ -194,24 +341,240 @@ export default function ChatPage() {
     }
   }, [newChatOpen])
 
+  useEffect(() => {
+    const roleFallbackEmployeeIds = employees
+      .map((e) => Number(e.id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+    const targetEmployeeIds = signedEmployee?.id ? [signedEmployee.id] : roleFallbackEmployeeIds
+    if (targetEmployeeIds.length === 0) return
+
+    const fetchConversationHistory = () =>
+      Promise.all(
+        targetEmployeeIds.map((employeeId) =>
+          apiRequest<WebhookConversationResponse>(`/ai-services-conversation-chat/webhook/conversation/${employeeId}`, {
+            method: 'GET',
+            portal: { suppressFailureLog: true },
+          })
+            .then((res) => ({
+              employeeId,
+              employeeName: String(res?.employeeName ?? '').trim(),
+              employeeRole: String(res?.employeeRole ?? '').trim(),
+              employeeImage: toImageSrc(res?.employeeImage),
+              lines: Array.isArray(res?.data) ? res.data : [],
+            }))
+            .catch(() => ({
+              employeeId,
+              employeeName: '',
+              employeeRole: '',
+              employeeImage: undefined as string | undefined,
+              lines: [] as string[],
+            })),
+        ),
+      ).then((results) => {
+        const discoveredById = new Map<string, ChatUser>()
+        const parsed: Array<{ id: string; conversationId: string; sender: string; text: string; timestamp: string }> = []
+
+        for (const result of results) {
+          const resultUserId = `emp-id:${result.employeeId}`
+          const existingEmp = employees.find((e) => Number(e.id) === Number(result.employeeId))
+          const fullName = result.employeeName || String(existingEmp?.name ?? '').trim()
+          const role = result.employeeRole || String(existingEmp?.role ?? '').trim() || 'Employee'
+          const photo = result.employeeImage || existingEmp?.photoUrl
+          if (fullName) {
+            discoveredById.set(resultUserId, {
+              id: resultUserId,
+              name: fullName,
+              role,
+              photoUrl: photo,
+              search: `${fullName} ${role}`.toLowerCase(),
+            })
+          }
+
+          for (let idx = 0; idx < result.lines.length; idx += 1) {
+            const row = result.lines[idx]
+            let timestamp = ''
+            let rawSender = 'system'
+            let text = ''
+            if (row && typeof row === 'object' && !Array.isArray(row)) {
+              timestamp = String(row.timestamp ?? '').trim()
+              rawSender = String(row.sender ?? 'system').trim() || 'system'
+              text = String(row.message ?? '').trim()
+            } else {
+              const raw = String(row ?? '').trim()
+              if (!raw) continue
+              const m = raw.match(/^\[(.+?)\]\s+EMP_ID:\s*\d+\s*\|\s*SENDER:\s*(.*?)\s*\|\s*MSG:\s*(.*)$/)
+              if (!m) continue
+              timestamp = m[1]?.trim()
+              rawSender = (m[2] || 'system').trim() || 'system'
+              text = (m[3] || '').trim()
+            }
+            if (!timestamp || !text) continue
+
+            const meta = parseWebhookSenderMeta(rawSender)
+            const normalizedFromId = normalizeParticipantId(meta.fromId, meta.fromName, employees)
+            const normalizedToId = normalizeParticipantId(meta.toId, meta.toName, employees)
+            const otherIdCandidate =
+              normalizedFromId && normalizedFromId !== currentSenderId
+                ? normalizedFromId
+                : normalizedToId && normalizedToId !== currentSenderId
+                  ? normalizedToId
+                  : AI_SERVICE_USER.id
+            const otherId = otherIdCandidate === AI_SERVICE_USER.id
+              ? AI_SERVICE_USER.id
+              : (
+                  isEmpId(otherIdCandidate)
+                    ? otherIdCandidate
+                    : toStableNonEmpId(otherIdCandidate, meta.fromName || meta.toName)
+                )
+            const otherName =
+              normalizedFromId && normalizedFromId !== currentSenderId
+                ? meta.fromName || 'Unknown'
+                : normalizedToId && normalizedToId !== currentSenderId
+                  ? meta.toName || 'Unknown'
+                  : 'AI Service'
+            if (otherId !== AI_SERVICE_USER.id) {
+              const otherEmpId = getEmployeeIdFromChatUserId(otherId)
+              const otherFromEmployees = otherEmpId ? employees.find((e) => Number(e.id) === Number(otherEmpId)) : undefined
+              const otherFullName = String(otherFromEmployees?.name ?? '').trim() || otherName
+              discoveredById.set(otherId, {
+                id: otherId,
+                name: otherFullName,
+                role: String(otherFromEmployees?.role ?? '').trim() || 'Employee',
+                photoUrl: otherFromEmployees?.photoUrl,
+                search: `${otherFullName} employee`.toLowerCase(),
+              })
+            }
+            const normalizedSenderId = isEmpId(normalizedFromId)
+              ? String(normalizedFromId)
+              : toStableNonEmpId(normalizedFromId, meta.fromName)
+            const conversationId = getConversationId(normalizedSenderId, otherId)
+            const senderLabel = normalizedFromId === normalizedSenderId ? currentSender : (meta.fromName || otherName)
+
+            parsed.push({
+              id: buildMessageId(result.employeeId, timestamp, rawSender, text),
+              conversationId,
+              sender: senderLabel,
+              text,
+              timestamp,
+            })
+          }
+        }
+
+        if (discoveredById.size > 0) {
+          setWebhookUsers((prev) => {
+            const merged = new Map(prev.map((u) => [u.id, u] as const))
+            for (const [id, user] of discoveredById.entries()) {
+              if (!merged.has(id)) merged.set(id, user)
+            }
+            return Array.from(merged.values())
+          })
+        }
+        if (parsed.length > 0) upsertMessages(parsed)
+      })
+
+    // First load: trigger GET immediately when Chat page opens.
+    if (!initialWebhookLoadedRef.current) {
+      initialWebhookLoadedRef.current = true
+      void fetchConversationHistory()
+    }
+    return
+  }, [signedEmployee, employees, currentSenderId, currentSender, upsertMessages])
+
+  useEffect(() => {
+    const roleFallbackEmployeeIds = employees
+      .map((e) => Number(e.id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+    const targetEmployeeIds = signedEmployee?.id ? [signedEmployee.id] : roleFallbackEmployeeIds
+    if (targetEmployeeIds.length === 0) return
+
+    const socketBase = buildSocketBaseUrl()
+    const socket = io(socketBase, {
+      transports: ['websocket', 'polling'],
+      withCredentials: true,
+    })
+    socketRef.current = socket
+
+    socket.on('connect', () => {
+      for (const employeeId of targetEmployeeIds) {
+        socket.emit('join', { employeeID: employeeId })
+      }
+    })
+
+    socket.on('message', (evt: { employeeID?: string | number; sender?: string; message?: string; timestamp?: string }) => {
+      const employeeId = Number(evt.employeeID)
+      const timestamp = String(evt.timestamp ?? '').trim()
+      const rawSender = String(evt.sender ?? 'system').trim() || 'system'
+      const text = String(evt.message ?? '').trim()
+      if (!Number.isFinite(employeeId) || employeeId < 1 || !timestamp || !text) return
+
+      const meta = parseWebhookSenderMeta(rawSender)
+      const normalizedFromId = normalizeParticipantId(meta.fromId, meta.fromName, employees)
+      const normalizedToId = normalizeParticipantId(meta.toId, meta.toName, employees)
+      const senderId = isEmpId(normalizedFromId)
+        ? String(normalizedFromId)
+        : toStableNonEmpId(normalizedFromId, meta.fromName)
+      const otherId =
+        normalizedFromId && normalizedFromId !== senderId
+          ? normalizedFromId
+          : normalizedToId && normalizedToId !== senderId
+            ? normalizedToId
+            : `emp-id:${employeeId}`
+      const normalizedOtherId = isEmpId(otherId) ? otherId : toStableNonEmpId(otherId, meta.toName)
+
+      const conversationId = getConversationId(senderId, normalizedOtherId)
+      const senderLabel = normalizedFromId === senderId ? currentSender : (meta.fromName || 'Employee')
+      upsertMessages([
+        {
+          id: buildMessageId(employeeId, timestamp, rawSender, text),
+          conversationId,
+          sender: senderLabel,
+          text,
+          timestamp,
+        },
+      ])
+    })
+
+    return () => {
+      for (const employeeId of targetEmployeeIds) {
+        socket.emit('leave', { employeeID: employeeId })
+      }
+      socket.disconnect()
+      socketRef.current = null
+    }
+  }, [employees, signedEmployee, currentSenderId, currentSender, upsertMessages])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const text = inputValue.trim()
     if (!text || !conversationId) return
-    addMessage(conversationId, currentSender, text)
     setInputValue('')
-  }
 
-  const lastMessagePreview = (otherUserId: string) => {
-    const cid = getConversationId(currentSenderId, otherUserId)
-    const last = getLastMessageForConversation(cid)
-    if (!last) return 'No messages yet'
-    const prefix = last.sender === currentSender ? 'You: ' : ''
-    const t = last.text.length > 35 ? last.text.slice(0, 35) + '…' : last.text
-    return prefix + t
-  }
+    // Trigger webhook logging for each sent message.
+    // Prefer current signed-in employee id, fallback to selected chat user id.
+    const selectedEmployeeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
+    const firstEmployeeId = employees.find((emp) => Number(emp.id) > 0)?.id
+    const webhookEmployeeId = signedEmployee?.id ?? selectedEmployeeId ?? firstEmployeeId
 
-  const otherUserLabels = useMemo(() => otherUsers.map((u) => u.label), [otherUsers])
+    if (webhookEmployeeId && webhookEmployeeId > 0) {
+      const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
+      const senderMeta = buildWebhookSenderMeta({
+        fromId: currentSenderId,
+        fromName: currentSender,
+        toId: selectedMeta.id,
+        toName: selectedMeta.name,
+      })
+      void apiRequest(`/ai-services-conversation-chat/webhook/conversation/${webhookEmployeeId}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          sender: senderMeta,
+          message: text,
+        }),
+        portal: { suppressFailureLog: true },
+      }).catch(() => {
+        // Keep chat UX responsive even if webhook logging fails.
+      })
+    }
+  }
 
   return (
     <div className={`messenger ${selectedUser ? 'messenger-mobile-thread' : ''}`}>
@@ -280,10 +643,16 @@ export default function ChatPage() {
                           setNewChatQuery('')
                         }}
                       >
-                        <span className="messenger-conv-avatar" aria-hidden>{getInitials(user.label)}</span>
+                        <span className="messenger-conv-avatar" aria-hidden>
+                          {user.photoUrl ? (
+                            <img src={user.photoUrl} alt={`${user.name} profile`} className="messenger-avatar-image" />
+                          ) : (
+                            getInitials(user.name)
+                          )}
+                        </span>
                         <div className="messenger-conv-body">
-                          <span className="messenger-conv-name">{user.label}</span>
-                          <span className="messenger-conv-preview">Start conversation</span>
+                          <span className="messenger-conv-name">{user.name}</span>
+                          <span className="messenger-conv-role">{user.role}</span>
                         </div>
                       </button>
                     ))
@@ -340,10 +709,16 @@ export default function ChatPage() {
                   onClick={() => setSelectedUser(user.id)}
                   aria-current={isActive ? 'true' : undefined}
                 >
-                  <span className="messenger-conv-avatar" aria-hidden>{getInitials(user.label)}</span>
+                  <span className="messenger-conv-avatar" aria-hidden>
+                    {user.photoUrl ? (
+                      <img src={user.photoUrl} alt={`${user.name} profile`} className="messenger-avatar-image" />
+                    ) : (
+                      getInitials(user.name)
+                    )}
+                  </span>
                   <div className="messenger-conv-body">
-                    <span className="messenger-conv-name">{user.label}</span>
-                    <span className="messenger-conv-preview">{lastMessagePreview(user.id)}</span>
+                    <span className="messenger-conv-name">{user.name}</span>
+                    <span className="messenger-conv-role">{user.role}</span>
                   </div>
                   {unread > 0 && (
                     <span className="messenger-conv-unread" aria-label={`${unread} unread`}>
@@ -367,8 +742,17 @@ export default function ChatPage() {
               <button type="button" className="messenger-thread-back" onClick={() => setSelectedUser(null)} aria-label="Back to chats">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
               </button>
-              <span className="messenger-thread-avatar" aria-hidden>{getInitials(selectedUserObj?.label ?? '')}</span>
-              <span className="messenger-thread-name">{selectedUserObj?.label ?? 'Unknown user'}</span>
+              <span className="messenger-thread-avatar" aria-hidden>
+                {selectedUserObj?.photoUrl ? (
+                  <img src={selectedUserObj.photoUrl} alt={`${selectedUserObj.name} profile`} className="messenger-avatar-image" />
+                ) : (
+                  getInitials(selectedUserObj?.name ?? '')
+                )}
+              </span>
+              <div className="messenger-thread-name-wrap">
+                <span className="messenger-thread-name">{selectedUserObj?.name ?? 'Unknown user'}</span>
+                <span className="messenger-thread-role">{selectedUserObj?.role ?? roleLabel}</span>
+              </div>
               <div className="messenger-thread-actions">
                 <button type="button" className="messenger-icon-btn" aria-label="Video call">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
@@ -431,56 +815,6 @@ export default function ChatPage() {
         )}
       </main>
 
-      <aside className="messenger-details">
-        <div className="messenger-details-header">
-          <span className="messenger-details-avatar" aria-hidden>
-            {selectedUser ? getInitials(selectedUser) : getInitials(currentSender)}
-          </span>
-        </div>
-        <div className="messenger-details-actions">
-          <button type="button" className="messenger-details-action">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
-            <span>Mute</span>
-          </button>
-          <button type="button" className="messenger-details-action">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
-            <span>Search</span>
-          </button>
-        </div>
-        <nav className="messenger-details-sections">
-          <button type="button" className={`messenger-details-section ${detailsOpen === 'info' ? 'open' : ''}`} onClick={() => setDetailsOpen(detailsOpen === 'info' ? null : 'info')}>
-            Chat info
-          </button>
-          <button type="button" className={`messenger-details-section ${detailsOpen === 'members' ? 'open' : ''}`} onClick={() => setDetailsOpen(detailsOpen === 'members' ? null : 'members')}>
-            Chat members
-          </button>
-        </nav>
-        {detailsOpen === 'members' && (
-          <div className="messenger-details-panel">
-            <p className="messenger-details-panel-title">Members</p>
-            <ul className="messenger-details-members">
-              {[currentSender, ...otherUserLabels].map((user) => (
-                <li key={user} className="messenger-details-member">
-                  <span className="messenger-conv-avatar">{getInitials(user)}</span>
-                  <span>
-                    {user}
-                    {user === currentSender ? ' (you)' : ''}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {detailsOpen === 'info' && (
-          <div className="messenger-details-panel">
-            <p className="messenger-details-panel-title">Chat info</p>
-            <p className="messenger-details-panel-text">
-              You are signed in as <strong>{currentSender}</strong> (from the URL path: <code className="messenger-path-code">/{path}</code>). Existing
-              conversations appear on the left. Click <strong>+</strong> to search all users and start a new chat.
-            </p>
-          </div>
-        )}
-      </aside>
     </div>
   )
 }

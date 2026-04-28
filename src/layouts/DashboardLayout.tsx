@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react'
 import { Outlet, useLocation, Link } from 'react-router-dom'
 import logoImg from '../assets/logo/logo.avif'
 import { SidebarProvider, useSidebar } from '../contexts/SidebarContext'
+import { fetchEmployees } from '../api/employees'
+import { getPortalAccountId, getPortalUsername } from '../api/client'
 
 function DashboardMainWithScroll() {
   const { scrollContainerRef } = useSidebar()
@@ -39,6 +42,36 @@ function DashboardHeader() {
   const isAdmin = location.pathname.startsWith('/admin')
   const profileTo = isAdmin ? '/admin/profile' : `/${path}/profile`
   const { isOpen, toggle } = useSidebar()
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | undefined>()
+
+  useEffect(() => {
+    let cancelled = false
+    const accIdNum = Number(getPortalAccountId() ?? 0)
+    const username = String(getPortalUsername() ?? '').trim().toLowerCase()
+
+    if (accIdNum <= 0 && !username) {
+      setProfilePhotoUrl(undefined)
+      return
+    }
+
+    void (async () => {
+      try {
+        const list = await fetchEmployees()
+        const me =
+          (accIdNum > 0 ? list.find((e) => e.accId === accIdNum) : undefined) ??
+          (username ? list.find((e) => e.email.toLowerCase() === username || e.name.toLowerCase() === username) : undefined)
+        if (!cancelled) {
+          setProfilePhotoUrl(me?.photoUrl)
+        }
+      } catch {
+        if (!cancelled) setProfilePhotoUrl(undefined)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <header className="dashboard-app-header flex flex-col gap-0 px-4 sm:px-6">
@@ -70,10 +103,19 @@ function DashboardHeader() {
           title="Profile"
           aria-label="Profile"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
+          {profilePhotoUrl ? (
+            <img
+              src={profilePhotoUrl}
+              alt="Profile"
+              className="dashboard-app-header-profile-photo"
+              onError={() => setProfilePhotoUrl(undefined)}
+            />
+          ) : (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+          )}
         </Link>
       </div>
       </div>

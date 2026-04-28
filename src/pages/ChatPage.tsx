@@ -4,6 +4,7 @@ import { io, type Socket } from 'socket.io-client'
 import { useChat, getConversationId } from '../contexts/ChatContext'
 import { useEmployees } from '../contexts/EmployeesContext'
 import { apiRequest, getPortalAccountId, getPortalUsername } from '../api/client'
+import { getBaseUrl } from '../api/config'
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
@@ -123,34 +124,10 @@ function getEmployeeIdFromChatUserId(id: string): number | null {
     const n = Number(id.slice('emp-id:'.length))
     return Number.isFinite(n) && n > 0 ? n : null
   }
-  return null
-}
-
-function resolveCurrentSenderEmployeeId(params: {
-  signedEmployeeId?: number | string
-  signedAccountId?: number | string
-  currentSenderId: string
-  currentSender: string
-  employees: Array<{ id: number; accId?: number; name?: string; email?: string }>
-}): number | null {
-  const signed = Number(params.signedEmployeeId)
-  if (Number.isFinite(signed) && signed > 0) return signed
-
-  const signedAccId = Number(params.signedAccountId)
-  if (Number.isFinite(signedAccId) && signedAccId > 0) {
-    const byAccId = params.employees.find((e) => Number(e.accId) === signedAccId)
-    if (byAccId?.id) return Number(byAccId.id)
+  if (id.startsWith('emp:')) {
+    const n = Number(id.slice('emp:'.length))
+    return Number.isFinite(n) && n > 0 ? n : null
   }
-
-  const fromCurrentId = getEmployeeIdFromChatUserId(params.currentSenderId)
-  if (fromCurrentId) return fromCurrentId
-
-  const senderKey = params.currentSender.trim().toLowerCase()
-  if (!senderKey) return null
-  const byEmail = params.employees.find((e) => String(e.email ?? '').trim().toLowerCase() === senderKey)
-  if (byEmail?.id) return Number(byEmail.id)
-  const byName = params.employees.find((e) => String(e.name ?? '').trim().toLowerCase() === senderKey)
-  if (byName?.id) return Number(byName.id)
   return null
 }
 
@@ -164,6 +141,19 @@ function toStableNonEmpId(rawId: string | undefined, rawName: string | undefined
   const name = String(rawName ?? '').trim().toLowerCase()
   if (!name) return AI_SERVICE_USER.id
   return `user:${name.replace(/\s+/g, '-')}`
+}
+
+function escapeMetaValue(v: string): string {
+  return v.replace(/[|;]/g, ' ').trim()
+}
+
+function buildWebhookSenderMeta(params: {
+  fromId: string
+  fromName: string
+  toId: string
+  toName: string
+}): string {
+  return `from=${escapeMetaValue(params.fromId)};fromName=${escapeMetaValue(params.fromName)};to=${escapeMetaValue(params.toId)};toName=${escapeMetaValue(params.toName)}`
 }
 
 function parseWebhookSenderMeta(rawSender: string): { fromId?: string; fromName?: string; toId?: string; toName?: string } {
@@ -259,7 +249,45 @@ function buildMessageId(senderId: string, receiverId: string, timestamp: string,
 function buildSocketBaseUrl(): string {
   const raw = String(import.meta.env.VITE_SOCKET_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? '').trim()
   if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '')
+  try {
+    const base = getBaseUrl()
+    if (/^https?:\/\//i.test(base)) return base.replace(/\/$/, '')
+  } catch {
+    // ignore
+  }
   return window.location.origin
+}
+
+function resolveCurrentSenderEmployeeId(params: {
+  signedEmployeeId?: number
+  signedAccountId?: string
+  currentSenderId: string
+  currentSender: string
+  employees: Array<{ id: number; name?: string; email?: string; accId?: number | string; role?: string }>
+}): number | null {
+  if (Number.isFinite(params.signedEmployeeId) && Number(params.signedEmployeeId) > 0) {
+    return Number(params.signedEmployeeId)
+  }
+
+  const fromCurrentId = getEmployeeIdFromChatUserId(params.currentSenderId)
+  if (fromCurrentId && fromCurrentId > 0) return fromCurrentId
+
+  const accId = Number(String(params.signedAccountId ?? '').trim())
+  if (Number.isFinite(accId) && accId > 0) {
+    const byAccId = params.employees.find((emp) => Number(emp.accId ?? 0) === accId)
+    if (byAccId?.id) return Number(byAccId.id)
+  }
+
+  const senderKey = String(params.currentSender ?? '').trim().toLowerCase()
+  if (senderKey) {
+    const byName = params.employees.find((emp) => String(emp.name ?? '').trim().toLowerCase() === senderKey)
+    if (byName?.id) return Number(byName.id)
+
+    const byEmail = params.employees.find((emp) => String(emp.email ?? '').trim().toLowerCase() === senderKey)
+    if (byEmail?.id) return Number(byEmail.id)
+  }
+
+  return null
 }
 
 export default function ChatPage() {
@@ -267,15 +295,36 @@ export default function ChatPage() {
   const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
   const { employees } = useEmployees()
   const signedUsername = String(getPortalUsername() ?? '').trim()
+  const signedAccId = Number(getPortalAccountId() ?? 0)
   const roleLabel = ROLE_LABELS[path] ?? humanizeSegment(path)
   const currentSender = signedUsername || roleLabel
   const signedAccountId = String(getPortalAccountId() ?? '').trim()
   const signedKey = signedUsername.toLowerCase()
   const signedEmployee = useMemo(
-    () =>
-      employees.find((emp) => String(emp.email ?? '').trim().toLowerCase() === signedKey) ??
-      employees.find((emp) => String(emp.name ?? '').trim().toLowerCase() === signedKey),
-    [employees, signedKey],
+    () => {
+      const byAccId = signedAccId > 0 ? employees.find((emp) => Number(emp.accId ?? 0) === signedAccId) : undefined
+      if (byAccId) return byAccId
+
+      const byEmail = employees.find((emp) => String(emp.email ?? '').trim().toLowerCase() === signedKey)
+      if (byEmail) return byEmail
+
+      const byName = employees.find((emp) => String(emp.name ?? '').trim().toLowerCase() === signedKey)
+      if (byName) return byName
+
+      const byEmailLocalPart = employees.find((emp) => {
+        const email = String(emp.email ?? '').trim().toLowerCase()
+        if (!email.includes('@')) return false
+        return email.split('@')[0] === signedKey
+      })
+      if (byEmailLocalPart) return byEmailLocalPart
+
+      const roleKey = roleLabel.trim().toLowerCase()
+      const roleMatched = employees.filter((emp) => String(emp.role ?? '').trim().toLowerCase() === roleKey)
+      if (roleMatched.length === 1) return roleMatched[0]
+
+      return undefined
+    },
+    [employees, signedAccId, signedKey, roleLabel],
   )
   const currentSenderId = signedEmployee?.id
     ? `emp-id:${signedEmployee.id}`
@@ -311,7 +360,7 @@ export default function ChatPage() {
     return byParticipantId || undefined
   }, [signedEmployee?.photoUrl, currentParticipantEmpId, employees])
 
-  const { getMessagesForConversation, getLastMessageForConversation, upsertMessages, getUnreadCount, markConversationRead } = useChat()
+  const { getMessagesForConversation, getLastMessageForConversation, upsertMessages, addMessage, getUnreadCount, markConversationRead } = useChat()
   const [inputValue, setInputValue] = useState('')
   const [searchUser, setSearchUser] = useState('')
   const [selectedUser, setSelectedUser] = useState<string | null>(null)
@@ -321,6 +370,7 @@ export default function ChatPage() {
   const [webhookUsers, setWebhookUsers] = useState<ChatUser[]>([])
   const listRef = useRef<HTMLDivElement>(null)
   const newChatRef = useRef<HTMLDivElement>(null)
+  const socketRef = useRef<Socket | null>(null)
 
   const allChatUsers = useMemo<ChatUser[]>(() => {
     const fromEmployees = employees
@@ -496,6 +546,20 @@ export default function ChatPage() {
             let parsedReceiverImage: string | undefined
             if (row && typeof row === 'object' && !Array.isArray(row)) {
               timestamp = String(row.timestamp ?? '').trim()
+              const structuredRow = row as Record<string, unknown>
+              const fromRaw = String(structuredRow.from ?? structuredRow.senderEmpID ?? '').trim()
+              const fromNameRaw = String(structuredRow.fromName ?? structuredRow.senderName ?? '').trim()
+              const toRaw = String(structuredRow.toEmpID ?? structuredRow.receiverEmpID ?? '').trim()
+              const toNameRaw = String(structuredRow.toName ?? structuredRow.receiverName ?? '').trim()
+              rawSender =
+                fromRaw || fromNameRaw || toRaw || toNameRaw
+                  ? buildWebhookSenderMeta({
+                      fromId: fromRaw ? (fromRaw.startsWith('emp-id:') ? fromRaw : `emp-id:${fromRaw}`) : 'system',
+                      fromName: fromNameRaw || 'Unknown',
+                      toId: toRaw ? (toRaw.startsWith('emp-id:') ? toRaw : `emp-id:${toRaw}`) : resultUserId,
+                      toName: toNameRaw || result.employeeName || 'Unknown',
+                    })
+                  : String(structuredRow.sender ?? 'system').trim() || 'system'
               text = String(row.message ?? '').trim()
               const directFrom = String(row.from ?? '').trim()
               const directFromName = String(row.fromName ?? '').trim()
@@ -569,7 +633,6 @@ export default function ChatPage() {
                 search: `${otherFullName} employee`.toLowerCase(),
               })
             }
-
             if (normalizedFromId && isEmpId(normalizedFromId)) {
               const fromEmpId = getEmployeeIdFromChatUserId(normalizedFromId)
               if (fromEmpId) {
@@ -646,62 +709,111 @@ export default function ChatPage() {
         if (parsed.length > 0) upsertMessages(parsed)
       })
 
-    // Poll every second so message history stays updated from the API.
-    void fetchConversationHistory()
-    const pollHandle = window.setInterval(() => {
+    let timer: number | null = null
+    const runSync = () => {
       void fetchConversationHistory()
-    }, 1000)
+    }
+
+    // Immediate sync on mount and periodic sync to ensure cross-user delivery
+    // even if websocket events are dropped/mismatched.
+    runSync()
+    timer = window.setInterval(runSync, 5000)
 
     return () => {
-      window.clearInterval(pollHandle)
+      if (timer != null) window.clearInterval(timer)
     }
   }, [currentParticipantEmpId, employees, currentParticipantId, currentSender, currentDisplayName, upsertMessages])
 
   useEffect(() => {
-    if (!currentParticipantEmpId) return
+    const roleFallbackEmployeeIds = employees
+      .map((e) => Number(e.id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+    const targetEmployeeIds = signedEmployee?.id ? [signedEmployee.id] : roleFallbackEmployeeIds
+    if (targetEmployeeIds.length === 0) return
+
     const socketBase = buildSocketBaseUrl()
-    const socket: Socket = io(socketBase, {
+    const socket = io(socketBase, {
       transports: ['websocket', 'polling'],
       withCredentials: true,
     })
+    socketRef.current = socket
 
     socket.on('connect', () => {
-      socket.emit('join', { employeeID: currentParticipantEmpId })
+      for (const employeeId of targetEmployeeIds) {
+        // Support multiple backend room-join conventions.
+        socket.emit('join', { employeeID: employeeId })
+        socket.emit('join', { employeeId })
+        socket.emit('join', employeeId)
+        socket.emit('joinRoom', { employeeID: employeeId })
+        socket.emit('joinRoom', { employeeId })
+        socket.emit('joinRoom', employeeId)
+        socket.emit('join_room', { employeeID: employeeId })
+        socket.emit('join_room', { employeeId })
+        socket.emit('join_room', employeeId)
+        socket.emit('join', `emp_${employeeId}`)
+        socket.emit('joinRoom', `emp_${employeeId}`)
+      }
     })
 
-    socket.on('message', (evt: {
-      timestamp?: string
+    const onIncomingMessage = (evt: {
+      employeeID?: string | number
+      employeeId?: string | number
+      sender?: string
       senderEmpID?: string | number
       senderName?: string
       senderImage?: string
       receiverEmpID?: string | number
+      receiverEmpId?: string | number
       receiverName?: string
       receiverImage?: string
+      text?: string
+      content?: string
       message?: string
+      timestamp?: string
+      createdAt?: string
+      date?: string
     }) => {
+      const receiverEmpId = Number(evt.receiverEmpID ?? evt.receiverEmpId ?? evt.employeeID ?? evt.employeeId)
       const senderEmpId = Number(evt.senderEmpID)
-      const receiverEmpId = Number(evt.receiverEmpID)
-      const timestamp = String(evt.timestamp ?? '').trim()
-      const text = String(evt.message ?? '').trim()
-      if (!Number.isFinite(senderEmpId) || !Number.isFinite(receiverEmpId) || !timestamp || !text) return
+      const employeeId = Number.isFinite(receiverEmpId) && receiverEmpId > 0
+        ? receiverEmpId
+        : senderEmpId
+      const timestamp = String(evt.timestamp ?? evt.createdAt ?? evt.date ?? '').trim()
+      const rawSender = String(evt.sender ?? '').trim() || (
+        Number.isFinite(senderEmpId) && senderEmpId > 0
+          ? buildWebhookSenderMeta({
+              fromId: `emp-id:${senderEmpId}`,
+              fromName: String(evt.senderName ?? 'Unknown').trim() || 'Unknown',
+              toId: Number.isFinite(receiverEmpId) && receiverEmpId > 0 ? `emp-id:${receiverEmpId}` : currentSenderId,
+              toName: String(evt.receiverName ?? 'Unknown').trim() || 'Unknown',
+            })
+          : 'system'
+      )
+      const text = String(evt.message ?? evt.text ?? evt.content ?? '').trim()
+      if (!Number.isFinite(employeeId) || employeeId < 1 || !timestamp || !text) return
 
-      const senderId = `emp-id:${senderEmpId}`
-      const receiverId = `emp-id:${receiverEmpId}`
-      const conversationId = getConversationId(senderId, receiverId)
-      const senderName = String(evt.senderName ?? '').trim()
-      const isOwn = senderEmpId === currentParticipantEmpId
-      const label = isOwn ? currentDisplayName : (senderName || `Employee ${senderEmpId}`)
+      const meta = parseWebhookSenderMeta(rawSender)
+      const normalizedFromId = normalizeParticipantId(meta.fromId, meta.fromName, employees)
+      const normalizedToId = normalizeParticipantId(meta.toId, meta.toName, employees)
+      const otherId =
+        normalizedFromId && normalizedFromId !== currentSenderId
+          ? normalizedFromId
+          : normalizedToId && normalizedToId !== currentSenderId
+            ? normalizedToId
+            : `emp-id:${employeeId}`
+      const normalizedOtherId = isEmpId(otherId) ? otherId : toStableNonEmpId(otherId, meta.toName)
 
+      const conversationId = getConversationId(currentSenderId, normalizedOtherId)
+      const senderLabel = normalizedFromId === currentSenderId ? currentSender : (meta.fromName || 'Employee')
       upsertMessages([
         {
-          id: buildMessageId(senderId, receiverId, timestamp, text),
+          id: buildMessageId(currentSenderId, normalizedOtherId, timestamp, text),
           conversationId,
-          sender: label,
+          sender: senderLabel,
           text,
           timestamp,
         },
       ])
-
       const peerEmpId = senderEmpId === currentParticipantEmpId ? receiverEmpId : senderEmpId
       const peerId = `emp-id:${peerEmpId}`
       const peerFromEmployees = employees.find((e) => Number(e.id) === peerEmpId)
@@ -710,7 +822,7 @@ export default function ChatPage() {
         : toImageSrc(evt.senderImage)
       const peerName =
         String(peerFromEmployees?.name ?? '').trim() ||
-        (peerEmpId === senderEmpId ? senderName : String(evt.receiverName ?? '').trim()) ||
+        (peerEmpId === senderEmpId ? String(evt.senderName ?? '').trim() : String(evt.receiverName ?? '').trim()) ||
         `Employee ${peerEmpId}`
       setWebhookUsers((prev) => {
         const existing = prev.find((u) => u.id === peerId)
@@ -731,54 +843,74 @@ export default function ChatPage() {
           },
         ]
       })
-    })
+    }
+
+    // Support multiple backend event names.
+    socket.on('message', onIncomingMessage)
+    socket.on('chat_message', onIncomingMessage)
+    socket.on('new_message', onIncomingMessage)
+    socket.on('receive_message', onIncomingMessage)
+    socket.on('receiveMessage', onIncomingMessage)
+    socket.on('conversation_message', onIncomingMessage)
+    socket.on('conversationMessage', onIncomingMessage)
 
     return () => {
-      socket.emit('leave', { employeeID: currentParticipantEmpId })
+      for (const employeeId of targetEmployeeIds) {
+        socket.emit('leave', { employeeID: employeeId })
+        socket.emit('leave', { employeeId })
+        socket.emit('leave', employeeId)
+        socket.emit('leaveRoom', { employeeID: employeeId })
+        socket.emit('leaveRoom', { employeeId })
+        socket.emit('leaveRoom', employeeId)
+        socket.emit('leave_room', { employeeID: employeeId })
+        socket.emit('leave_room', { employeeId })
+        socket.emit('leave_room', employeeId)
+        socket.emit('leave', `emp_${employeeId}`)
+        socket.emit('leaveRoom', `emp_${employeeId}`)
+      }
+      socket.off('message', onIncomingMessage)
+      socket.off('chat_message', onIncomingMessage)
+      socket.off('new_message', onIncomingMessage)
+      socket.off('receive_message', onIncomingMessage)
+      socket.off('receiveMessage', onIncomingMessage)
+      socket.off('conversation_message', onIncomingMessage)
+      socket.off('conversationMessage', onIncomingMessage)
       socket.disconnect()
+      socketRef.current = null
     }
-  }, [currentParticipantEmpId, currentSender, currentDisplayName, employees, upsertMessages])
+  }, [currentParticipantEmpId, currentSender, currentDisplayName, employees, upsertMessages, signedEmployee, currentSenderId])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const text = inputValue.trim()
     if (!text || !conversationId) return
-
-    const selectedEmployeeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
-    const senderEmployeeId = resolveCurrentSenderEmployeeId({
-      signedEmployeeId: signedEmployee?.id,
-      signedAccountId,
-      currentSenderId,
-      currentSender,
-      employees,
-    })
-    if (!selectedEmployeeId) return
-    if (!senderEmployeeId) {
-      console.error('[Chat] Cannot send message: senderEmpID could not be resolved for webhook payload.', {
-        currentSender,
-        currentSenderId,
-        signedAccountId,
-      })
-      return
-    }
-
-    const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
-    const receiverName = toConversationFirstName(String(selectedMeta.name ?? '').trim() || 'Unknown receiver')
-    const senderName = String(currentSender ?? '').trim() || 'Unknown sender'
+    // Optimistic local append so the message doesn't "disappear" while waiting webhook/socket echo.
+    addMessage(conversationId, currentSender, text)
     setInputValue('')
 
-    void apiRequest(`/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`, {
-      method: 'POST',
-      body: JSON.stringify({
-        senderEmpID: String(senderEmployeeId),
-        senderName,
-        receiverName,
-        message: text,
-      }),
-      portal: { suppressFailureLog: true },
-    }).catch(() => {
-      // Keep chat UX responsive even if webhook logging fails.
-    })
+    // Trigger webhook logging when sender/receiver employee IDs are resolvable.
+    const selectedEmployeeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
+    const senderEmployeeId = signedEmployee?.id ?? null
+    if (!(selectedEmployeeId && selectedEmployeeId > 0) || !(senderEmployeeId && senderEmployeeId > 0)) return
+
+    if (selectedEmployeeId && selectedEmployeeId > 0) {
+      const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
+      const senderEmpID = senderEmployeeId && senderEmployeeId > 0 ? String(senderEmployeeId) : ''
+      if (!senderEmpID) return
+      void apiRequest(`/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          senderEmpID,
+          senderName: currentSender,
+          receiverName: selectedMeta.name,
+          message: text,
+        }),
+        portal: { suppressFailureLog: true },
+      })
+      .catch(() => {
+        // Keep chat UX responsive even if webhook logging fails.
+      })
+    }
   }
 
   return (
@@ -906,7 +1038,6 @@ export default function ChatPage() {
               const last = getLastMessageForConversation(cid)
               const isActive = selectedUser === user.id
               const unread = getUnreadCount(cid, [currentSender, currentDisplayName])
-              const preview = last ? `${last.sender}: ${last.text}` : ''
               return (
                 <button
                   key={user.id}
@@ -924,13 +1055,7 @@ export default function ChatPage() {
                   </span>
                   <div className="messenger-conv-body">
                     <span className="messenger-conv-name">{user.name}</span>
-                    {last ? (
-                      <span className="messenger-conv-preview" title={preview}>
-                        {preview}
-                      </span>
-                    ) : (
-                      <span className="messenger-conv-role">{user.role}</span>
-                    )}
+                    <span className="messenger-conv-role">{user.role}</span>
                   </div>
                   {unread > 0 && (
                     <span className="messenger-conv-unread" aria-label={`${unread} unread`}>

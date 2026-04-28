@@ -39,6 +39,20 @@ function normalizeCurrentUsers(currentUsers: string | string[]): Set<string> {
   return new Set(values.map((v) => normalizeIdentity(v)).filter(Boolean))
 }
 
+function messageFingerprint(m: Pick<ChatMessage, 'conversationId' | 'text' | 'timestamp'>): string {
+  const conversationId = String(m.conversationId ?? '').trim().toLowerCase()
+  const text = String(m.text ?? '').trim().toLowerCase()
+  // Normalize to second precision to collapse duplicate deliveries
+  // from optimistic UI, websocket echo, and periodic history sync.
+  const timestamp = String(m.timestamp ?? '').trim().slice(0, 19)
+  return `${conversationId}|${text}|${timestamp}`
+}
+
+function parseTimestampMs(v: string): number {
+  const ms = Date.parse(v)
+  return Number.isFinite(ms) ? ms : NaN
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [lastReadAt, setLastReadAt] = useState<Record<string, string>>(() => {
@@ -116,13 +130,54 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const upsertMessages = useCallback((entries: ChatMessage[]) => {
     if (!Array.isArray(entries) || entries.length === 0) return
     setMessages((prev) => {
-      const byId = new Map<string, ChatMessage>()
-      for (const m of prev) byId.set(m.id, m)
-      for (const m of entries) {
-        if (!m || !m.id || !m.conversationId || !m.sender || !m.text || !m.timestamp) continue
-        byId.set(m.id, m)
+      const byKey = new Map<string, ChatMessage>()
+      const put = (m: ChatMessage) => {
+        if (!m || !m.id || !m.conversationId || !m.sender || !m.text || !m.timestamp) return
+        const key = messageFingerprint(m)
+        const existing = byKey.get(key)
+        if (!existing) {
+          byKey.set(key, m)
+          return
+        }
+        // Prefer non-optimistic ids when available.
+        if (existing.id.startsWith('chat-') && !m.id.startsWith('chat-')) {
+          byKey.set(key, m)
+        }
       }
-      return Array.from(byId.values())
+
+      for (const m of prev) put(m)
+      for (const m of entries) put(m)
+
+      const deduped = Array.from(byKey.values())
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+
+      // Secondary collapse: same conversation+text within 10s window.
+      // Handles cases where optimistic and server timestamps differ slightly.
+      const collapsed: ChatMessage[] = []
+      for (const msg of deduped) {
+        const last = collapsed[collapsed.length - 1]
+        if (!last) {
+          collapsed.push(msg)
+          continue
+        }
+        const sameConversation = last.conversationId === msg.conversationId
+        const sameText = last.text.trim().toLowerCase() === msg.text.trim().toLowerCase()
+        const lastMs = parseTimestampMs(last.timestamp)
+        const msgMs = parseTimestampMs(msg.timestamp)
+        const closeInTime =
+          Number.isFinite(lastMs) &&
+          Number.isFinite(msgMs) &&
+          Math.abs(msgMs - lastMs) <= 10_000
+        if (sameConversation && sameText && closeInTime) {
+          if (last.id.startsWith('chat-') && !msg.id.startsWith('chat-')) {
+            collapsed[collapsed.length - 1] = msg
+          }
+          continue
+        }
+        collapsed.push(msg)
+      }
+
+      return collapsed
         .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
         .slice(-MAX_MESSAGES)
     })

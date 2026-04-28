@@ -32,6 +32,7 @@ const DEFAULT_SESSION_PATH_PREFIXES = [
 ]
 
 let preferredSessionPrefix: string | null = null
+const _failedSessionPrefixes = new Set<string>()
 
 function normalizePrefix(v: string): string {
   const s = String(v ?? '').trim()
@@ -68,6 +69,7 @@ export async function fetchSessionByToken(sessionToken: string): Promise<Session
     : allPrefixes
 
   for (const prefix of prefixes) {
+    if (_failedSessionPrefixes.has(prefix)) continue
     try {
       const data = await apiRequest<SessionLookupResponse>(`${prefix}/${encodeToken(t)}`, {
         method: 'GET',
@@ -76,7 +78,7 @@ export async function fetchSessionByToken(sessionToken: string): Promise<Session
       preferredSessionPrefix = prefix
       return data
     } catch {
-      /* try next */
+      _failedSessionPrefixes.add(prefix)
     }
   }
   return null

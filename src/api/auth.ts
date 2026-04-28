@@ -1,6 +1,7 @@
-import { apiRequest, getSessionId, setPortalAccountId, setPortalUsername, setSessionId } from './client'
+import { apiRequest, setPortalAccountId, setPortalUsername, setSessionId } from './client'
 import { getExecutiveTitleDefaultRoute, getLogoutCandidatePaths, getRoleIdRouteOverride } from './config'
 import { fetchRoleById, fetchRoles } from './roles'
+import { fetchEmployees } from './employees'
 
 export type LoginVerificationPayload = {
   username: string
@@ -47,8 +48,6 @@ export async function loginVerification(
     username: payload.username,
     password: payload.password,
   }
-  const existingSession = getSessionId()
-  if (existingSession) body.s_name = existingSession
   const res = await apiRequest<LoginVerificationResponse>('/security/login/verification', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -181,23 +180,41 @@ function roleLabelFromAccount(account: LoginVerificationResponse['account']): st
 
 /**
  * After login: send user to the area that matches their DB role (`role_ID` + role name).
- * Order: env `VITE_ROLE_ROUTE_MAP` → API role fields on account → `/roles` list → GET role by id → keyword map.
+ * Order: env `VITE_ROLE_ROUTE_MAP` → employee role by `acc_ID` → `/roles` list by `role_ID` →
+ * GET role by id → API embedded role label → fallback.
  */
 export async function resolvePortalRouteFromAccount(
   account: LoginVerificationResponse['account']
 ): Promise<string> {
-  const override = getRoleIdRouteOverride()[account.role_ID]
+  const roleId = Number(account.role_ID ?? 0)
+  const accId = Number(account.acc_ID ?? 0)
+  const override = getRoleIdRouteOverride()[roleId]
   if (override) return normalizeRouteSegment(override)
 
+  // Employee role changes are managed in Admin Employees. Honor that first when available.
+  if (Number.isFinite(accId) && accId > 0) {
+    try {
+      const employees = await fetchEmployees()
+      const me = employees.find((e) => Number(e.accId ?? 0) === accId)
+      const employeeRole = String(me?.role ?? '').trim()
+      if (employeeRole) return roleNameToRoute(employeeRole)
+    } catch {
+      // Continue to account-role based resolution.
+    }
+  }
+
+  if (Number.isFinite(roleId) && roleId > 0) {
+    const roles = await fetchRoles()
+    let match = roles.find((r) => r.role_ID === roleId)
+    if (!match) {
+      match = (await fetchRoleById(roleId)) ?? undefined
+    }
+    if (match?.role_name) return roleNameToRoute(match.role_name)
+  }
+
+  // Fallback only when role list endpoints are unavailable.
   const embedded = roleLabelFromAccount(account)
   if (embedded) return roleNameToRoute(embedded)
-
-  const roles = await fetchRoles()
-  let match = roles.find((r) => r.role_ID === account.role_ID)
-  if (!match) {
-    match = (await fetchRoleById(account.role_ID)) ?? undefined
-  }
-  if (match?.role_name) return roleNameToRoute(match.role_name)
 
   return roleNameToRoute('')
 }

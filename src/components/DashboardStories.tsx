@@ -37,15 +37,21 @@ function sortNewestFirst(list: DashboardStoryItem[]): DashboardStoryItem[] {
 function formatDateLabel(value?: string): string {
   const ts = value ? new Date(value).getTime() : NaN
   if (!Number.isFinite(ts)) return 'Now'
+  const date = new Date(ts)
+  const clock = date.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
   const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000))
-  if (diffSec < 5) return 'Now'
-  if (diffSec < 60) return `${diffSec}s ago`
+  if (diffSec < 5) return `${clock} • Now`
+  if (diffSec < 60) return `${clock} • ${diffSec}s ago`
   const diffMin = Math.floor(diffSec / 60)
-  if (diffMin < 60) return `${diffMin}m ago`
+  if (diffMin < 60) return `${clock} • ${diffMin}m ago`
   const diffHr = Math.floor(diffMin / 60)
-  if (diffHr < 24) return `${diffHr}h ago`
+  if (diffHr < 24) return `${clock} • ${diffHr}h ago`
   const diffDay = Math.floor(diffHr / 24)
-  return `${diffDay}d ago`
+  return `${clock} • ${diffDay}d ago`
 }
 
 function isWithin24Hours(value?: string): boolean {

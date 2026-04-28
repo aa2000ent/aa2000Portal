@@ -19,7 +19,7 @@ type ChatContextValue = {
   getLastMessageForConversation: (conversationId: string) => ChatMessage | undefined
   addMessage: (conversationId: string, sender: string, text: string) => void
   upsertMessages: (entries: ChatMessage[]) => void
-  getUnreadCount: (conversationId: string, currentUser: string) => number
+  getUnreadCount: (conversationId: string, currentUsers: string | string[]) => number
   markConversationRead: (conversationId: string) => void
   panelOpen: boolean
   setPanelOpen: (open: boolean) => void
@@ -28,6 +28,16 @@ type ChatContextValue = {
 const ChatContext = createContext<ChatContextValue | null>(null)
 
 const MAX_MESSAGES = 1000
+const LAST_READ_STORAGE_KEY = 'aa2000_chat_last_read'
+
+function normalizeIdentity(value: string): string {
+  return String(value ?? '').trim().toLowerCase()
+}
+
+function normalizeCurrentUsers(currentUsers: string | string[]): Set<string> {
+  const values = Array.isArray(currentUsers) ? currentUsers : [currentUsers]
+  return new Set(values.map((v) => normalizeIdentity(v)).filter(Boolean))
+}
 
 function messageFingerprint(m: Pick<ChatMessage, 'conversationId' | 'text' | 'timestamp'>): string {
   const conversationId = String(m.conversationId ?? '').trim().toLowerCase()
@@ -45,26 +55,34 @@ function parseTimestampMs(v: string): number {
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [lastReadAt, setLastReadAt] = useState<Record<string, string>>({})
+  const [lastReadAt, setLastReadAt] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem(LAST_READ_STORAGE_KEY)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw) as Record<string, string>
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  })
   const [panelOpen, setPanelOpen] = useState(false)
 
   useEffect(() => {
-    // Ensure previous chat persistence is removed.
     try {
-      localStorage.removeItem('aa2000_chat_messages')
-      localStorage.removeItem('aa2000_chat_last_read')
+      localStorage.setItem(LAST_READ_STORAGE_KEY, JSON.stringify(lastReadAt))
     } catch {
       // ignore
     }
-  }, [])
+  }, [lastReadAt])
 
   const getUnreadCount = useCallback(
-    (conversationId: string, currentUser: string) => {
+    (conversationId: string, currentUsers: string | string[]) => {
+      const currentUserSet = normalizeCurrentUsers(currentUsers)
       const readBefore = lastReadAt[conversationId] ?? ''
       return messages.filter(
         (m) =>
           m.conversationId === conversationId &&
-          m.sender !== currentUser &&
+          !currentUserSet.has(normalizeIdentity(m.sender)) &&
           m.timestamp > readBefore
       ).length
     },
@@ -72,8 +90,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   )
 
   const markConversationRead = useCallback((conversationId: string) => {
-    setLastReadAt((prev) => ({ ...prev, [conversationId]: new Date().toISOString() }))
-  }, [])
+    const latestTimestamp = messages
+      .filter((m) => m.conversationId === conversationId)
+      .map((m) => m.timestamp)
+      .sort()
+      .at(-1) || new Date().toISOString()
+
+    setLastReadAt((prev) => ({ ...prev, [conversationId]: latestTimestamp }))
+  }, [messages])
 
   const getMessagesForConversation = useCallback(
     (conversationId: string) => {

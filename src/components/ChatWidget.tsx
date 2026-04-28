@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useChat } from '../contexts/ChatContext'
 
@@ -30,7 +30,12 @@ export default function ChatWidget({ variant = 'floating' }: ChatWidgetProps) {
   const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
   const currentSender = ROLE_LABELS[path] ?? path
 
-  const { messages, addMessage, panelOpen, setPanelOpen } = useChat()
+  const { messages, addMessage, getUnreadCount, panelOpen, setPanelOpen } = useChat()
+  const unreadTotal = useMemo(() => {
+    const conversationIds = Array.from(new Set(messages.map((m) => m.conversationId)))
+    return conversationIds.reduce((sum, cid) => sum + getUnreadCount(cid, currentSender), 0)
+  }, [messages, getUnreadCount, currentSender])
+
   const [internalOpen, setInternalOpen] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
@@ -77,9 +82,9 @@ export default function ChatWidget({ variant = 'floating' }: ChatWidgetProps) {
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
-          {messages.length > 0 && (
+          {unreadTotal > 0 && (
             <span className="chat-widget-badge" aria-hidden>
-              {messages.length > 99 ? '99+' : messages.length}
+              {unreadTotal > 99 ? '99+' : unreadTotal}
             </span>
           )}
         </button>

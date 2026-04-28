@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense, useMemo } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation, matchPath } from 'react-router-dom'
 import ErrorBoundary from '../components/ErrorBoundary'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -137,7 +137,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { addEntry } = useActivityLog()
-  const { messages } = useChat()
+  const { messages, getUnreadCount } = useChat()
   const { isOpen: isSidebarOpen, setOpen: setSidebarOpen, scrollContainerRef, savedScrollTopRef } = useSidebar()
   const [isCollapsed, setCollapsed] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({})
@@ -203,6 +203,12 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
 
   const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
   const roleLabel = ROLE_LABELS[path] ?? path
+  const signedUsername = String(getPortalUsername() ?? '').trim()
+  const unreadSidebarCount = useMemo(() => {
+    const conversationIds = Array.from(new Set(messages.map((m) => m.conversationId)))
+    const currentAliases = [roleLabel, signedUsername].filter(Boolean)
+    return conversationIds.reduce((sum, cid) => sum + getUnreadCount(cid, currentAliases), 0)
+  }, [messages, getUnreadCount, roleLabel, signedUsername])
   const showCollapsed = !isMobile && isCollapsed
 
   // Restore scroll position after sidebar open/close or collapse/expand
@@ -303,9 +309,9 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
                     {icon && (
                       <span className="flex items-center justify-center shrink-0 w-5 h-5 relative" aria-hidden>
                         <NavIcon name={icon} />
-                        {icon === 'chat' && messages.length > 0 && (
+                        {icon === 'chat' && unreadSidebarCount > 0 && (
                           <span className="sidebar-chat-badge" aria-hidden>
-                            {messages.length > 99 ? '99+' : messages.length}
+                            {unreadSidebarCount > 99 ? '99+' : unreadSidebarCount}
                           </span>
                         )}
                       </span>

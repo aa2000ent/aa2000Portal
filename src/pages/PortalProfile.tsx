@@ -6,6 +6,7 @@ import { fetchSessionByToken } from '../api/session'
 import { mapSessionLookupToProfile } from '../utils/sessionProfileMap'
 import { getCurrentSession, type ActiveSession } from '../utils/sessionUtils'
 import ProfileThemeToggle from '../components/ProfileThemeToggle'
+import { fetchEmployees } from '../api/employees'
 
 const ROLE_LABELS: Record<string, string> = {
   marketing: 'Marketing',
@@ -44,6 +45,8 @@ export default function PortalProfile() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  const [address, setAddress] = useState('')
+  const [profilePhoto, setProfilePhoto] = useState<string | undefined>()
   const [saved, setSaved] = useState(false)
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileLoadError, setProfileLoadError] = useState(false)
@@ -89,33 +92,75 @@ export default function PortalProfile() {
   useEffect(() => {
     let cancelled = false
     const token = getSessionId()?.trim()
-    if (!token) {
+    const storedAccId = getPortalAccountId()
+
+    if (!token && !storedAccId) {
       setProfileLoadError(!getPortalUsername())
       return
     }
+
     setProfileLoading(true)
     setProfileLoadError(false)
+
     void (async () => {
-      const data = await fetchSessionByToken(token)
-      if (cancelled) return
-      setProfileLoading(false)
-      if (!data) {
-        setProfileLoadError(true)
-        return
+      // 1. Try session lookup endpoint
+      if (token) {
+        const data = await fetchSessionByToken(token)
+        if (!cancelled && data) {
+          setProfileLoading(false)
+          const p = mapSessionLookupToProfile(data)
+          setName(p.fullName !== '—' ? p.fullName : p.username !== '—' ? p.username : '')
+          setEmail(p.email !== '—' ? p.email : '')
+          setPhone(p.phone !== '—' ? p.phone : '')
+          setApiRoleName(p.roleName !== '—' ? p.roleName : '')
+          setCreds({
+            username: p.username,
+            accountId: p.accountId,
+            status: p.accountStatus,
+            sessionAt: p.sessionCreatedAt,
+          })
+          const accIdNum = Number(p.accountId)
+          if (accIdNum > 0) {
+            try {
+              const emps = await fetchEmployees()
+              const me = emps.find((e) => e.accId === accIdNum)
+              if (!cancelled && me) {
+                if (me.photoUrl) setProfilePhoto(me.photoUrl)
+                if (me.address) setAddress(me.address)
+              }
+            } catch { /* optional */ }
+          }
+          return
+        }
       }
-      const p = mapSessionLookupToProfile(data)
-      setName(p.fullName !== '—' ? p.fullName : p.username !== '—' ? p.username : '')
-      setEmail(p.email !== '—' ? p.email : '')
-      setPhone(p.phone !== '—' ? p.phone : '')
-      setApiRoleName(p.roleName !== '—' ? p.roleName : '')
-      setCreds({
-        username: p.username,
-        accountId: p.accountId,
-        status: p.accountStatus,
-        sessionAt: p.sessionCreatedAt,
-      })
+
+      // 2. Fall back to employee record lookup by acc_ID
+      const accIdNum = Number(storedAccId ?? 0)
+      if (accIdNum > 0) {
+        try {
+          const emps = await fetchEmployees()
+          const me = emps.find((e) => e.accId === accIdNum)
+          if (!cancelled && me) {
+            setProfileLoading(false)
+            setName(me.name !== '—' ? me.name : '')
+            setEmail(me.email || '')
+            setPhone(me.contact || '')
+            if (me.address) setAddress(me.address)
+            if (me.photoUrl) setProfilePhoto(me.photoUrl)
+            if (me.role) setApiRoleName(me.role)
+            return
+          }
+        } catch { /* fall through */ }
+      }
+
+      if (!cancelled) {
+        setProfileLoading(false)
+        setProfileLoadError(!getPortalUsername())
+      }
     })()
+
     return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleSave = () => {
@@ -166,6 +211,14 @@ export default function PortalProfile() {
           <section className="profile-hero dashboard-card">
             <div className="profile-hero-avatar" aria-hidden>
               <span className="profile-hero-initial">{heroInitial}</span>
+              {profilePhoto && (
+                <img
+                  className="profile-hero-photo"
+                  src={profilePhoto}
+                  alt={heroName}
+                  onError={() => setProfilePhoto(undefined)}
+                />
+              )}
             </div>
             <div className="profile-hero-info">
               <h2 className="profile-hero-name">{heroName}</h2>
@@ -230,6 +283,10 @@ export default function PortalProfile() {
               <div className="profile-field">
                 <label htmlFor="portal-profile-phone" className="modal-label">Phone</label>
                 <input id="portal-profile-phone" type="tel" className="modal-input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+63 9XX XXX XXXX" />
+              </div>
+              <div className="profile-field">
+                <label htmlFor="portal-profile-address" className="modal-label">Address</label>
+                <input id="portal-profile-address" type="text" className="modal-input" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, province..." />
               </div>
               <div className="profile-actions">
                 <button type="button" className={`employees-btn employees-btn-primary profile-save-btn ${saved ? 'profile-save-btn--saved' : ''}`} onClick={handleSave}>

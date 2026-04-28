@@ -56,11 +56,19 @@
 .dashboard-stories__rail .dashboard-story--add .dashboard-story__label {
   display: block;
   text-align: center;
-  margin-top: -0.15rem;
+  margin-top: 0;
+  padding: 0.82rem 0.5rem 0.6rem;
   font-size: 0.75rem;
   line-height: 1rem;
   color: #e2e8f0;
   font-weight: 600;
+  background: #111827;
+  border-radius: 0 0 12px 12px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
 }
 
 .dashboard-story {
@@ -86,7 +94,13 @@
 .dashboard-story__avatar-wrap--add {
   background: linear-gradient(180deg, #d1d5db 0%, #b9bec5 100%);
   border: 1px solid rgba(148, 163, 184, 0.6);
-  overflow: hidden;
+  overflow: visible;
+  border-radius: 12px 12px 0 0;
+}
+
+.dashboard-story__avatar-wrap--add.dashboard-story__avatar-wrap--with-photo {
+  background: linear-gradient(145deg, #3b82f6, #0ea5e9 45%, #22c55e);
+  border: 0;
 }
 
 .dashboard-story__avatar-wrap--add::before {
@@ -113,6 +127,11 @@
   background: rgba(51, 65, 85, 0.62);
 }
 
+.dashboard-story__avatar-wrap--add.dashboard-story__avatar-wrap--with-photo::before,
+.dashboard-story__avatar-wrap--add.dashboard-story__avatar-wrap--with-photo::after {
+  display: none;
+}
+
 .dashboard-story__avatar {
   width: 100%;
   height: 100%;
@@ -132,17 +151,41 @@
   justify-content: center;
   position: absolute;
   left: 50%;
-  bottom: 16px;
-  width: 36px;
-  height: 36px;
+  bottom: 24px;
+  width: 38px;
+  height: 38px;
   transform: translateX(-50%);
   background: #1d4ed8;
   color: #eff6ff;
-  font-size: 1.55rem;
+  font-size: 1.6rem;
   font-weight: 400;
   line-height: 1;
-  border: 4px solid #1f2937;
-  z-index: 2;
+  border: 4px solid #111827;
+  z-index: 3;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.35);
+  border-radius: 14px !important;
+  overflow: hidden;
+  clip-path: inset(0 round 14px);
+}
+
+.dashboard-stories__rail .dashboard-story--add {
+  gap: 0;
+  position: relative;
+}
+
+.dashboard-stories__rail .dashboard-story--add .dashboard-story__avatar-wrap {
+  height: 162px;
+  border-radius: 12px;
+}
+
+.dashboard-stories__rail .dashboard-story--add .dashboard-story__avatar {
+  border: 0;
+  border-radius: 10px;
+}
+
+/* Keep regular story cards same overall size as "Add story" cards in the rail. */
+.dashboard-stories__rail .dashboard-story:not(.dashboard-story--add) .dashboard-story__avatar-wrap {
+  height: 162px;
 }
 
 .dashboard-story__avatar--placeholder {
@@ -240,6 +283,27 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 0.55rem;
+}
+
+.dashboard-story-viewer__sidebar-head .dashboard-announcement-dialog__close {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.45);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  font-size: 1.05rem;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.dashboard-story-viewer__sidebar-head .dashboard-announcement-dialog__close:hover {
+  background: rgba(30, 41, 59, 0.75);
+  color: #ffffff;
 }
 
 .dashboard-story-viewer__sidebar-title {
@@ -2907,6 +2971,14 @@ html[data-theme="dark"] .dashboard-graph-desc {
   outline: none;
 }
 
+.dashboard-app-header-profile-photo {
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  object-fit: cover;
+  display: block;
+}
+
 /* ========== Sidebar chat (trigger in side nav) ========== */
 .sidebar-chat-badge {
   position: absolute;
@@ -4591,6 +4663,7 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
 }
 
 .profile-hero-avatar {
+  position: relative;
   width: 64px;
   height: 64px;
   border-radius: 50%;
@@ -4599,6 +4672,16 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.profile-hero-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 
 .profile-hero-initial {

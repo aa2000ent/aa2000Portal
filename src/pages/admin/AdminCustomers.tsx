@@ -16,6 +16,8 @@ import {
 import { reverseGeocode, searchPlaces } from '../../api/geo'
 
 const DEFAULT_LOCATION = { lat: 14.5995, lon: 120.9842 }
+const MAP_TILE_VERSION = new Date().toISOString().slice(0, 10)
+const MAP_TILE_URL = `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png?v=${MAP_TILE_VERSION}`
 type LatLon = { lat: number; lon: number }
 const MIN_PER_PAGE = 1
 const MAX_PER_PAGE = 500
@@ -28,8 +30,9 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return
     const map = L.map(mapRef.current).setView([location.lat, location.lon], 16)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer(MAP_TILE_URL, {
       attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19,
     }).addTo(map)
     const marker = L.marker([location.lat, location.lon], { draggable: true, icon: leafletDefaultIcon }).addTo(map)
     marker.on('dragend', () => {
@@ -98,6 +101,7 @@ export default function AdminCustomers() {
   const [locError, setLocError] = useState<string | null>(null)
   const [locQuery, setLocQuery] = useState('')
   const [locResults, setLocResults] = useState<{ displayName: string; lat: number; lon: number }[]>([])
+  const latestSearchSeqRef = useRef(0)
   const [submitBusy, setSubmitBusy] = useState(false)
 
   const [confirm, setConfirm] = useState<{
@@ -203,16 +207,20 @@ export default function AdminCustomers() {
       setLocError(null)
       return
     }
+    const searchSeq = ++latestSearchSeqRef.current
     setLocError(null)
     setLocLoading(true)
     try {
       const mapped = await searchPlaces(q)
+      if (searchSeq !== latestSearchSeqRef.current) return
       setLocResults(mapped)
       if (!mapped.length) setLocError('No places found.')
     } catch (err) {
+      if (searchSeq !== latestSearchSeqRef.current) return
       setLocError(err instanceof Error ? err.message : 'Search failed.')
       setLocResults([])
     } finally {
+      if (searchSeq !== latestSearchSeqRef.current) return
       setLocLoading(false)
     }
   }
@@ -226,18 +234,24 @@ export default function AdminCustomers() {
       return
     }
     const t = setTimeout(() => {
+      const searchSeq = ++latestSearchSeqRef.current
       setLocError(null)
       setLocLoading(true)
       searchPlaces(q)
         .then((mapped) => {
+          if (searchSeq !== latestSearchSeqRef.current) return
           setLocResults(mapped)
           if (!mapped.length) setLocError('No places found.')
         })
         .catch((err) => {
+          if (searchSeq !== latestSearchSeqRef.current) return
           setLocError(err instanceof Error ? err.message : 'Search failed.')
           setLocResults([])
         })
-        .finally(() => setLocLoading(false))
+        .finally(() => {
+          if (searchSeq !== latestSearchSeqRef.current) return
+          setLocLoading(false)
+        })
     }, 400)
     return () => clearTimeout(t)
   }, [locQuery])

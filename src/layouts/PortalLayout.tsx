@@ -1,6 +1,8 @@
 import { useLocation } from 'react-router-dom'
 import SidebarLayout from './SidebarLayout'
 import type { NavItem } from './SidebarLayout'
+import { RolesProvider } from '../contexts/RolesContext'
+import { EmployeesProvider } from '../contexts/EmployeesContext'
 
 function navForSegment(segment: string): NavItem[] {
   if (!segment) return []
@@ -26,5 +28,11 @@ export default function PortalLayout() {
   const location = useLocation()
   const segment = location.pathname.replace(/^\//, '').split('/')[0]
   const navItems = navForSegment(segment)
-  return <SidebarLayout navItems={navItems} />
+  return (
+    <RolesProvider>
+      <EmployeesProvider>
+        <SidebarLayout navItems={navItems} />
+      </EmployeesProvider>
+    </RolesProvider>
+  )
 }

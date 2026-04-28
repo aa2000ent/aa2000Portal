@@ -14,6 +14,8 @@ import AuthThemeToggle from '../components/AuthThemeToggle'
 const inputClass = 'auth-input'
 
 const DEFAULT_LOCATION = { lat: 14.5995, lon: 120.9842 }
+const MAP_TILE_VERSION = new Date().toISOString().slice(0, 10)
+const MAP_TILE_URL = `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png?v=${MAP_TILE_VERSION}`
 type LatLon = { lat: number; lon: number }
 
 function LocationPicker({ location, onChange }: { location: LatLon; onChange: (loc: LatLon) => void }) {
@@ -24,8 +26,9 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return
     const map = L.map(mapRef.current).setView([location.lat, location.lon], 16)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer(MAP_TILE_URL, {
       attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19,
     }).addTo(map)
     const marker = L.marker([location.lat, location.lon], { draggable: true, icon: leafletDefaultIcon }).addTo(map)
     marker.on('dragend', () => {
@@ -84,6 +87,7 @@ export default function Register() {
   const [locError, setLocError] = useState<string | null>(null)
   const [locQuery, setLocQuery] = useState('')
   const [locResults, setLocResults] = useState<{ displayName: string; lat: number; lon: number }[]>([])
+  const latestSearchSeqRef = useRef(0)
 
   useEffect(() => {
     const home = getPortalHomeSegment()
@@ -164,16 +168,20 @@ export default function Register() {
       setLocError(null)
       return
     }
+    const searchSeq = ++latestSearchSeqRef.current
     setLocError(null)
     setLocLoading(true)
     try {
       const mapped = await searchPlaces(q)
+      if (searchSeq !== latestSearchSeqRef.current) return
       setLocResults(mapped)
       if (!mapped.length) setLocError('No places found. Try a more specific search.')
     } catch (err) {
+      if (searchSeq !== latestSearchSeqRef.current) return
       setLocError(err instanceof Error ? err.message : 'Failed to search for that place.')
       setLocResults([])
     } finally {
+      if (searchSeq !== latestSearchSeqRef.current) return
       setLocLoading(false)
     }
   }
@@ -187,18 +195,24 @@ export default function Register() {
       return
     }
     const t = setTimeout(() => {
+      const searchSeq = ++latestSearchSeqRef.current
       setLocError(null)
       setLocLoading(true)
       searchPlaces(q)
         .then((mapped) => {
+          if (searchSeq !== latestSearchSeqRef.current) return
           setLocResults(mapped)
           if (!mapped.length) setLocError('No places found. Try a more specific search.')
         })
         .catch((err) => {
+          if (searchSeq !== latestSearchSeqRef.current) return
           setLocError(err instanceof Error ? err.message : 'Failed to search for that place.')
           setLocResults([])
         })
-        .finally(() => setLocLoading(false))
+        .finally(() => {
+          if (searchSeq !== latestSearchSeqRef.current) return
+          setLocLoading(false)
+        })
     }, 400)
     return () => clearTimeout(t)
   }, [locQuery])

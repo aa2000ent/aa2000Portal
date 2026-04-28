@@ -35,10 +35,29 @@ function sortNewestFirst(list: DashboardStoryItem[]): DashboardStoryItem[] {
 }
 
 function formatDateLabel(value?: string): string {
-  if (!value) return 'No date'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'No date'
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const ts = value ? new Date(value).getTime() : NaN
+  if (!Number.isFinite(ts)) return 'Now'
+  const date = new Date(ts)
+  const clock = date.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000))
+  if (diffSec < 5) return `${clock} • Now`
+  if (diffSec < 60) return `${clock} • ${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${clock} • ${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${clock} • ${diffHr}h ago`
+  const diffDay = Math.floor(diffHr / 24)
+  return `${clock} • ${diffDay}d ago`
+}
+
+function isWithin24Hours(value?: string): boolean {
+  const ts = value ? new Date(value).getTime() : NaN
+  if (!Number.isFinite(ts)) return true
+  return Date.now() - ts < 24 * 60 * 60 * 1000
 }
 
 function toBase64(file: File): Promise<string> {
@@ -159,7 +178,9 @@ async function composeStoryImageWithText(
 }
 
 export default function DashboardStories() {
+  const [, setClockTick] = useState(0)
   const [items, setItems] = useState<DashboardStoryItem[]>([])
+  const [currentUserPhotoUrl, setCurrentUserPhotoUrl] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
@@ -202,8 +223,12 @@ export default function DashboardStories() {
     try {
       const [rawStories, employees] = await Promise.all([fetchStories(), fetchEmployees()])
       const mapped = mapStoriesForDashboard(rawStories as unknown[], employees)
-      const merged = sortNewestFirst(mapped).slice(0, 12)
+      const activeStories = mapped.filter((item) => isWithin24Hours(item.date))
+      const merged = sortNewestFirst(activeStories).slice(0, 12)
       setItems(merged)
+      const currentAccId = Number(getPortalAccountId() ?? 0)
+      const me = currentAccId > 0 ? employees.find((emp) => Number(emp.accId ?? 0) === currentAccId) : undefined
+      setCurrentUserPhotoUrl(me?.photoUrl)
       const nextEmp: Record<number, number> = {}
       for (const emp of employees) {
         const accId = Number(emp.accId ?? 0)
@@ -257,6 +282,18 @@ export default function DashboardStories() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  // Keep relative timestamps fresh and auto-expire 24h stories while viewer stays open.
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      setClockTick((x) => x + 1)
+      setItems((prev) => {
+        const filtered = prev.filter((item) => isWithin24Hours(item.date))
+        return filtered.length === prev.length ? prev : filtered
+      })
+    }, 1000)
+    return () => window.clearInterval(t)
   }, [])
 
   useEffect(() => {
@@ -625,7 +662,8 @@ export default function DashboardStories() {
           <div className="dashboard-stories__rail">
             {canCreateStories && (
               <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
-                <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
+                <span className={`dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add ${currentUserPhotoUrl ? 'dashboard-story__avatar-wrap--with-photo' : ''}`}>
+                  {currentUserPhotoUrl ? <img src={currentUserPhotoUrl} alt="" className="dashboard-story__avatar" /> : null}
                   <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
                 </span>
                 <span className="dashboard-story__label">Add story</span>
@@ -637,7 +675,8 @@ export default function DashboardStories() {
           <div className="dashboard-stories__rail">
             {canCreateStories && (
               <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
-                <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
+                <span className={`dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add ${currentUserPhotoUrl ? 'dashboard-story__avatar-wrap--with-photo' : ''}`}>
+                  {currentUserPhotoUrl ? <img src={currentUserPhotoUrl} alt="" className="dashboard-story__avatar" /> : null}
                   <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
                 </span>
                 <span className="dashboard-story__label">Add story</span>
@@ -701,7 +740,8 @@ export default function DashboardStories() {
               </div>
               {canCreateStories && (
                 <button type="button" className="dashboard-story dashboard-story--add dashboard-story--add-sidebar" onClick={handleAddStory}>
-                  <span className="dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add">
+                  <span className={`dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add ${currentUserPhotoUrl ? 'dashboard-story__avatar-wrap--with-photo' : ''}`}>
+                    {currentUserPhotoUrl ? <img src={currentUserPhotoUrl} alt="" className="dashboard-story__avatar" /> : null}
                     <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
                   </span>
                   <span className="dashboard-story__label">Create story</span>

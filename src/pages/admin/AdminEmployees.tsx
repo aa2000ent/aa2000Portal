@@ -9,11 +9,13 @@ import { useEmployees, type Employee, DEFAULT_PASSWORD } from '../../contexts/Em
 import ConfirmDialog, { type ConfirmVariant } from '../../components/ConfirmDialog'
 import CustomSelect from '../../components/CustomSelect'
 import { reverseGeocode, searchPlaces } from '../../api/geo'
-import { createEmployee, fetchEmployees, updateEmployee } from '../../api/employees'
+import { createEmployee, fetchEmployees, updateEmployee, deleteEmployee } from '../../api/employees'
 import type { CustomerAddressPayload } from '../../api/customers'
 
 const MIN_PER_PAGE = 1
 const DEFAULT_LOCATION = { lat: 14.5995, lon: 120.9842 }
+const MAP_TILE_VERSION = new Date().toISOString().slice(0, 10)
+const MAP_TILE_URL = `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png?v=${MAP_TILE_VERSION}`
 type LatLon = { lat: number; lon: number }
 
 function getInitials(name: string) {
@@ -33,8 +35,9 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return
     const map = L.map(mapRef.current).setView([location.lat, location.lon], 16)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer(MAP_TILE_URL, {
       attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19,
     }).addTo(map)
     const marker = L.marker([location.lat, location.lon], { draggable: true, icon: leafletDefaultIcon }).addTo(map)
     marker.on('dragend', () => {
@@ -64,7 +67,7 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
   }, [location.lat, location.lon])
 
   return (
-    <div className="w-full h-44 rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
+    <div className="w-full h-96 rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
       <div ref={mapRef} className="w-full h-full" />
     </div>
   )
@@ -124,6 +127,7 @@ export default function AdminEmployees() {
   const [locError, setLocError] = useState<string | null>(null)
   const [locQuery, setLocQuery] = useState('')
   const [locResults, setLocResults] = useState<{ displayName: string; lat: number; lon: number }[]>([])
+  const latestSearchSeqRef = useRef(0)
   const [addressParts, setAddressParts] = useState<{ street: string; municipality: string; province: string; postal: string } | null>(null)
   /** True after user moved pin / search / GPS so we send lat/lon even if reverse geocode has no street/city. */
   const [pinAdjusted, setPinAdjusted] = useState(false)
@@ -155,6 +159,7 @@ export default function AdminEmployees() {
    */
   function getAddressPayload(): CustomerAddressPayload | undefined {
     const loc = location ?? DEFAULT_LOCATION
+    const line = newUser.address.trim()
     const street = addressParts?.street ?? ''
     const municipality = addressParts?.municipality ?? ''
     const province = addressParts?.province ?? ''
@@ -170,11 +175,22 @@ export default function AdminEmployees() {
       }
     }
     if (pinAdjusted) {
-      const line = newUser.address.trim()
       return {
         latitude: loc.lat,
         longitude: loc.lon,
         street: line || '',
+        municipality: '',
+        province: '',
+        postal: '',
+      }
+    }
+    // Even without map interaction, provide a minimal address payload
+    // so backend can create/fetch Emp_AddressID and allow employee create.
+    if (line) {
+      return {
+        latitude: loc.lat,
+        longitude: loc.lon,
+        street: line,
         municipality: '',
         province: '',
         postal: '',
@@ -218,16 +234,20 @@ export default function AdminEmployees() {
       setLocError(null)
       return
     }
+    const searchSeq = ++latestSearchSeqRef.current
     setLocError(null)
     setLocLoading(true)
     try {
       const mapped = await searchPlaces(q)
+      if (searchSeq !== latestSearchSeqRef.current) return
       setLocResults(mapped)
       if (!mapped.length) setLocError('No places found. Try a more specific search.')
     } catch (err) {
+      if (searchSeq !== latestSearchSeqRef.current) return
       setLocError(err instanceof Error ? err.message : 'Failed to search for that place.')
       setLocResults([])
     } finally {
+      if (searchSeq !== latestSearchSeqRef.current) return
       setLocLoading(false)
     }
   }
@@ -241,18 +261,24 @@ export default function AdminEmployees() {
       return
     }
     const t = setTimeout(() => {
+      const searchSeq = ++latestSearchSeqRef.current
       setLocError(null)
       setLocLoading(true)
       searchPlaces(q)
         .then((mapped) => {
+          if (searchSeq !== latestSearchSeqRef.current) return
           setLocResults(mapped)
           if (!mapped.length) setLocError('No places found. Try a more specific search.')
         })
         .catch((err) => {
+          if (searchSeq !== latestSearchSeqRef.current) return
           setLocError(err instanceof Error ? err.message : 'Failed to search for that place.')
           setLocResults([])
         })
-        .finally(() => setLocLoading(false))
+        .finally(() => {
+          if (searchSeq !== latestSearchSeqRef.current) return
+          setLocLoading(false)
+        })
     }, 400)
     return () => clearTimeout(t)
   }, [locQuery])
@@ -637,28 +663,22 @@ export default function AdminEmployees() {
     })
   }
 
-  const handleDisableUser = (id: number, name: string, currentStatus: 'Active' | 'Inactive') => {
-    const isDisable = currentStatus === 'Active'
+  const handleDeleteEmployee = (emp: Employee) => {
     setConfirm({
       open: true,
-      title: isDisable ? 'Disable user' : 'Enable user',
-      message: isDisable
-        ? `Disable "${name}"? They will not be able to sign in until enabled again.`
-        : `Enable "${name}"? They will be able to sign in again.`,
-      confirmLabel: isDisable ? 'Disable' : 'Enable',
-      variant: isDisable ? 'danger' : 'success',
+      title: 'Delete employee',
+      message: `Permanently delete "${emp.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
       onConfirm: () => {
-        const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active'
-        setEmployees((prev) =>
-          prev.map((e) => (e.id === id ? { ...e, status: newStatus } : e))
-        )
-        addEntry({
-          action: newStatus === 'Inactive' ? 'user_disabled' : 'user_updated',
-          actor: 'Admin',
-          target: name,
-          details: newStatus === 'Inactive' ? 'Account deactivated' : 'Account enabled',
-        })
         setConfirm((c) => ({ ...c, open: false }))
+        setEmployees((prev) => prev.filter((e) => e.id !== emp.id))
+        addEntry({ action: 'user_disabled', actor: 'Admin', target: emp.name, details: 'Employee permanently deleted' })
+        deleteEmployee(emp.id).catch(() => {
+          fetchEmployees(roleOptions).then((list) => {
+            if (list.length >= 0) setEmployees(list)
+          }).catch(() => {})
+        })
       },
     })
   }
@@ -769,9 +789,9 @@ export default function AdminEmployees() {
                       <button
                         type="button"
                         className="employees-icon-btn employees-icon-btn--danger"
-                        title={emp.status === 'Active' ? 'Disable' : 'Enable'}
-                        aria-label={`${emp.status === 'Active' ? 'Disable' : 'Enable'} ${emp.name}`}
-                        onClick={() => handleDisableUser(emp.id, emp.name, emp.status)}
+                        title="Delete employee"
+                        aria-label={`Delete ${emp.name}`}
+                        onClick={() => handleDeleteEmployee(emp)}
                       >
                         <Trash2 size={18} />
                       </button>
@@ -1140,7 +1160,7 @@ export default function AdminEmployees() {
                   </p>
                 )}
               </div>
-              <div className="modal-field space-y-3">
+              <div className="modal-field space-y-3 md:col-span-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <MapPin className="h-4 w-4 text-blue-600" aria-hidden />
@@ -1294,10 +1314,10 @@ export default function AdminEmployees() {
                     onChange={async (ev) => {
                       const file = ev.currentTarget.files?.[0]
                       if (!file) {
+                        // User cancelled file picker: keep existing image unchanged.
                         pendingPhotoPromiseRef.current = null
                         pendingPhotoBase64ValueRef.current = undefined
-                        pendingPhotoRemovedValueRef.current = true
-                        setNewUser((u) => ({ ...u, photoBase64: undefined, photoRemoved: true }))
+                        pendingPhotoRemovedValueRef.current = false
                         return
                       }
                       setPhotoBusy(true)
@@ -1306,11 +1326,12 @@ export default function AdminEmployees() {
                         try {
                           const dataUrl = await fileToDataUrl(file)
                           pendingPhotoBase64ValueRef.current = dataUrl
+                          pendingPhotoRemovedValueRef.current = false
                           setNewUser((u) => ({ ...u, photoBase64: dataUrl, photoRemoved: false }))
                         } catch {
+                          // Failed conversion should not remove existing profile photo.
                           pendingPhotoBase64ValueRef.current = undefined
-                          pendingPhotoRemovedValueRef.current = true
-                          setNewUser((u) => ({ ...u, photoBase64: undefined, photoRemoved: true }))
+                          pendingPhotoRemovedValueRef.current = false
                         }
                       })()
                       pendingPhotoPromiseRef.current = conversionPromise
@@ -1472,7 +1493,7 @@ export default function AdminEmployees() {
                   </p>
                 )}
               </div>
-              <div className="modal-field space-y-3">
+              <div className="modal-field space-y-3 md:col-span-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <MapPin className="h-4 w-4 text-blue-600" aria-hidden />

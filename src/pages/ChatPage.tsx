@@ -406,6 +406,8 @@ export default function ChatPage() {
   const [storyOwnerIds, setStoryOwnerIds] = useState<Set<string>>(new Set())
   const [storyPreviewByUserId, setStoryPreviewByUserId] = useState<Record<string, string>>({})
   const [storyItemByUserId, setStoryItemByUserId] = useState<Record<string, StoryPreview>>({})
+  const [storyPreviewCandidatesByUserId, setStoryPreviewCandidatesByUserId] = useState<Record<string, string[]>>({})
+  const [storyPreviewAttemptByUserId, setStoryPreviewAttemptByUserId] = useState<Record<string, number>>({})
   const [chatStoryOwners, setChatStoryOwners] = useState<StoryPreview[]>([])
   const [chatStoriesByOwner, setChatStoriesByOwner] = useState<Record<string, StoryPreview[]>>({})
   const [openStoryOwnerId, setOpenStoryOwnerId] = useState<string | null>(null)
@@ -499,6 +501,11 @@ export default function ChatPage() {
     if (!q) return base
     return base.filter((user) => user.search.includes(q))
   }, [tab, usersWithUnread, usersWithMessages, searchUser])
+
+  useEffect(() => {
+    // Re-attempt from first candidate when story preview data refreshes.
+    setStoryPreviewAttemptByUserId({})
+  }, [storyPreviewByUserId, storyPreviewCandidatesByUserId])
 
   const newChatUsers = useMemo(() => {
     const q = newChatQuery.trim().toLowerCase()
@@ -663,10 +670,16 @@ export default function ChatPage() {
         const active = mapped.filter((s) => isWithin24Hours(s.date))
         const next = new Set<string>()
         const previewMap: Record<string, string> = {}
+        const previewCandidatesMap: Record<string, string[]> = {}
         const itemMap: Record<string, StoryPreview> = {}
         const groupedByOwner: Record<string, StoryPreview[]> = {}
         for (const item of active) {
-          const media = String(item.mediaUrl ?? '').trim()
+          const mediaCandidates = Array.from(new Set(
+            (Array.isArray(item.mediaCandidates) ? item.mediaCandidates : [])
+              .map((x) => String(x ?? '').trim())
+              .filter((x) => x.length > 0 && !isStoryVideoUrl(x)),
+          ))
+          const media = mediaCandidates[0] || String(item.mediaUrl ?? '').trim()
           const hasUsablePreview = media && !isStoryVideoUrl(media)
           const directOwnerKey = Number.isFinite(item.employeeId) && item.employeeId > 0 ? `emp-id:${item.employeeId}` : ''
           const ownerByAcc = Number.isFinite(item.accId) && item.accId > 0
@@ -690,6 +703,7 @@ export default function ChatPage() {
             next.add(key)
             if (hasUsablePreview && !previewMap[key]) {
               previewMap[key] = media
+              previewCandidatesMap[key] = mediaCandidates.length > 0 ? mediaCandidates : [media]
               itemMap[key] = { userId: key, mediaUrl: media, title: item.title || 'Story', avatarUrl: item.authorPhotoUrl, date: item.date }
             }
           }
@@ -700,6 +714,7 @@ export default function ChatPage() {
               next.add(key)
               if (hasUsablePreview && !previewMap[key]) {
                 previewMap[key] = media
+                previewCandidatesMap[key] = mediaCandidates.length > 0 ? mediaCandidates : [media]
                 itemMap[key] = { userId: key, mediaUrl: media, title: item.title || 'Story', avatarUrl: item.authorPhotoUrl, date: item.date }
               }
             }
@@ -726,6 +741,7 @@ export default function ChatPage() {
           })
         setStoryOwnerIds(next)
         setStoryPreviewByUserId(previewMap)
+        setStoryPreviewCandidatesByUserId(previewCandidatesMap)
         setStoryItemByUserId(itemMap)
         setChatStoriesByOwner(groupedByOwner)
         setChatStoryOwners(ownerList)
@@ -1321,6 +1337,12 @@ export default function ChatPage() {
                         : '1 new message'
                     )
                   : baseSubtitle
+              const previewCandidates = storyPreviewCandidatesByUserId[user.id] ?? (
+                storyPreviewByUserId[user.id] ? [storyPreviewByUserId[user.id]] : []
+              )
+              const previewAttempt = Math.max(0, storyPreviewAttemptByUserId[user.id] ?? 0)
+              const storyAvatarSrc = previewCandidates[previewAttempt] ?? ''
+              const avatarSrc = storyAvatarSrc || user.photoUrl || ''
               return (
                 <button
                   key={user.id}
@@ -1344,8 +1366,20 @@ export default function ChatPage() {
                       setOpenStorySubIndex(0)
                     }}
                   >
-                    {(storyPreviewByUserId[user.id] || user.photoUrl) ? (
-                      <img src={storyPreviewByUserId[user.id] || user.photoUrl} alt={`${user.name} story preview`} className="messenger-avatar-image" />
+                    {avatarSrc ? (
+                      <img
+                        src={avatarSrc}
+                        alt=""
+                        className="messenger-avatar-image"
+                        onError={() => {
+                          if (previewCandidates.length > 0 && previewAttempt < previewCandidates.length - 1) {
+                            setStoryPreviewAttemptByUserId((prev) => ({
+                              ...prev,
+                              [user.id]: previewAttempt + 1,
+                            }))
+                          }
+                        }}
+                      />
                     ) : (
                       getInitials(user.name)
                     )}

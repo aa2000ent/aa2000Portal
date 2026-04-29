@@ -1,19 +1,24 @@
 import { useState, useEffect, useRef, Suspense, useMemo } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation, matchPath } from 'react-router-dom'
+import { io, type Socket } from 'socket.io-client'
 import ErrorBoundary from '../components/ErrorBoundary'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useActivityLog } from '../contexts/ActivityLogContext'
-import { useChat } from '../contexts/ChatContext'
+import { getConversationId, useChat } from '../contexts/ChatContext'
 import { useSidebar } from '../contexts/SidebarContext'
 import {
+  apiRequest,
   clearAuthToken,
   clearPortalAccountId,
   clearPortalHomeSegment,
   clearPortalUsername,
   clearSessionId,
+  getPortalAccountId,
   getPortalUsername,
 } from '../api/client'
 import { logoutSecurity } from '../api/auth'
+import { getBaseUrl } from '../api/config'
+import { fetchEmployees } from '../api/employees'
 import { prefetchRoute } from '../prefetchRoutes'
 
 export type NavItem = { to: string; label: string; end: boolean; icon?: string; children?: NavItem[] }
@@ -133,11 +138,56 @@ type SidebarLayoutProps = {
   navItems: NavItem[]
 }
 
+type SidebarWebhookRow = {
+  timestamp?: string
+  message?: string
+  sender?: string
+  senderName?: string
+  senderEmpID?: string | number
+  senderEmpId?: string | number
+  from?: string | number
+  fromName?: string
+  toEmpID?: string | number
+  receiverEmpID?: string | number
+  receiverEmpId?: string | number
+  toName?: string
+  receiverName?: string
+}
+
+type SidebarWebhookResponse = {
+  data?: Array<string | SidebarWebhookRow>
+}
+
+function toEmpIdTag(value: unknown): string | null {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  if (/^emp-id:\d+$/i.test(raw)) return raw.toLowerCase()
+  const num = Number(raw.replace(/^emp:/i, '').replace(/^emp-id:/i, ''))
+  if (!Number.isFinite(num) || num <= 0) return null
+  return `emp-id:${num}`
+}
+
+function buildSidebarMessageId(senderId: string, receiverId: string, timestamp: string, text: string): string {
+  return `sidebar-sync-${senderId}->${receiverId}-${timestamp}-${text}`.slice(0, 240)
+}
+
+function buildSocketBaseUrl(): string {
+  const raw = String(import.meta.env.VITE_SOCKET_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? '').trim()
+  if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '')
+  try {
+    const base = getBaseUrl()
+    if (/^https?:\/\//i.test(base)) return base.replace(/\/$/, '')
+  } catch {
+    // fall through
+  }
+  return window.location.origin
+}
+
 export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { addEntry } = useActivityLog()
-  const { messages, getUnreadCount } = useChat()
+  const { messages, getUnreadCount, upsertMessages } = useChat()
   const { isOpen: isSidebarOpen, setOpen: setSidebarOpen, scrollContainerRef, savedScrollTopRef } = useSidebar()
   const [isCollapsed, setCollapsed] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({})
@@ -207,9 +257,146 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
   const unreadSidebarCount = useMemo(() => {
     const conversationIds = Array.from(new Set(messages.map((m) => m.conversationId)))
     const currentAliases = [roleLabel, signedUsername].filter(Boolean)
-    return conversationIds.reduce((sum, cid) => sum + getUnreadCount(cid, currentAliases), 0)
+    return conversationIds.reduce((sum, cid) => (
+      getUnreadCount(cid, currentAliases) > 0 ? sum + 1 : sum
+    ), 0)
   }, [messages, getUnreadCount, roleLabel, signedUsername])
   const showCollapsed = !isMobile && isCollapsed
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | null = null
+    let socket: Socket | null = null
+
+    const syncUnreadMessages = async () => {
+      const accId = Number(getPortalAccountId() ?? 0)
+      const username = String(getPortalUsername() ?? '').trim().toLowerCase()
+      if (!accId && !username) return
+
+      const employees = await fetchEmployees().catch(() => [])
+      if (!Array.isArray(employees) || employees.length === 0 || cancelled) return
+
+      const signedEmployee =
+        (accId > 0 ? employees.find((e) => Number(e.accId ?? 0) === accId) : undefined) ||
+        (username ? employees.find((e) => String(e.email ?? '').trim().toLowerCase() === username) : undefined) ||
+        (username ? employees.find((e) => String(e.name ?? '').trim().toLowerCase() === username) : undefined)
+      const signedEmpId = Number(signedEmployee?.id ?? 0)
+      if (!Number.isFinite(signedEmpId) || signedEmpId <= 0) return
+
+      const res = await apiRequest<SidebarWebhookResponse>(`/ai-services-conversation-chat/webhook/conversation/${signedEmpId}?_ts=${Date.now()}`, {
+        method: 'GET',
+        cache: 'no-store',
+        portal: { suppressFailureLog: true },
+      }).catch(() => null)
+      if (!res || cancelled) return
+
+      const lines = Array.isArray(res.data) ? res.data : []
+      const parsed = lines.flatMap((row): Array<{ id: string; conversationId: string; sender: string; text: string; timestamp: string; status?: 'delivered' }> => {
+        let timestamp = ''
+        let text = ''
+        let senderName = ''
+        let fromId: string | null = null
+        let toId: string | null = null
+
+        if (typeof row === 'string') {
+          const raw = row.trim()
+          const m = raw.match(/^\[(.+?)\]\s+EMP_ID:\s*(\d+)\s*\|\s*SENDER:\s*(.*?)\s*\|\s*MSG:\s*(.*)$/)
+          if (!m) return []
+          timestamp = String(m[1] ?? '').trim()
+          const lineEmpId = toEmpIdTag(m[2])
+          senderName = String(m[3] ?? '').trim()
+          text = String(m[4] ?? '').trim()
+          fromId = lineEmpId
+          toId = `emp-id:${signedEmpId}`
+        } else if (row && typeof row === 'object') {
+          timestamp = String(row.timestamp ?? '').trim()
+          text = String(row.message ?? '').trim()
+          senderName = String(row.fromName ?? row.senderName ?? row.sender ?? '').trim()
+          fromId = toEmpIdTag(row.from ?? row.senderEmpID ?? row.senderEmpId)
+          toId = toEmpIdTag(row.toEmpID ?? row.receiverEmpID ?? row.receiverEmpId)
+        }
+
+        if (!timestamp || !text) return []
+        const participantA = fromId || `emp-id:${signedEmpId}`
+        const participantB = toId || `emp-id:${signedEmpId}`
+        const conversationId = getConversationId(participantA, participantB)
+        const fromEmpId = Number(participantA.replace(/^emp-id:/i, ''))
+        const isOwn = Number.isFinite(fromEmpId) && fromEmpId === signedEmpId
+        const senderLabel = isOwn
+          ? (String(getPortalUsername() ?? '').trim() || String(signedEmployee?.name ?? '').trim() || 'Me')
+          : (senderName || `Employee ${Number.isFinite(fromEmpId) ? fromEmpId : ''}`.trim())
+
+        return [{
+          id: buildSidebarMessageId(participantA, participantB, timestamp, text),
+          conversationId,
+          sender: senderLabel,
+          text,
+          timestamp,
+          status: isOwn ? 'delivered' : undefined,
+        }]
+      })
+
+      if (parsed.length > 0 && !cancelled) {
+        upsertMessages(parsed)
+      }
+    }
+
+    const attachRealtimeSocket = async () => {
+      const accId = Number(getPortalAccountId() ?? 0)
+      const username = String(getPortalUsername() ?? '').trim().toLowerCase()
+      if (!accId && !username) return
+      const employees = await fetchEmployees().catch(() => [])
+      if (!Array.isArray(employees) || employees.length === 0 || cancelled) return
+      const signedEmployee =
+        (accId > 0 ? employees.find((e) => Number(e.accId ?? 0) === accId) : undefined) ||
+        (username ? employees.find((e) => String(e.email ?? '').trim().toLowerCase() === username) : undefined) ||
+        (username ? employees.find((e) => String(e.name ?? '').trim().toLowerCase() === username) : undefined)
+      const signedEmpId = Number(signedEmployee?.id ?? 0)
+      if (!Number.isFinite(signedEmpId) || signedEmpId <= 0 || cancelled) return
+
+      socket = io(buildSocketBaseUrl(), { transports: ['websocket', 'polling'], withCredentials: true })
+      socket.on('connect', () => {
+        socket?.emit('join', { employeeID: signedEmpId })
+        socket?.emit('join', { employeeId: signedEmpId })
+        socket?.emit('join', signedEmpId)
+        socket?.emit('joinRoom', { employeeID: signedEmpId })
+        socket?.emit('joinRoom', { employeeId: signedEmpId })
+        socket?.emit('joinRoom', signedEmpId)
+        socket?.emit('join_room', { employeeID: signedEmpId })
+        socket?.emit('join_room', { employeeId: signedEmpId })
+        socket?.emit('join_room', signedEmpId)
+        socket?.emit('join', `emp_${signedEmpId}`)
+        socket?.emit('joinRoom', `emp_${signedEmpId}`)
+      })
+
+      const onIncoming = () => {
+        // Re-sync immediately on realtime event to keep sidebar unread badge current.
+        void syncUnreadMessages()
+      }
+      socket.on('message', onIncoming)
+      socket.on('chat_message', onIncoming)
+      socket.on('new_message', onIncoming)
+      socket.on('receive_message', onIncoming)
+      socket.on('receiveMessage', onIncoming)
+      socket.on('conversation_message', onIncoming)
+      socket.on('conversationMessage', onIncoming)
+    }
+
+    void syncUnreadMessages()
+    void attachRealtimeSocket()
+    timer = window.setInterval(() => {
+      void syncUnreadMessages()
+    }, 5000)
+
+    return () => {
+      cancelled = true
+      if (timer != null) window.clearInterval(timer)
+      if (socket) {
+        socket.disconnect()
+        socket = null
+      }
+    }
+  }, [upsertMessages])
 
   // Restore scroll position after sidebar open/close or collapse/expand
   useEffect(() => {

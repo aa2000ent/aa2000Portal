@@ -14,6 +14,15 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     server: {
+      cors: {
+        origin: true,
+        credentials: true,
+      },
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Session-Id',
+      },
       // Proxy all /__portal_api/* requests to the real backend — avoids CORS in dev
       ...(apiTarget
         ? {
@@ -24,6 +33,11 @@ export default defineConfig(({ mode }) => {
                 secure: false,
                 agent: apiTarget.startsWith('https') ? agent : undefined,
                 rewrite: (path: string) => path.replace(/^\/__portal_api/, ''),
+                configure: (proxy) => {
+                  proxy.on('proxyReq', (proxyReq) => {
+                    proxyReq.setHeader('Origin', apiTarget)
+                  })
+                },
               },
             },
           }

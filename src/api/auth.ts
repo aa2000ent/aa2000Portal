@@ -180,16 +180,16 @@ function roleLabelFromAccount(account: LoginVerificationResponse['account']): st
 
 /**
  * After login: send user to the area that matches their DB role (`role_ID` + role name).
- * Order: env `VITE_ROLE_ROUTE_MAP` → employee role by `acc_ID` → `/roles` list by `role_ID` →
+ * Order: employee role by `acc_ID` (Admin Employees) → env `VITE_ROLE_ROUTE_MAP` → `/roles` list by `role_ID` →
  * GET role by id → API embedded role label → fallback.
+ *
+ * Employee row wins first so role edits in Admin Employees always drive routing before static maps.
  */
 export async function resolvePortalRouteFromAccount(
   account: LoginVerificationResponse['account']
 ): Promise<string> {
   const roleId = Number(account.role_ID ?? 0)
   const accId = Number(account.acc_ID ?? 0)
-  const override = getRoleIdRouteOverride()[roleId]
-  if (override) return normalizeRouteSegment(override)
 
   // Employee role changes are managed in Admin Employees. Honor that first when available.
   if (Number.isFinite(accId) && accId > 0) {
@@ -202,6 +202,9 @@ export async function resolvePortalRouteFromAccount(
       // Continue to account-role based resolution.
     }
   }
+
+  const override = getRoleIdRouteOverride()[roleId]
+  if (override) return normalizeRouteSegment(override)
 
   if (Number.isFinite(roleId) && roleId > 0) {
     const roles = await fetchRoles()

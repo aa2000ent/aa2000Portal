@@ -1,4 +1,5 @@
 import { apiRequest } from './client'
+import type { SessionLookupAccount } from '../utils/sessionLookupFields'
 
 /**
  * Matches Express `GET /session/:sessionToken` where `sessionToken` === `Session.s_name`
@@ -12,13 +13,8 @@ export type SessionLookupResponse = {
     s_name: string
     createdAt?: string
   }
-  account: {
-    acc_ID: number
-    username: string
-    role_ID: number
-    role_name: string | null
-    status: string
-  }
+  /** Joined account row — use `sessionLookupFields` helpers for username / name / role aliases. */
+  account: SessionLookupAccount
   /** Full `Employee` row when `Employee.acc_ID` matches `account.acc_ID`. */
   employee: Record<string, unknown> | null
 }

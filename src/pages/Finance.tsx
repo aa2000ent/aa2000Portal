@@ -16,7 +16,7 @@ export default function Finance() {
   const financeOps = useMemo(
     () =>
       entries
-        .filter((e) => /approve|reject|payment|invoice|budget|finance|expense/i.test(`${e.action} ${e.details ?? ''}`))
+        .filter((e) => /approve|reject|payment|invoice|budget|finance|expense|leave/i.test(`${e.action} ${e.details ?? ''}`))
         .slice(-6)
         .reverse(),
     [entries],

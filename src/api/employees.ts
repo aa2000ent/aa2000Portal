@@ -115,6 +115,40 @@ function base64ToDataUrl(base64: string): string {
   return `data:${mime};base64,${normalized}`
 }
 
+/** Read `Emp_ID` from session rows, nested employee objects, or login payloads. */
+export function pickEmpIdFromRecord(row: Record<string, unknown> | null | undefined): number {
+  if (!row) return 0
+  const n = Number(
+    row.Emp_ID ??
+      row.emp_ID ??
+      row.emp_id ??
+      row.employee_id ??
+      row.Employee_ID ??
+      row.employeeId ??
+      row.EmpId ??
+      0,
+  )
+  if (Number.isFinite(n) && n > 0) return n
+  return 0
+}
+
+/** Read linked account id from employee list rows (handles nested Sequelize `Account`). */
+export function pickAccountIdFromEmployeeRow(row: Record<string, unknown>): number {
+  const flat = [row.acc_ID, row.accId, row.acc_id, row.account_id, row.Account_ID, row.Acc_ID, row.fk_acc_ID]
+  for (const v of flat) {
+    if (v == null) continue
+    const n = Number(v)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  const nested = row.Account ?? row.account ?? row.userAccount
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    const a = nested as Record<string, unknown>
+    const n = Number(a.acc_ID ?? a.accId ?? a.acc_id ?? a.id)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return 0
+}
+
 function getEmployeePhotoUrl(row: Record<string, unknown>): string | undefined {
   function isTinyGifPlaceholder(value: string): boolean {
     const v = value.trim()
@@ -230,9 +264,9 @@ function getEmployeePhotoUrl(row: Record<string, unknown>): string | undefined {
 }
 
 function mapBackendEmployee(row: Record<string, unknown>, roleOptions?: RoleOption[]): Employee {
-  const empId = Number(row.Emp_ID ?? row.emp_ID ?? row.id ?? 0)
-  const accIdRaw = row.acc_ID ?? row.accId ?? row.account_id
-  const accIdNum = Number(accIdRaw)
+  const empFromCols = pickEmpIdFromRecord(row)
+  const empId = empFromCols > 0 ? empFromCols : Number(row.Emp_ID ?? row.emp_ID ?? row.id ?? 0)
+  const accIdNum = pickAccountIdFromEmployeeRow(row)
   const fname = (row.Emp_fname ?? row.emp_fname ?? '') as string
   const mname = (row.Emp_mname ?? row.emp_mname ?? '') as string
   const lname = (row.Emp_lname ?? row.emp_lname ?? '') as string
@@ -250,8 +284,8 @@ function mapBackendEmployee(row: Record<string, unknown>, roleOptions?: RoleOpti
   const addressId = row.Emp_AddressID != null ? Number(row.Emp_AddressID) : undefined
   const addressFromJoin = getAddressLineFromEmployeeRow(row)
   return {
-    id: empId,
-    accId: Number.isFinite(accIdNum) && accIdNum > 0 ? accIdNum : undefined,
+    id: empId > 0 ? empId : 0,
+    accId: accIdNum > 0 ? accIdNum : undefined,
     name,
     email: (row.Emp_email ?? row.emp_email ?? row.email ?? '') as string,
     role,
@@ -284,7 +318,17 @@ function toEmployee(d: EmployeeDto & { address?: string; contact?: string; photo
 function normalizeRow(row: unknown, roleOptions?: RoleOption[]): Employee {
   if (row != null && typeof row === 'object' && !Array.isArray(row)) {
     const r = row as Record<string, unknown>
-    if (r.Emp_ID != null || r.emp_ID != null || r.Emp_fname != null || r.emp_fname != null) {
+    const looksLikeEmployeeRow =
+      r.Emp_ID != null ||
+      r.emp_ID != null ||
+      r.emp_id != null ||
+      r.Emp_fname != null ||
+      r.emp_fname != null ||
+      r.Emp_lname != null ||
+      r.emp_lname != null ||
+      r.Emp_email != null ||
+      r.emp_email != null
+    if (looksLikeEmployeeRow) {
       return mapBackendEmployee(r, roleOptions)
     }
     return toEmployee({
@@ -305,11 +349,132 @@ function normalizeRow(row: unknown, roleOptions?: RoleOption[]): Employee {
 let _cachedEmpFetchPath: string | null = null
 let _cachedFallbackAddressId: number | undefined
 
+/**
+ * GET paths that return the full employee list (same probe order for admin grid and `Emp_ID` resolution).
+ * Set `VITE_EMPLOYEES_GET_PATH` when your Express mount differs (e.g. `/employees/getemps`); it is tried first.
+ */
+function orderedEmployeeListPaths(): string[] {
+  const env = String(import.meta.env.VITE_EMPLOYEES_GET_PATH ?? '').trim()
+  const fromEnv = env ? (env.startsWith('/') ? env : `/${env}`) : ''
+  const defaults = [
+    '/employees',
+    '/employees/get/employees',
+    '/get/employees',
+    '/employee/employees',
+    '/employees/list',
+    '/employees/all',
+    '/employees/getEmployees',
+    '/employees/get-emps',
+  ]
+  const out: string[] = []
+  if (fromEnv) out.push(fromEnv)
+  for (const p of defaults) {
+    if (p !== fromEnv && !out.includes(p)) out.push(p)
+  }
+  return out
+}
+
+/** Normalize common Express / Sequelize JSON envelopes to an employee row array. */
+export function extractEmployeeListFromResponse(data: unknown): unknown[] | null {
+  if (data == null) return null
+  if (Array.isArray(data)) return data
+  if (typeof data !== 'object' || Array.isArray(data)) return null
+  const d = data as Record<string, unknown>
+  const keys = ['data', 'rows', 'employees', 'results', 'items', 'recordset', 'list', 'payload']
+  for (const k of keys) {
+    const v = d[k]
+    if (Array.isArray(v)) return v
+  }
+  if (pickEmpIdFromRecord(d) > 0 || d.Emp_fname != null || d.emp_fname != null || d.emp_id != null) return [d]
+  return null
+}
+
+/** Match current portal user to a raw employees API row (acc id, email, or username). */
+export function resolveEmpIdFromRawRows(rows: unknown[], accId: number, username: string | null): number | null {
+  const u = (username ?? '').trim().toLowerCase()
+  const uLocal = u.includes('@') ? u.split('@')[0].toLowerCase() : u
+
+  for (const row of rows) {
+    if (row == null || typeof row !== 'object' || Array.isArray(row)) continue
+    const r = row as Record<string, unknown>
+    const empId = pickEmpIdFromRecord(r) || Number(r.Emp_ID ?? r.emp_ID ?? r.emp_id ?? 0)
+    if (!Number.isFinite(empId) || empId <= 0) continue
+
+    const rowAcc = pickAccountIdFromEmployeeRow(r)
+    if (accId > 0 && rowAcc > 0 && rowAcc === accId) return empId
+
+    const mail = String(r.Emp_email ?? r.emp_email ?? r.email ?? '').trim().toLowerCase()
+    const uname = String(r.acc_username ?? r.username ?? r.Username ?? '').trim().toLowerCase()
+
+    if (u && mail && mail === u) return empId
+    if (u && uname && uname === u) return empId
+    if (uLocal && mail && mail.split('@')[0].toLowerCase() === uLocal) return empId
+
+    const accObj = r.Account ?? r.account
+    if (u && accObj && typeof accObj === 'object' && !Array.isArray(accObj)) {
+      const a = accObj as Record<string, unknown>
+      const nestedUser = String(a.username ?? a.acc_username ?? '').trim().toLowerCase()
+      const nestedMail = String(a.email ?? a.acc_email ?? '').trim().toLowerCase()
+      if (nestedUser && nestedUser === u) return empId
+      if (nestedMail && nestedMail === u) return empId
+      if (uLocal && nestedMail && nestedMail.split('@')[0].toLowerCase() === uLocal) return empId
+    }
+  }
+  return null
+}
+
+/**
+ * Fetches the same employee list as the portal admin grid, then resolves `Emp_ID` for the
+ * signed-in account using `acc_ID` **or** login username vs email/username fields on each row.
+ */
+export async function fetchEmpIdForPortalUser(
+  accId: number,
+  username: string | null,
+  roleOptions?: RoleOption[],
+): Promise<number | null> {
+  const paths = orderedEmployeeListPaths()
+  const ordered = _cachedEmpFetchPath ? [_cachedEmpFetchPath, ...paths.filter((p) => p !== _cachedEmpFetchPath)] : paths
+
+  for (const p of ordered) {
+    try {
+      const data = await apiRequest<unknown>(p, { portal: { suppressFailureLog: true } })
+      const list = extractEmployeeListFromResponse(data)
+      if (!list || list.length === 0) continue
+
+      const fromRaw = resolveEmpIdFromRawRows(list, accId, username)
+      if (fromRaw != null && fromRaw > 0) {
+        _cachedEmpFetchPath = p
+        return fromRaw
+      }
+
+      const mapped = list.map((row) => normalizeRow(row, roleOptions))
+      if (accId > 0) {
+        const hit = mapped.find((e) => e.id > 0 && e.accId != null && Number(e.accId) === accId)
+        if (hit) {
+          _cachedEmpFetchPath = p
+          return hit.id
+        }
+      }
+      const u = (username ?? '').trim().toLowerCase()
+      if (u) {
+        const byEmail = mapped.find((e) => e.id > 0 && String(e.email ?? '').trim().toLowerCase() === u)
+        if (byEmail) {
+          _cachedEmpFetchPath = p
+          return byEmail.id
+        }
+      }
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
 async function tryFetchEmployeesAt(path: string, roleOptions?: RoleOption[]): Promise<Employee[] | null> {
   try {
     const data = await apiRequest<unknown>(path, { portal: { suppressFailureLog: true } })
-    const list = Array.isArray(data) ? data : (data as { data?: unknown[] })?.data
-    if (!Array.isArray(list)) return null
+    const list = extractEmployeeListFromResponse(data)
+    if (!list) return null
     const mapped = list.map((row) => normalizeRow(row, roleOptions))
     // Some backends can return duplicate rows due to joins; ensure stable UI by deduping.
     // Prefer `id` (when valid). If `id` is missing/invalid, fall back to email+role (and name as last resort).
@@ -338,7 +503,7 @@ async function tryFetchEmployeesAt(path: string, roleOptions?: RoleOption[]): Pr
 }
 
 export async function fetchEmployees(roleOptions?: RoleOption[]): Promise<Employee[]> {
-  const paths = ['/employees/get/employees', '/get/employees', '/employees']
+  const paths = orderedEmployeeListPaths()
 
   // Fast path: reuse the endpoint that worked last time
   if (_cachedEmpFetchPath) {
@@ -360,6 +525,67 @@ export async function fetchEmployees(roleOptions?: RoleOption[]): Promise<Employ
     }
   }
   return []
+}
+
+function unwrapSingleEmployeePayload(data: unknown): Record<string, unknown> | null {
+  if (data == null || typeof data !== 'object' || Array.isArray(data)) return null
+  const d = data as Record<string, unknown>
+  if (pickEmpIdFromRecord(d) > 0 || d.Emp_fname != null || d.emp_fname != null) return d
+  const inner = d.data ?? d.employee ?? d.Employee ?? d.result ?? d.payload
+  if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+    const r = inner as Record<string, unknown>
+    if (pickEmpIdFromRecord(r) > 0 || r.Emp_fname != null || r.emp_fname != null) return r
+  }
+  return null
+}
+
+/**
+ * Load one employee by portal account id — for users who cannot call the full employees list.
+ * Tries common Express path shapes until one succeeds.
+ */
+export async function fetchEmployeeByAccountId(accId: number, roleOptions?: RoleOption[]): Promise<Employee | null> {
+  if (!Number.isFinite(accId) || accId <= 0) return null
+  const paths = [
+    `/employees/get/employee/account/${accId}`,
+    `/employees/get/by-acc/${accId}`,
+    `/employees/by-account/${accId}`,
+    `/employees/account/${accId}`,
+    `/employee/account/${accId}`,
+    `/get/employee/by-account/${accId}`,
+    `/employees/acc/${accId}`,
+    `/employee/by-acc/${accId}`,
+  ]
+  for (const p of paths) {
+    try {
+      const data = await apiRequest<unknown>(p, { method: 'GET', portal: { suppressFailureLog: true } })
+      const row = unwrapSingleEmployeePayload(data)
+      if (row) {
+        const emp = normalizeRow(row, roleOptions)
+        if (emp.id > 0) return emp
+      }
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+/** Current employee from session token (`X-Session-Id`) when the API exposes a `/me`-style route. */
+export async function fetchEmployeeMe(roleOptions?: RoleOption[]): Promise<Employee | null> {
+  const paths = ['/employees/me', '/employee/me', '/security/me', '/profile/me', '/account/me']
+  for (const p of paths) {
+    try {
+      const data = await apiRequest<unknown>(p, { method: 'GET', portal: { suppressFailureLog: true } })
+      const row = unwrapSingleEmployeePayload(data)
+      if (row) {
+        const emp = normalizeRow(row, roleOptions)
+        if (emp.id > 0) return emp
+      }
+    } catch {
+      continue
+    }
+  }
+  return null
 }
 
 function _seedFallbackAddressId(emps: Employee[]): void {

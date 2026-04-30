@@ -1,7 +1,7 @@
-import { apiRequest, setPortalAccountId, setPortalUsername, setSessionId } from './client'
+import { apiRequest, getPortalEmpId, setPortalAccountId, setPortalEmpId, setPortalUsername, setSessionId } from './client'
 import { getExecutiveTitleDefaultRoute, getLogoutCandidatePaths, getRoleIdRouteOverride } from './config'
 import { fetchRoleById, fetchRoles } from './roles'
-import { fetchEmployees } from './employees'
+import { fetchEmployees, fetchEmpIdForPortalUser, pickEmpIdFromRecord } from './employees'
 
 export type LoginVerificationPayload = {
   username: string
@@ -33,6 +33,11 @@ export type LoginVerificationResponse = {
     role_name?: string
     r_name?: string
     role?: { role_name?: string; r_name?: string; role_ID?: number }
+    /** When the login API joins Employee, the portal stores this for file-leave / profile. */
+    Emp_ID?: number
+    emp_ID?: number
+    employee?: Record<string, unknown>
+    Employee?: Record<string, unknown>
   }
   session: {
     s_ID: number
@@ -56,6 +61,32 @@ export async function loginVerification(
   if (res.account?.acc_ID != null) setPortalAccountId(res.account.acc_ID)
   const uname = String(res.account?.username ?? res.account?.acc_username ?? '').trim()
   if (uname) setPortalUsername(uname)
+
+  const acc = res.account as Record<string, unknown> | undefined
+  if (acc) {
+    let eid = pickEmpIdFromRecord(acc)
+    if (eid <= 0) {
+      const nested = acc.employee ?? acc.Employee
+      if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+        eid = pickEmpIdFromRecord(nested as Record<string, unknown>)
+      }
+    }
+    if (eid > 0) setPortalEmpId(eid)
+  }
+
+  /** Same source as post-login routing: employees list + acc_ID match (see `resolvePortalRouteFromAccount`). */
+  if (getPortalEmpId() == null) {
+    const accIdNum = Number(res.account?.acc_ID ?? 0)
+    if (Number.isFinite(accIdNum) && accIdNum > 0) {
+      try {
+        const fromList = await fetchEmpIdForPortalUser(accIdNum, uname)
+        if (fromList != null && fromList > 0) setPortalEmpId(fromList)
+      } catch {
+        /* non-fatal */
+      }
+    }
+  }
+
   return res
 }
 
@@ -180,10 +211,15 @@ function roleLabelFromAccount(account: LoginVerificationResponse['account']): st
 
 /**
  * After login: send user to the area that matches their DB role (`role_ID` + role name).
- * Order: employee role by `acc_ID` (Admin Employees) → env `VITE_ROLE_ROUTE_MAP` → `/roles` list by `role_ID` →
- * GET role by id → API embedded role label → fallback.
  *
- * Employee row wins first so role edits in Admin Employees always drive routing before static maps.
+ * **Employees API (same as Admin Employees grid):** `GET` candidates in `fetchEmployees()` —
+ * `/employees/get/employees`, `/get/employees`, `/employees` — first successful path is cached.
+ * The list is matched to this login via **`acc_ID` ↔ row `acc_ID` / `acc_id` / nested `Account`** (see
+ * `pickAccountIdFromEmployeeRow` + `mapBackendEmployee` in `employees.ts`). When a row matches,
+ * we use **`me.role`** for routing and **`me.id` (`Emp_ID`)** via `setPortalEmpId` (saved to **localStorage** for file-leave) if not
+ * already set from the login JSON. **File leave** POST sends that **`Emp_ID`** in multipart `req.body`.
+ *
+ * Order: employee role by `acc_ID` → env `VITE_ROLE_ROUTE_MAP` → `/roles` by `role_ID` → GET role by id → embedded role on account → fallback.
  */
 export async function resolvePortalRouteFromAccount(
   account: LoginVerificationResponse['account']
@@ -191,11 +227,13 @@ export async function resolvePortalRouteFromAccount(
   const roleId = Number(account.role_ID ?? 0)
   const accId = Number(account.acc_ID ?? 0)
 
-  // Employee role changes are managed in Admin Employees. Honor that first when available.
   if (Number.isFinite(accId) && accId > 0) {
     try {
       const employees = await fetchEmployees()
-      const me = employees.find((e) => Number(e.accId ?? 0) === accId)
+      const me = employees.find((e) => e.accId != null && Number(e.accId) === accId && e.id > 0)
+      if (me && me.id > 0 && getPortalEmpId() == null) {
+        setPortalEmpId(me.id)
+      }
       const employeeRole = String(me?.role ?? '').trim()
       if (employeeRole) return roleNameToRoute(employeeRole)
     } catch {

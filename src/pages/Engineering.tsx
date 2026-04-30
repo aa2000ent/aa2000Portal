@@ -16,7 +16,7 @@ export default function Engineering() {
   const devActivity = useMemo(
     () =>
       entries
-        .filter((e) => /app_|launch|profile|chat|engineer|technical|issue|deploy/i.test(`${e.action} ${e.details ?? ''}`))
+        .filter((e) => /app_|launch|profile|chat|engineer|technical|issue|deploy|leave/i.test(`${e.action} ${e.details ?? ''}`))
         .slice(-7)
         .reverse(),
     [entries],

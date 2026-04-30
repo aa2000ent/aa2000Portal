@@ -385,6 +385,15 @@ export default function AdminEmployees() {
         addEntry({ action: 'role_added', actor: 'Admin', target: name, details: 'New role created' })
         setNewRoleName('')
         setAddRoleOpen(false)
+      } else {
+        setConfirm({
+          open: true,
+          title: 'Role add failed',
+          message: `Could not create role "${name}" on the backend. Check server logs and API route mappings for roles.`,
+          confirmLabel: 'OK',
+          variant: 'danger',
+          onConfirm: () => setConfirm((c) => ({ ...c, open: false })),
+        })
       }
     } finally {
       setAddRoleBusy(false)
@@ -399,7 +408,9 @@ export default function AdminEmployees() {
     const name = [fname, mname, lname].filter(Boolean).join(' ').trim()
     if (!name || !email.trim()) return
     let created: Employee | null = null
-    const matchedRole = roleOptions.find((r) => r.role_name === role)
+    const matchedRole = roleOptions.find(
+      (r) => String(r.role_name ?? '').toLowerCase() === String(role ?? '').toLowerCase()
+    )
     const addressPayload = getAddressPayload()
     try {
       const empImageBase64 = toApiBase64(photoBase64)
@@ -494,7 +505,9 @@ export default function AdminEmployees() {
     const photoRemoved = pendingPhotoRemovedValueRef.current
     const name = [fname, mname, lname].filter(Boolean).join(' ').trim()
     if (!name || !email.trim()) return
-    const matchedRole = roleOptions.find((r) => r.role_name === role)
+    const matchedRole = roleOptions.find(
+      (r) => String(r.role_name ?? '').toLowerCase() === String(role ?? '').toLowerCase()
+    )
     const pwd = password?.trim() || DEFAULT_PASSWORD
     const origPwd = editingEmployee.password ?? DEFAULT_PASSWORD
     const passwordForApi = pwd !== origPwd ? pwd : undefined
@@ -914,7 +927,9 @@ export default function AdminEmployees() {
               ) : (
                 <ul className="modal-roles-ul">
                   {roles.map((name) => {
-                    const fromDb = roleOptions.some((r) => r.role_name === name)
+                    const fromDb = roleOptions.some(
+                      (r) => String(r.role_name ?? '').toLowerCase() === String(name ?? '').toLowerCase()
+                    )
                     return (
                       <li key={name} className="modal-role-item">
                         <span className="employees-badge">{name}</span>

@@ -10,7 +10,7 @@ export default function CoCeoDashboard() {
       appSectionDesc="Apps assigned to CO-CEO for leadership and oversight workflows."
       activitySectionDesc="Recent cross-functional executive actions in this browser."
       activityFocusLabel="Leadership events"
-      activityMatcher={/co-ceo|co_ceo|coo|executive|approval|operation|app_launched/i}
+      activityMatcher={/co-ceo|co_ceo|coo|executive|approval|operation|app_launched|leave/i}
     />
   )
 }

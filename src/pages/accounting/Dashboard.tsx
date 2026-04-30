@@ -10,7 +10,7 @@ export default function AccountingDashboard() {
       appSectionDesc="Apps assigned to Accounting users for ledger and reconciliation tasks."
       activitySectionDesc="Recent accounting-related actions and launches in this browser."
       activityFocusLabel="Accounting events"
-      activityMatcher={/account|ledger|recon|invoice|payment|journal|app_launched/i}
+      activityMatcher={/account|ledger|recon|invoice|payment|journal|app_launched|leave/i}
     />
   )
 }

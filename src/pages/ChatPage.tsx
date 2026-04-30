@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import { io, type Socket } from 'socket.io-client'
 import { useChat, getConversationId } from '../contexts/ChatContext'
 import { useEmployees } from '../contexts/EmployeesContext'
-import { apiRequest, getPortalAccountId, getPortalUsername } from '../api/client'
+import { apiMultipartRequest, apiRequest, getPortalAccountId, getPortalUsername } from '../api/client'
 import { getBaseUrl } from '../api/config'
 import { fetchStories, isStoryVideoUrl, mapStoriesForDashboard } from '../api/stories'
 
@@ -318,7 +318,8 @@ function resolveCurrentSenderEmployeeId(params: {
 export default function ChatPage() {
   const location = useLocation()
   const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
-  const { employees } = useEmployees()
+  const { employees: employeesRaw } = useEmployees()
+  const employees = Array.isArray(employeesRaw) ? employeesRaw : []
   const signedUsername = String(getPortalUsername() ?? '').trim()
   const signedAccId = Number(getPortalAccountId() ?? 0)
   const roleLabel = ROLE_LABELS[path] ?? humanizeSegment(path)
@@ -414,10 +415,13 @@ export default function ChatPage() {
   const [openStorySubIndex, setOpenStorySubIndex] = useState(0)
   const [isStoryPaused, setIsStoryPaused] = useState(false)
   const [storyProgressMs, setStoryProgressMs] = useState(0)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const storyFrameRef = useRef<number | null>(null)
   const storyLastTickRef = useRef<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const newChatRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const gifInputRef = useRef<HTMLInputElement>(null)
   const socketRef = useRef<Socket | null>(null)
   const conversationItemRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const previousConversationTopsRef = useRef<Map<string, number>>(new Map())
@@ -1161,13 +1165,39 @@ export default function ChatPage() {
     }
   }, [currentParticipantEmpId, currentSender, currentDisplayName, employees, upsertMessages, signedEmployee, currentSenderId, markLatestOwnMessageSeen])
 
+  const queuePendingFiles = useCallback((incoming: File[], opts?: { gifOnly?: boolean }) => {
+    const next = incoming.filter((file) => {
+      if (opts?.gifOnly) {
+        return file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')
+      }
+      return true
+    })
+    if (next.length === 0) return
+    setPendingFiles((prev) => {
+      const merged = [...prev]
+      for (const file of next) {
+        const dup = merged.some((f) => f.name === file.name && f.size === file.size && f.lastModified === file.lastModified)
+        if (!dup) merged.push(file)
+      }
+      return merged.slice(0, 5)
+    })
+  }, [])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const text = inputValue.trim()
-    if (!text || !conversationId) return
+    const files = pendingFiles
+    if ((!text && files.length === 0) || !conversationId) return
+    const attachmentLabel = files.length > 0
+      ? `Attachment${files.length > 1 ? 's' : ''}: ${files.map((f) => f.name).join(', ')}`
+      : ''
+    const optimisticText = text || attachmentLabel
     // Optimistic local append so the message doesn't "disappear" while waiting webhook/socket echo.
-    const optimisticId = addMessage(conversationId, currentSender, text, { status: 'sending' })
+    const optimisticId = addMessage(conversationId, currentSender, optimisticText, { status: 'sending' })
     setInputValue('')
+    setPendingFiles([])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (gifInputRef.current) gifInputRef.current.value = ''
 
     // Trigger webhook logging when sender/receiver employee IDs are resolvable.
     const selectedEmployeeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
@@ -1178,22 +1208,39 @@ export default function ChatPage() {
       const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
       const senderEmpID = senderEmployeeId && senderEmployeeId > 0 ? String(senderEmployeeId) : ''
       if (!senderEmpID) return
-      void apiRequest(`/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`, {
-        method: 'POST',
-        body: JSON.stringify({
-          senderEmpID,
-          senderName: currentSender,
-          receiverName: selectedMeta.name,
-          message: text,
-        }),
-        portal: { suppressFailureLog: true },
-      })
-      .then(() => {
-        if (optimisticId) setMessageStatus(optimisticId, 'sent')
-      })
-      .catch(() => {
-        // Keep chat UX responsive even if webhook logging fails.
-      })
+      const endpoint = `/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`
+      void (async () => {
+        try {
+          if (files.length > 0) {
+            const formData = new FormData()
+            formData.append('senderEmpID', senderEmpID)
+            formData.append('senderName', currentSender)
+            formData.append('receiverName', selectedMeta.name)
+            formData.append('message', text)
+            // Common backend shape: `attachments` array + optional single `attachment`.
+            for (const file of files) formData.append('attachments', file)
+            if (files[0]) formData.append('attachment', files[0])
+            await apiMultipartRequest(endpoint, formData, {
+              method: 'POST',
+              portal: { suppressFailureLog: true },
+            })
+          } else {
+            await apiRequest(endpoint, {
+              method: 'POST',
+              body: JSON.stringify({
+                senderEmpID,
+                senderName: currentSender,
+                receiverName: selectedMeta.name,
+                message: text,
+              }),
+              portal: { suppressFailureLog: true },
+            })
+          }
+          if (optimisticId) setMessageStatus(optimisticId, 'sent')
+        } catch {
+          // Keep chat UX responsive even if webhook logging fails.
+        }
+      })()
     }
   }
 
@@ -1494,9 +1541,32 @@ export default function ChatPage() {
               <button type="button" className="messenger-composer-btn" aria-label="Emoji">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
               </button>
-              <button type="button" className="messenger-composer-btn" aria-label="Attach">
+              <button
+                type="button"
+                className="messenger-composer-btn"
+                aria-label="Attach file"
+                onClick={() => fileInputRef.current?.click()}
+              >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
               </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => {
+                  queuePendingFiles(Array.from(e.target.files ?? []))
+                }}
+              />
+              <input
+                ref={gifInputRef}
+                type="file"
+                accept="image/gif,.gif"
+                hidden
+                onChange={(e) => {
+                  queuePendingFiles(Array.from(e.target.files ?? []), { gifOnly: true })
+                }}
+              />
               <input
                 type="text"
                 value={inputValue}
@@ -1507,8 +1577,25 @@ export default function ChatPage() {
                 autoComplete="off"
                 maxLength={2000}
               />
-              <button type="button" className="messenger-composer-btn" aria-label="GIF">GIF</button>
-              <button type="submit" className="messenger-composer-send" aria-label="Send" disabled={!inputValue.trim()}>
+              {pendingFiles.length > 0 && (
+                <span className="messenger-conv-role" title={pendingFiles.map((f) => f.name).join(', ')}>
+                  {pendingFiles.length} file{pendingFiles.length > 1 ? 's' : ''} selected
+                </span>
+              )}
+              <button
+                type="button"
+                className="messenger-composer-btn"
+                aria-label="Attach GIF"
+                onClick={() => gifInputRef.current?.click()}
+              >
+                GIF
+              </button>
+              <button
+                type="submit"
+                className="messenger-composer-send"
+                aria-label="Send"
+                disabled={!inputValue.trim() && pendingFiles.length === 0}
+              >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
               </button>
             </form>

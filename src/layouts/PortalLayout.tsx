@@ -10,6 +10,16 @@ function navForSegment(segment: string): NavItem[] {
     { to: `/${segment}`, label: 'Dashboard', end: true, icon: 'dashboard' },
     { to: `/${segment}/applications`, label: 'Applications', end: false, icon: 'applications' },
     {
+      to: `/${segment}/leave-menu`,
+      label: 'Leave',
+      end: false,
+      icon: 'leave',
+      children: [
+        { to: `/${segment}/leave`, label: 'Request leave', end: true },
+        { to: `/${segment}/leave/status`, label: 'Leave status', end: true },
+      ],
+    },
+    {
       to: `/${segment}/announcement`,
       label: 'Announcement',
       end: false,

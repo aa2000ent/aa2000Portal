@@ -10,7 +10,7 @@ export default function TechnicalDashboard() {
       appSectionDesc="Apps assigned to Technical users for IT and platform support."
       activitySectionDesc="Recent technical, launch, and support actions in this session."
       activityFocusLabel="Technical events"
-      activityMatcher={/technical|it|support|system|issue|deploy|app_launched/i}
+      activityMatcher={/technical|it|support|system|issue|deploy|app_launched|leave/i}
     />
   )
 }

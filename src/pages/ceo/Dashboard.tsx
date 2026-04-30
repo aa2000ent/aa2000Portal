@@ -10,7 +10,7 @@ export default function CeoDashboard() {
       appSectionDesc="Applications assigned to CEO for high-level decision workflows."
       activitySectionDesc="Recent executive-level actions recorded in this browser."
       activityFocusLabel="Executive events"
-      activityMatcher={/ceo|executive|approval|history|dashboard|app_launched/i}
+      activityMatcher={/ceo|executive|approval|history|dashboard|app_launched|leave/i}
     />
   )
 }

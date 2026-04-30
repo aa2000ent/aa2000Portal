@@ -40,6 +40,8 @@ const PortalPublicAnnouncement = lazy(() => import('./pages/PortalPublicAnnounce
 const PortalMemo = lazy(() => import('./pages/PortalMemo'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
 const GeneralManagerDashboard = lazy(() => import('./pages/general-manager/GeneralManagerDashboard'))
+const DepartmentLeave = lazy(() => import('./pages/_shared/DepartmentLeave'))
+const DepartmentLeaveStatus = lazy(() => import('./pages/_shared/DepartmentLeaveStatus'))
 
 function RootErrorFallback() {
   return (
@@ -94,7 +96,9 @@ function App() {
                     <Route path="applications" element={<AdminApplications />} />
                     <Route path="announcement/public-announcement" element={<PortalPublicAnnouncement />} />
                     <Route path="announcement/memo" element={<PortalMemo />} />
-                    <Route path="approvals" element={<AdminApprovals />} />
+                    <Route path="approvals" element={<Navigate to="/admin/approvals/signups" replace />} />
+                    <Route path="approvals/signups" element={<AdminApprovals />} />
+                    <Route path="approvals/leave-requests" element={<AdminApprovals />} />
                     <Route path="history" element={<AdminHistory />} />
                     <Route path="chat" element={<ChatPage />} />
                   </Route>
@@ -153,6 +157,8 @@ function App() {
                     <Route path="co-ceo/applications" element={<PortalApplications />} />
                     <Route path="co-ceo/profile" element={<PortalProfile />} />
                     <Route path="co-ceo/chat" element={<ChatPage />} />
+                    <Route path=":segment/leave" element={<DepartmentLeave />} />
+                    <Route path=":segment/leave/status" element={<DepartmentLeaveStatus />} />
                     <Route path=":segment/announcement/public-announcement" element={<PortalPublicAnnouncement />} />
                     <Route path=":segment/announcement/memo" element={<PortalMemo />} />
                   </Route>

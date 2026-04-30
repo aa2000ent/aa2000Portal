@@ -78,10 +78,13 @@ export function RolesProvider({ children }: { children: ReactNode }) {
           return true
         }
       } catch {
-        // fall back to local-only
+        // ignore; handled by returning false below
       }
+      // Backend role creation failed (API configured). Don't pretend it worked.
+      return false
     }
 
+    // No API base configured => allow local-only roles so the UI can still function.
     setLocalOnlyRoles((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]))
     return true
   }, [fetchAndSet, roleOptions])

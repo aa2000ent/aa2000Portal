@@ -10,7 +10,7 @@ export default function SupplierDashboard() {
       appSectionDesc="Apps assigned to Supplier users for vendor interactions and tracking."
       activitySectionDesc="Recent supplier and vendor process actions in this browser."
       activityFocusLabel="Supplier events"
-      activityMatcher={/supplier|vendor|delivery|order|procure|app_launched/i}
+      activityMatcher={/supplier|vendor|delivery|order|procure|app_launched|leave/i}
     />
   )
 }

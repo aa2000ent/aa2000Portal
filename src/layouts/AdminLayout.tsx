@@ -19,7 +19,16 @@ const adminNavItems: NavItem[] = [
       { to: '/admin/announcement/memo', label: 'MEMO', end: true },
     ],
   },
-  { to: '/admin/approvals', label: 'Approvals', end: false, icon: 'approvals' },
+  {
+    to: '/admin/approvals',
+    label: 'Approvals',
+    end: false,
+    icon: 'approvals',
+    children: [
+      { to: '/admin/approvals/signups', label: 'Sign-ups', end: true },
+      { to: '/admin/approvals/leave-requests', label: 'Leave requests', end: true },
+    ],
+  },
   { to: '/admin/history', label: 'Activity logs', end: false, icon: 'history' },
   { to: '/admin/chat', label: 'Chat', end: false, icon: 'chat' },
 ]

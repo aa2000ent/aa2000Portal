@@ -10,7 +10,7 @@ export default function OperationsDashboard() {
       appSectionDesc="Apps assigned to Operations users for execution workflows."
       activitySectionDesc="Latest process and workflow actions captured in this session."
       activityFocusLabel="Ops events"
-      activityMatcher={/operation|workflow|process|task|approval|app_launched/i}
+      activityMatcher={/operation|workflow|process|task|approval|app_launched|leave/i}
     />
   )
 }

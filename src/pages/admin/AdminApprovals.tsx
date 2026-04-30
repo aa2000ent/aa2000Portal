@@ -201,7 +201,6 @@ export default function AdminApprovals() {
   const [leaveActionError, setLeaveActionError] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [perPage, setPerPage] = useState(10)
-  const [proofLoadingById, setProofLoadingById] = useState<Record<number, boolean>>({})
   const [leaveDetail, setLeaveDetail] = useState<{ open: boolean; row: FileLeaveRow | null }>({ open: false, row: null })
   const [leaveDetailProof, setLeaveDetailProof] = useState<{
     loading: boolean

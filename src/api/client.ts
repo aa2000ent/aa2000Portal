@@ -8,6 +8,7 @@ const SESSION_ID_KEY = 'portal_session_id'
 const PORTAL_ACCOUNT_ID_KEY = 'portal_account_id'
 const PORTAL_USERNAME_KEY = 'portal_username'
 const PORTAL_HOME_SEGMENT_KEY = 'portal_home_segment'
+const PORTAL_EMP_ID_KEY = 'portal_account_id'
 const GET_CACHE_TTL_MS = 15_000
 const GET_RESPONSE_CACHE = new Map<string, { expiresAt: number; value: unknown }>()
 const INFLIGHT_GET_REQUESTS = new Map<string, Promise<unknown>>()
@@ -112,12 +113,38 @@ export function clearPortalHomeSegment(): void {
   removeSessionValue(PORTAL_HOME_SEGMENT_KEY)
 }
 
+/**
+ * Employee PK (`Emp_ID`) saved on successful login — used for file-leave and profile.
+ * Stored in **sessionStorage** for current browser session.
+ */
+export function getPortalEmpId(): number | null {
+  const raw = readSessionValue(PORTAL_EMP_ID_KEY)
+  if (!raw) return null
+  const n = Number(raw.trim())
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+export function setPortalEmpId(empId: number | string): void {
+  const n = Number(empId)
+  if (!Number.isFinite(n) || n <= 0) return
+  writeSessionValue(PORTAL_EMP_ID_KEY, String(n))
+}
+
+export function clearPortalEmpId(): void {
+  removeSessionValue(PORTAL_EMP_ID_KEY)
+}
+
 /** `portal.suppressFailureLog` — skip `console.error` on failed response (e.g. trying alternate paths). */
 export type ApiRequestOptions = RequestInit & {
   portal?: { suppressFailureLog?: boolean }
 }
 
-function canUseGetCache(method: string, body: BodyInit | null | undefined): boolean {
+function canUseGetCache(
+  method: string,
+  body: BodyInit | null | undefined,
+  cacheMode: RequestCache | undefined,
+): boolean {
+  if (cacheMode === 'no-store' || cacheMode === 'reload') return false
   return method.toUpperCase() === 'GET' && body == null
 }
 
@@ -162,7 +189,7 @@ export async function apiRequest<T = unknown>(
     ...(fetchInit.headers as Record<string, string>),
   }
   const method = String(fetchInit.method ?? 'GET').toUpperCase()
-  const useGetCache = canUseGetCache(method, fetchInit.body)
+  const useGetCache = canUseGetCache(method, fetchInit.body, fetchInit.cache)
   const requestKey = useGetCache
     ? JSON.stringify({
         p,

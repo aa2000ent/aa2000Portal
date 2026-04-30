@@ -24,6 +24,9 @@ const ACTION_LABELS: Record<ActionType, string> = {
   session_revoked: 'Session revoked',
   announcement_posted: 'Announcement posted',
   memo_created: 'Memo created',
+  leave_requested: 'Leave requested',
+  leave_approved: 'Leave approved',
+  leave_rejected: 'Leave rejected',
 }
 
 const ACTION_OPTIONS: { value: string; label: string }[] = [

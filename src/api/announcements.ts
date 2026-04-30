@@ -72,8 +72,15 @@ function extractList(data: unknown): RawAnnouncement[] {
   return []
 }
 
-export async function fetchAnnouncementsByType(type: AnnouncementType): Promise<AnnouncementItem[]> {
-  const data = await apiRequest<unknown>(`/announcements/get/announcements/${type}`)
+export async function fetchAnnouncementsByType(
+  type: AnnouncementType,
+  recipientAccId?: number,
+): Promise<AnnouncementItem[]> {
+  const path =
+    type === 'MEMO' && recipientAccId && recipientAccId > 0
+      ? `/announcements/get/announcements/${type}?accId=${recipientAccId}`
+      : `/announcements/get/announcements/${type}`
+  const data = await apiRequest<unknown>(path)
   return extractList(data).map(mapAnnouncement)
 }
 

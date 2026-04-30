@@ -65,11 +65,24 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
     onConfirm: () => void
   }>({ open: false, title: '', message: '', confirmLabel: '', variant: 'primary', onConfirm: () => {} })
 
+  const canManage = useMemo(() => {
+    const segment = location.pathname.split('/').filter(Boolean)[0] ?? ''
+    return CREATOR_SEGMENTS.has(segment)
+  }, [location.pathname])
+  const isMemoPage = type === 'MEMO'
+
+  // For non-managers viewing memos, pass their acc_ID so the backend only returns their memos.
+  const viewerAccId = useMemo(() => {
+    if (!isMemoPage || canManage) return undefined
+    const n = Number(getPortalAccountId() ?? 0)
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  }, [isMemoPage, canManage])
+
   async function load() {
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchAnnouncementsByType(type)
+      const data = await fetchAnnouncementsByType(type, viewerAccId)
       setList(data)
     } catch (e) {
       setError(e instanceof Error ? e.message : `Failed to load ${title.toLowerCase()}.`)
@@ -81,7 +94,7 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
 
   useEffect(() => {
     void load()
-  }, [type])
+  }, [type, viewerAccId])
 
   const filtered = useMemo(() => list.filter((item) => {
     const q = search.toLowerCase().trim()
@@ -98,12 +111,6 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
   const paginated = filtered.slice(start, start + perPage)
 
   useEffect(() => setCurrentPage(1), [search])
-
-  const canManage = useMemo(() => {
-    const segment = location.pathname.split('/').filter(Boolean)[0] ?? ''
-    return CREATOR_SEGMENTS.has(segment)
-  }, [location.pathname])
-  const isMemoPage = type === 'MEMO'
 
   function openAdd() {
     if (!canManage) return
@@ -144,7 +151,7 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
   }
 
   useEffect(() => {
-    if (!openForm || !canManage || !isMemoPage) return
+    if (!canManage || !isMemoPage) return
     let cancelled = false
     setLoadingEmployees(true)
     void fetchEmployees()
@@ -163,7 +170,7 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
     return () => {
       cancelled = true
     }
-  }, [openForm, canManage, isMemoPage])
+  }, [canManage, isMemoPage])
 
   const memoSelectableEmployees = useMemo(() => {
     const seen = new Set<number>()
@@ -392,105 +399,163 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
 
       {openForm && canManage && (
         <div className="modal-overlay" onClick={closeForm} role="dialog" aria-modal="true">
-          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal-box"
+            style={{ maxWidth: isMemoPage ? 720 : undefined, width: isMemoPage ? '95vw' : undefined }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
               <h2 className="modal-title">{editing ? `Edit ${title}` : `Add ${title}`}</h2>
-              <button type="button" className="modal-close" onClick={closeForm} aria-label="Close">x</button>
+              <button type="button" className="modal-close" onClick={closeForm} aria-label="Close">✕</button>
             </div>
             <form onSubmit={handleSubmit}>
-              <div className="modal-field">
-                <label htmlFor={`${type}-title`} className="modal-label">Title</label>
-                <input id={`${type}-title`} type="text" className="modal-input" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} required />
-              </div>
-              <div className="modal-field">
-                <label htmlFor={`${type}-desc`} className="modal-label">Description</label>
-                <textarea id={`${type}-desc`} className="modal-input" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} rows={4} />
-              </div>
-              <div className="modal-field">
-                <label htmlFor={`${type}-status`} className="modal-label">Status</label>
-                <select id={`${type}-status`} className="modal-input" value={formStatus} onChange={(e) => setFormStatus((e.target.value as AnnouncementStatus) || 'ACTIVE')}>
-                  <option value="ACTIVE">ACTIVE</option>
-                  <option value="INACTIVE">INACTIVE</option>
-                </select>
-              </div>
-              <div className="modal-field">
-                <label htmlFor={`${type}-image`} className="modal-label">Image (base64)</label>
-                <input
-                  id={`${type}-image`}
-                  type="file"
-                  accept="image/*"
-                  className="modal-input"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (!file) return
-                    void toBase64(file).then(setFormImageBase64).catch((err) => setError(err instanceof Error ? err.message : 'Failed to load image.'))
-                  }}
-                />
-                {formImageBase64 ? (
-                  <img src={formImageBase64} alt="Selected preview" className="w-full h-[140px] object-cover rounded-lg border border-slate-200 mt-2" />
+              <div style={{ display: 'grid', gridTemplateColumns: isMemoPage ? '1fr 1fr' : '1fr', gap: '0 20px' }}>
+                {/* left column */}
+                <div>
+                  <div className="modal-field">
+                    <label htmlFor={`${type}-title`} className="modal-label">Title</label>
+                    <input id={`${type}-title`} type="text" className="modal-input" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} required />
+                  </div>
+                  <div className="modal-field">
+                    <label htmlFor={`${type}-desc`} className="modal-label">Description</label>
+                    <textarea id={`${type}-desc`} className="modal-input" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} rows={isMemoPage ? 5 : 4} />
+                  </div>
+                  <div className="modal-field">
+                    <label htmlFor={`${type}-status`} className="modal-label">Status</label>
+                    <select id={`${type}-status`} className="modal-input" value={formStatus} onChange={(e) => setFormStatus((e.target.value as AnnouncementStatus) || 'ACTIVE')}>
+                      <option value="ACTIVE">ACTIVE</option>
+                      <option value="INACTIVE">INACTIVE</option>
+                    </select>
+                  </div>
+                  <div className="modal-field">
+                    <label htmlFor={`${type}-image`} className="modal-label">Image</label>
+                    <input
+                      id={`${type}-image`}
+                      type="file"
+                      accept="image/*"
+                      className="modal-input"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        void toBase64(file).then(setFormImageBase64).catch((err) => setError(err instanceof Error ? err.message : 'Failed to load image.'))
+                      }}
+                    />
+                    {formImageBase64 ? (
+                      <img src={formImageBase64} alt="Selected preview" className="w-full h-[100px] object-cover rounded-lg border border-slate-200 mt-2" />
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* right column — recipients (memo only) */}
+                {isMemoPage ? (
+                  <div className="modal-field" style={{ marginTop: 0 }}>
+                    <label className="modal-label">Recipients</label>
+                    <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: 'var(--dash-text)' }}>
+                        <input
+                          type="radio"
+                          name="memo-audience"
+                          checked={memoAudience === 'ALL'}
+                          onChange={() => setMemoAudience('ALL')}
+                          style={{ accentColor: 'var(--dash-primary)' }}
+                        />
+                        All employees
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: 'var(--dash-text)' }}>
+                        <input
+                          type="radio"
+                          name="memo-audience"
+                          checked={memoAudience === 'SELECTED'}
+                          onChange={() => setMemoAudience('SELECTED')}
+                          style={{ accentColor: 'var(--dash-primary)' }}
+                        />
+                        Select specific
+                      </label>
+                    </div>
+
+                    {memoAudience === 'ALL' ? (
+                      <div style={{
+                        padding: '10px 12px',
+                        borderRadius: 6,
+                        background: 'var(--aa-field-bg)',
+                        fontSize: 13,
+                        color: 'var(--dash-text-muted)',
+                        border: '1px solid var(--aa-content-border)',
+                      }}>
+                        {loadingEmployees
+                          ? 'Loading employees…'
+                          : allRecipientIds.length > 0
+                            ? `All ${allRecipientIds.length} employee accounts will receive this memo.`
+                            : 'Employee list unavailable. Memo will be sent to all.'}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ position: 'relative' }}>
+                          <svg style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--dash-text-muted)', pointerEvents: 'none' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+                          </svg>
+                          <input
+                            type="search"
+                            className="modal-input"
+                            style={{ paddingLeft: 28, marginBottom: 0 }}
+                            placeholder="Search employee…"
+                            value={memoRecipientSearch}
+                            onChange={(event) => setMemoRecipientSearch(event.target.value)}
+                            aria-label="Search memo recipients"
+                          />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 18 }}>
+                          <span style={{ fontSize: 12, color: selectedRecipientIds.length > 0 ? 'var(--dash-primary)' : 'var(--dash-text-muted)', fontWeight: selectedRecipientIds.length > 0 ? 500 : 400 }}>
+                            {selectedRecipientIds.length > 0 ? `${selectedRecipientIds.length} selected` : 'No employees selected'}
+                          </span>
+                          {selectedRecipientIds.length > 0 && (
+                            <button
+                              type="button"
+                              style={{ fontSize: 11, color: 'var(--dash-text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                              onClick={() => setSelectedRecipientIds([])}
+                            >
+                              Clear all
+                            </button>
+                          )}
+                        </div>
+                        <ul className="modal-roles-ul" style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 0 }}>
+                          {loadingEmployees ? (
+                            <li style={{ padding: '10px 12px', fontSize: 13, color: 'var(--dash-text-muted)', listStyle: 'none' }}>Loading employees…</li>
+                          ) : filteredMemoRecipients.length === 0 ? (
+                            <li style={{ padding: '10px 12px', fontSize: 13, color: 'var(--dash-text-muted)', listStyle: 'none' }}>
+                              {memoSelectableEmployees.length === 0 ? 'No employees available.' : 'No employees matched.'}
+                            </li>
+                          ) : (
+                            filteredMemoRecipients.map((employee) => (
+                              <li
+                                key={employee.accId}
+                                className="modal-role-item"
+                                style={{
+                                  cursor: 'pointer',
+                                  background: selectedRecipientIds.includes(employee.accId) ? 'rgba(59,130,246,0.10)' : undefined,
+                                  justifyContent: 'flex-start',
+                                  gap: 10,
+                                }}
+                                onClick={() => toggleMemoRecipient(employee.accId)}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRecipientIds.includes(employee.accId)}
+                                  onChange={() => toggleMemoRecipient(employee.accId)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{ accentColor: 'var(--dash-primary)', width: 14, height: 14, flexShrink: 0 }}
+                                />
+                                <span style={{ fontSize: 13, color: 'var(--dash-text)', lineHeight: 1.3 }}>{employee.label}</span>
+                              </li>
+                            ))
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                 ) : null}
               </div>
-              {isMemoPage ? (
-                <div className="modal-field">
-                  <label className="modal-label">Memo recipients</label>
-                  <div className="flex items-center gap-3 mb-2">
-                    <label className="inline-flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="memo-audience"
-                        checked={memoAudience === 'ALL'}
-                        onChange={() => setMemoAudience('ALL')}
-                      />
-                      Select all (visible to all employees)
-                    </label>
-                    <label className="inline-flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="memo-audience"
-                        checked={memoAudience === 'SELECTED'}
-                        onChange={() => setMemoAudience('SELECTED')}
-                      />
-                      Select specific employees
-                    </label>
-                  </div>
-                  {memoAudience === 'SELECTED' ? (
-                    <div className="max-h-40 overflow-auto rounded-lg border border-slate-200 p-2">
-                      <input
-                        type="search"
-                        className="modal-input mb-2"
-                        placeholder="Search employee..."
-                        value={memoRecipientSearch}
-                        onChange={(event) => setMemoRecipientSearch(event.target.value)}
-                        aria-label="Search memo recipients"
-                      />
-                      {loadingEmployees ? (
-                        <div className="text-sm text-slate-500">Loading employees...</div>
-                      ) : filteredMemoRecipients.length === 0 ? (
-                        <div className="text-sm text-slate-500">
-                          {memoSelectableEmployees.length === 0 ? 'No employees available for selection.' : 'No employees matched your search.'}
-                        </div>
-                      ) : (
-                        filteredMemoRecipients.map((employee) => (
-                          <label key={employee.accId} className="flex items-center gap-2 py-1 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={selectedRecipientIds.includes(employee.accId)}
-                              onChange={() => toggleMemoRecipient(employee.accId)}
-                            />
-                            <span>{employee.label}</span>
-                          </label>
-                        ))
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-xs text-slate-500">
-                      {allRecipientIds.length > 0
-                        ? `All ${allRecipientIds.length} employee accounts will receive this memo.`
-                        : 'Employee list unavailable. Memo will be marked as audience: ALL.'}
-                    </div>
-                  )}
-                </div>
-              ) : null}
+
               <div className="modal-actions">
                 <button type="button" className="employees-btn employees-btn-secondary" onClick={closeForm}>Cancel</button>
                 <button

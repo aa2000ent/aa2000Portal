@@ -54,6 +54,11 @@ function isRemoteApiHost(base: string): boolean {
 }
 
 function getConfiguredBaseUrls(): string[] {
+  const useDeployProxy = String(import.meta.env.VITE_USE_DEPLOY_PROXY ?? '').trim().toLowerCase() === 'true'
+  if (!import.meta.env.DEV && useDeployProxy) {
+    return ['/__portal_api']
+  }
+
   // In dev mode, route through Vite proxy to avoid CORS issues
   if (import.meta.env.DEV) {
     const rawSingle = String(import.meta.env.VITE_API_BASE_URL ?? '').trim()

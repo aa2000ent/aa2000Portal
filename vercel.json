@@ -3,6 +3,7 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
+    { "source": "/__portal_api/:path*", "destination": "https://desktop-0iik0rk.tail20a759.ts.net/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

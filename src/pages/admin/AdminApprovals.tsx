@@ -563,40 +563,6 @@ export default function AdminApprovals() {
     })
   }
 
-  const handleOpenProofFromGetById = async (row: FileLeaveRow) => {
-    const id = getFileLeaveServerId(row)
-    if (id <= 0) return
-    setProofLoadingById((prev) => ({ ...prev, [id]: true }))
-    try {
-      const one = await fetchFileLeaveById(id)
-      const r = one as unknown as Record<string, unknown>
-      const fileName = String(r.fileName ?? '').trim() || `leave-proof-${id}`
-      const rawFileData = r.fileData
-      const proofPath =
-        typeof r.proofPath === 'string' ? r.proofPath : typeof r.proof_file === 'string' ? r.proof_file : ''
-      const mime = resolvePreviewMime(fileName, proofPath, rawFileData)
-      const sheet = mime.includes('spreadsheetml') || mime.includes('ms-excel') ? parseSpreadsheetPreview(rawFileData) : null
-      const fromFileData = asDataUrlFromUnknownFileData(rawFileData, mime)
-
-      if (fromFileData) {
-        const src = fromFileData.startsWith('/') ? resolveProofFileUrl(fromFileData) ?? '' : fromFileData
-        if (src) {
-          setProofPreview({ open: true, src, fileName, mime, sheet })
-          return
-        }
-      }
-
-      const fromPath = resolveProofFileUrl(proofPath)
-      if (fromPath) {
-        setProofPreview({ open: true, src: fromPath, fileName, mime, sheet })
-        return
-      }
-
-      setLeaveActionError('Proof file payload is not previewable (no base64/data/url received from backend).')
-    } finally {
-      setProofLoadingById((prev) => ({ ...prev, [id]: false }))
-    }
-  }
 
   const roleFilterOptions = useMemo(() => {
     const merged = new Set<string>([...requestRoles, ...roles])
@@ -793,7 +759,7 @@ export default function AdminApprovals() {
                       </td>
                     </tr>
                   ) : (
-                    paginatedLeaves.map((row) => {
+                    paginatedLeaves.map((row: FileLeaveRow) => {
                       const rid = getFileLeaveRowId(row)
                       const sid = getFileLeaveServerId(row)
                       const { accId, empId } = pickFileLeaveActorIds(row)
@@ -928,8 +894,6 @@ export default function AdminApprovals() {
 
       {leaveDetail.open && leaveDetail.row && (() => {
         const row = leaveDetail.row
-        const sid = getFileLeaveServerId(row)
-        const rid = getFileLeaveRowId(row)
         const { accId, empId } = pickFileLeaveActorIds(row)
         const resolved = resolveLeaveEmployee(row)
         const name =
@@ -937,8 +901,6 @@ export default function AdminApprovals() {
             ? resolved.name
             : String(row.fullName ?? '').trim() || (accId > 0 ? `Account #${accId}` : empId > 0 ? `Emp #${empId}` : '—')
         const reason = String(row.reason ?? '').trim() || '—'
-        const proofRaw = (row as Record<string, unknown>).proofPath ?? (row as Record<string, unknown>).proof_file ?? null
-        const proofHref = resolveProofFileUrl(typeof proofRaw === 'string' ? proofRaw : null)
         const close = () => setLeaveDetail({ open: false, row: null })
         return (
           <div className="modal-overlay" role="dialog" aria-modal="true" onClick={close}>

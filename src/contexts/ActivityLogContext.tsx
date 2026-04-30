@@ -22,6 +22,9 @@ export type ActionType =
   | 'session_revoked'
   | 'announcement_posted'
   | 'memo_created'
+  | 'leave_requested'
+  | 'leave_approved'
+  | 'leave_rejected'
 
 export type HistoryEntry = {
   id: number

@@ -82,6 +82,17 @@ function mimeFromFileName(name?: string | null): string {
   return 'application/octet-stream'
 }
 
+function detectMimeFromBase64(b64: string): string {
+  const s = b64.replace(/[\s=]/g, '')
+  if (s.startsWith('/9j/') || s.startsWith('/9j+')) return 'image/jpeg'
+  if (s.startsWith('iVBORw0KGgo')) return 'image/png'
+  if (s.startsWith('R0lGOD')) return 'image/gif'
+  if (s.startsWith('UklGR')) return 'image/webp'
+  if (s.startsWith('Qk0') || s.startsWith('Qk3') || s.startsWith('Qk4') || s.startsWith('Qk8')) return 'image/bmp'
+  if (s.startsWith('JVBERi0')) return 'application/pdf'
+  return 'application/octet-stream'
+}
+
 function resolvePreviewMime(fileName?: string | null, proofPath?: string | null, rawFileData?: unknown): string {
   const fromName = mimeFromFileName(fileName)
   if (fromName !== 'application/octet-stream') return fromName
@@ -91,6 +102,10 @@ function resolvePreviewMime(fileName?: string | null, proofPath?: string | null,
   if (s.startsWith('data:')) {
     const semi = s.indexOf(';')
     if (semi > 5) return s.slice(5, semi)
+  }
+  if (s.length > 8) {
+    const detected = detectMimeFromBase64(s)
+    if (detected !== 'application/octet-stream') return detected
   }
   return 'application/octet-stream'
 }
@@ -138,8 +153,15 @@ function asDataUrlFromUnknownFileData(value: unknown, mime: string): string | nu
     const s = value.trim()
     if (!s) return null
     if (s.startsWith('data:')) return s
-    // If backend already sends URL/path in fileData, return as-is and let caller resolve.
-    if (/^https?:\/\//i.test(s) || s.startsWith('/')) return s
+    if (/^https?:\/\//i.test(s)) return s
+    // Check magic bytes BEFORE the startsWith('/') path check —
+    // JPEG base64 starts with /9j/ which would be mistaken for a URL path.
+    const detectedMime = detectMimeFromBase64(s)
+    if (detectedMime !== 'application/octet-stream') {
+      return `data:${detectedMime};base64,${s}`
+    }
+    // Relative path (e.g. /uploads/file.jpg) — let caller resolve via API base.
+    if (s.startsWith('/')) return s
     return `data:${mime};base64,${s}`
   }
   if (Array.isArray(value) && value.every((n) => Number.isFinite(n))) {
@@ -357,17 +379,44 @@ export default function AdminApprovals() {
       void fetchFileLeaveById(sid)
         .then((one) => {
           const r = one as unknown as Record<string, unknown>
-          const fileName = String(r.fileName ?? '').trim() || `leave-proof-${sid}`
-          const rawFileData = r.fileData
-          const proofPath = typeof r.proofPath === 'string' ? r.proofPath : typeof r.proof_file === 'string' ? r.proof_file : ''
-          const mime = resolvePreviewMime(fileName, proofPath, rawFileData)
+          // Try all common field names for the original filename
+          const fileName = String(
+            r.fileName ?? r.file_name ?? r.originalName ?? r.original_name ?? r.name ?? ''
+          ).trim() || `leave-proof-${sid}`
+          // Try all common field names for the raw file content
+          const rawFileData =
+            r.fileData ?? r.file_data ?? r.fileContent ?? r.file_content ??
+            r.data ?? r.content ?? r.base64 ?? r.file ?? null
+          // Try all common field names for the stored path
+          const proofPath = String(
+            r.proofPath ?? r.proof_path ?? r.proof_file ?? r.proofFile ?? r.filePath ?? r.file_path ?? ''
+          ).trim()
+
+          let mime = resolvePreviewMime(fileName, proofPath, rawFileData)
+
+          // If mime is still unknown but we have raw base64, try magic bytes again explicitly
+          if (mime === 'application/octet-stream' && typeof rawFileData === 'string' && rawFileData.trim().length > 8) {
+            const detected = detectMimeFromBase64(rawFileData.trim())
+            if (detected !== 'application/octet-stream') mime = detected
+          }
+
           const sheet = mime.includes('spreadsheetml') || mime.includes('ms-excel') ? parseSpreadsheetPreview(rawFileData) : null
           const fromFileData = asDataUrlFromUnknownFileData(rawFileData, mime)
           if (fromFileData) {
             const src = fromFileData.startsWith('/') ? resolveProofFileUrl(fromFileData) ?? '' : fromFileData
             if (src) { setLeaveDetailProof({ loading: false, src, mime, fileName, sheet, error: null }); return }
           }
-          const fromPath = resolveProofFileUrl(proofPath)
+          // proofPath may be a Windows disk path — try resolving anyway; server may remap it
+          const fromPath = resolveProofFileUrl(proofPath) ??
+            // Last resort: strip to filename only and serve from API base /uploads/
+            (() => {
+              const base = String(proofPath).replace(/\\/g, '/').split('/').pop() ?? ''
+              if (!base) return null
+              try {
+                const apiBase = String(getBaseUrl() ?? '').replace(/\/$/, '')
+                return apiBase ? `${apiBase}/uploads/${base}` : `/uploads/${base}`
+              } catch { return null }
+            })()
           if (fromPath) { setLeaveDetailProof({ loading: false, src: fromPath, mime, fileName, sheet: null, error: null }); return }
           setLeaveDetailProof({ loading: false, src: null, mime, fileName, sheet: null, error: 'Proof file is not previewable.' })
         })

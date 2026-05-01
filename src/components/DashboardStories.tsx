@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getPortalAccountId, getPortalUsername } from '../api/client'
+import { getPortalAccountId, getPortalEmpId, getPortalUsername } from '../api/client'
 import { fetchEmployees } from '../api/employees'
 import {
   createStory,
@@ -24,7 +24,6 @@ const STORY_REACTIONS: Array<{ key: StoryReaction; emoji: string; label: string 
 
 const STORY_REACTION_STORAGE_KEY = 'aa2000.storyReactions'
 const STORY_VIEWED_STORAGE_KEY = 'aa2000.storyViewed'
-const STORY_AUTOPLAY_MS = 5000
 
 function sortNewestFirst(list: DashboardStoryItem[]): DashboardStoryItem[] {
   return [...list].sort((a, b) => {
@@ -36,29 +35,10 @@ function sortNewestFirst(list: DashboardStoryItem[]): DashboardStoryItem[] {
 }
 
 function formatDateLabel(value?: string): string {
-  const ts = value ? new Date(value).getTime() : NaN
-  if (!Number.isFinite(ts)) return 'Now'
-  const date = new Date(ts)
-  const clock = date.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
-  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000))
-  if (diffSec < 5) return `${clock} • Now`
-  if (diffSec < 60) return `${clock} • ${diffSec}s ago`
-  const diffMin = Math.floor(diffSec / 60)
-  if (diffMin < 60) return `${clock} • ${diffMin}m ago`
-  const diffHr = Math.floor(diffMin / 60)
-  if (diffHr < 24) return `${clock} • ${diffHr}h ago`
-  const diffDay = Math.floor(diffHr / 24)
-  return `${clock} • ${diffDay}d ago`
-}
-
-function isWithin24Hours(value?: string): boolean {
-  const ts = value ? new Date(value).getTime() : NaN
-  if (!Number.isFinite(ts)) return true
-  return Date.now() - ts < 24 * 60 * 60 * 1000
+  if (!value) return 'No date'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'No date'
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function toBase64(file: File): Promise<string> {
@@ -179,7 +159,6 @@ async function composeStoryImageWithText(
 }
 
 export default function DashboardStories() {
-  const [, setClockTick] = useState(0)
   const [items, setItems] = useState<DashboardStoryItem[]>([])
   const [currentUserPhotoUrl, setCurrentUserPhotoUrl] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
@@ -204,12 +183,8 @@ export default function DashboardStories() {
   const [composerBusy, setComposerBusy] = useState(false)
   const [deleteBusyId, setDeleteBusyId] = useState<number | null>(null)
   const [storyMenuOpen, setStoryMenuOpen] = useState(false)
-  const [isStoryPaused, setIsStoryPaused] = useState(false)
-  const [storyProgressMs, setStoryProgressMs] = useState(0)
   const preloadedMediaRef = useRef<Set<string>>(new Set())
   const preloadPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
-  const storyFrameRef = useRef<number | null>(null)
-  const storyLastTickRef = useRef<number | null>(null)
   const composerPreviewRef = useRef<HTMLDivElement | null>(null)
   const composerTextRef = useRef<HTMLDivElement | null>(null)
   const composerPhotoInputRef = useRef<HTMLInputElement | null>(null)
@@ -228,11 +203,21 @@ export default function DashboardStories() {
     try {
       const [rawStories, employees] = await Promise.all([fetchStories(), fetchEmployees()])
       const mapped = mapStoriesForDashboard(rawStories as unknown[], employees)
-      const activeStories = mapped.filter((item) => isWithin24Hours(item.date))
-      const merged = sortNewestFirst(activeStories).slice(0, 12)
+      const merged = sortNewestFirst(mapped).slice(0, 12)
       setItems(merged)
       const currentAccId = Number(getPortalAccountId() ?? 0)
-      const me = currentAccId > 0 ? employees.find((emp) => Number(emp.accId ?? 0) === currentAccId) : undefined
+      const currentEmpId = Number(getPortalEmpId() ?? 0)
+      const username = String(getPortalUsername() ?? '').trim().toLowerCase()
+      const me =
+        (currentAccId > 0 ? employees.find((emp) => Number(emp.accId ?? 0) === currentAccId) : undefined) ??
+        (currentEmpId > 0 ? employees.find((emp) => Number(emp.id ?? 0) === currentEmpId) : undefined) ??
+        (username
+          ? employees.find((emp) => {
+              const email = String(emp.email ?? '').trim().toLowerCase()
+              const name = String(emp.name ?? '').trim().toLowerCase()
+              return email === username || name === username
+            })
+          : undefined)
       setCurrentUserPhotoUrl(me?.photoUrl)
       const nextEmp: Record<number, number> = {}
       for (const emp of employees) {
@@ -287,18 +272,6 @@ export default function DashboardStories() {
     return () => {
       cancelled = true
     }
-  }, [])
-
-  // Keep relative timestamps fresh and auto-expire 24h stories while viewer stays open.
-  useEffect(() => {
-    const t = window.setInterval(() => {
-      setClockTick((x) => x + 1)
-      setItems((prev) => {
-        const filtered = prev.filter((item) => isWithin24Hours(item.date))
-        return filtered.length === prev.length ? prev : filtered
-      })
-    }, 1000)
-    return () => window.clearInterval(t)
   }, [])
 
   useEffect(() => {
@@ -436,7 +409,20 @@ export default function DashboardStories() {
 
   const selected = selectedIndex !== null ? items[selectedIndex] ?? null : null
   const selectedReaction = selected ? reactions[String(selected.storyId)] : undefined
-  const canDeleteSelected = Boolean(selected && currentAccId > 0 && selected.accId === currentAccId)
+  const canDeleteSelected = useMemo(() => {
+    if (!selected) return false
+    const currentEmpId = Number(getPortalEmpId() ?? 0)
+    const username = String(getPortalUsername() ?? '').trim().toLowerCase()
+    const selectedTitle = String(selected.title ?? '').trim().toLowerCase()
+    const selectedCaption = String(selected.caption ?? '').trim().toLowerCase()
+    const mappedEmpId = currentAccId > 0 ? Number(empIdByAccId[currentAccId] ?? 0) : 0
+
+    if (currentAccId > 0 && Number(selected.accId ?? 0) === currentAccId) return true
+    if (currentEmpId > 0 && Number(selected.employeeId ?? 0) === currentEmpId) return true
+    if (mappedEmpId > 0 && Number(selected.employeeId ?? 0) === mappedEmpId) return true
+    if (username && (selectedTitle === username || selectedCaption === username)) return true
+    return false
+  }, [selected, currentAccId, empIdByAccId])
   const selectedOwnerStories = useMemo(() => {
     if (!selected) return [] as DashboardStoryItem[]
     const key = storyOwnerKey(selected)
@@ -447,19 +433,6 @@ export default function DashboardStories() {
     const idx = selectedOwnerStories.findIndex((item) => item.storyId === selected.storyId)
     return idx >= 0 ? idx : 0
   }, [selected, selectedOwnerStories])
-  const selectedOwnerKey = useMemo(() => (selected ? storyOwnerKey(selected) : null), [selected])
-  const ownerKeysInOrder = useMemo(() => groupedOwnerItems.map((item) => storyOwnerKey(item)), [groupedOwnerItems])
-  const moveOwner = (delta: number) => {
-    if (!selectedOwnerKey || ownerKeysInOrder.length === 0) return
-    const currentOwnerIndex = ownerKeysInOrder.findIndex((key) => key === selectedOwnerKey)
-    if (currentOwnerIndex < 0) return
-    const nextOwnerIndex = (currentOwnerIndex + delta + ownerKeysInOrder.length) % ownerKeysInOrder.length
-    const nextOwnerKey = ownerKeysInOrder[nextOwnerIndex]
-    const nextStoryIndex = items.findIndex((item) => storyOwnerKey(item) === nextOwnerKey)
-    if (nextStoryIndex < 0) return
-    setSelectedIndex(nextStoryIndex)
-    setStoryProgressMs(0)
-  }
   useEffect(() => {
     if (!selected || items.length === 0) return
     const toPreload = new Set<string>()
@@ -529,63 +502,13 @@ export default function DashboardStories() {
     setOpenComposer(false)
   }
   const goPrevStory = () => {
-    if (selectedOwnerStories.length === 0) return
-    if (selectedOwnerStories.length === 1) {
-      moveOwner(-1)
-      return
-    }
-    const nextOwnerStory = selectedOwnerStories[(selectedOwnerStoryIndex - 1 + selectedOwnerStories.length) % selectedOwnerStories.length]
-    const nextGlobalIndex = items.findIndex((item) => item.storyId === nextOwnerStory.storyId)
-    if (nextGlobalIndex < 0) return
-    setSelectedIndex(nextGlobalIndex)
-    setStoryProgressMs(0)
+    if (items.length === 0) return
+    setSelectedIndex((prev) => (prev === null ? 0 : (prev - 1 + items.length) % items.length))
   }
   const goNextStory = () => {
-    if (selectedOwnerStories.length === 0) return
-    if (selectedOwnerStories.length === 1) {
-      moveOwner(1)
-      return
-    }
-    const nextOwnerStory = selectedOwnerStories[(selectedOwnerStoryIndex + 1) % selectedOwnerStories.length]
-    const nextGlobalIndex = items.findIndex((item) => item.storyId === nextOwnerStory.storyId)
-    if (nextGlobalIndex < 0) return
-    setSelectedIndex(nextGlobalIndex)
-    setStoryProgressMs(0)
+    if (items.length === 0) return
+    setSelectedIndex((prev) => (prev === null ? 0 : (prev + 1) % items.length))
   }
-
-  useEffect(() => {
-    if (!selected) return
-    setStoryProgressMs(0)
-  }, [selected?.storyId, selectedOwnerStoryIndex])
-
-  useEffect(() => {
-    if (!selected || isStoryPaused) return
-    storyLastTickRef.current = null
-    const step = (ts: number) => {
-      const last = storyLastTickRef.current ?? ts
-      const delta = ts - last
-      storyLastTickRef.current = ts
-      setStoryProgressMs((prev) => {
-        const next = prev + Math.max(0, delta)
-        if (next >= STORY_AUTOPLAY_MS) {
-          window.setTimeout(() => {
-            goNextStory()
-          }, 0)
-          return 0
-        }
-        return next
-      })
-      storyFrameRef.current = window.requestAnimationFrame(step)
-    }
-    storyFrameRef.current = window.requestAnimationFrame(step)
-    return () => {
-      if (storyFrameRef.current != null) {
-        window.cancelAnimationFrame(storyFrameRef.current)
-        storyFrameRef.current = null
-      }
-      storyLastTickRef.current = null
-    }
-  }, [selected, isStoryPaused, goNextStory])
 
   const handleDeleteSelectedStory = async () => {
     if (!selected || !canDeleteSelected || deleteBusyId !== null) return
@@ -679,7 +602,7 @@ export default function DashboardStories() {
     setComposerBusy(true)
     setComposerError(null)
     try {
-      const employeeId = empIdByAccId[accId]
+      const employeeId = Number(empIdByAccId[accId] ?? getPortalEmpId() ?? accId ?? 0)
       if (!employeeId) {
         setComposerError(
           'Your account is not linked to an employee record. Ask an admin to link your portal account to an employee so you can post stories.',
@@ -724,6 +647,8 @@ export default function DashboardStories() {
         </div>
         {loading ? (
           <div className="dashboard-stories__empty">Loading stories...</div>
+        ) : error ? (
+          <div className="dashboard-stories__empty">{error}</div>
         ) : !hasItems ? (
           <div className="dashboard-stories__rail">
             {canCreateStories && (
@@ -735,62 +660,57 @@ export default function DashboardStories() {
                 <span className="dashboard-story__label">Add story</span>
               </button>
             )}
-            <div className="dashboard-stories__empty">
-              {error ? `${error} You can still add a story.` : 'No active stories.'}
-            </div>
+            <div className="dashboard-stories__empty">No active stories.</div>
           </div>
         ) : (
-          <>
-            {error && <div className="dashboard-stories__empty">{error}</div>}
-            <div className="dashboard-stories__rail">
-              {canCreateStories && (
-                <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
-                  <span className={`dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add ${currentUserPhotoUrl ? 'dashboard-story__avatar-wrap--with-photo' : ''}`}>
-                    {currentUserPhotoUrl ? <img src={currentUserPhotoUrl} alt="" className="dashboard-story__avatar" /> : null}
-                    <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
-                  </span>
-                  <span className="dashboard-story__label">Add story</span>
-                </button>
-              )}
-              {railItems.map(({ item, hasUnseen }) => (
-                <button
-                  key={`story-${item.storyId}`}
-                  type="button"
-                  className={`dashboard-story ${hasUnseen ? '' : 'is-seen'}`}
-                  onClick={() => {
-                    const ownerKey = storyOwnerKey(item)
-                    const originalIndex = items.findIndex((row) => storyOwnerKey(row) === ownerKey)
-                    if (originalIndex >= 0) setSelectedIndex(originalIndex)
-                  }}
-                  aria-label={`Open story ${item.title || 'Untitled'}`}
-                >
-                  <span className="dashboard-story__avatar-wrap">
-                    {resolveMediaSrc(item) ? (
-                      isStoryVideoUrl(resolveMediaSrc(item)) ? (
-                        <video
-                          src={resolveMediaSrc(item)}
-                          className="dashboard-story__avatar"
-                          muted
-                          playsInline
-                          preload="metadata"
-                          aria-hidden
-                          onError={() => advanceMediaFallback(item)}
-                        />
-                      ) : (
-                        <img src={resolveMediaSrc(item)} alt="" className="dashboard-story__avatar" onError={() => advanceMediaFallback(item)} />
-                      )
+          <div className="dashboard-stories__rail">
+            {canCreateStories && (
+              <button type="button" className="dashboard-story dashboard-story--add" onClick={handleAddStory}>
+                <span className={`dashboard-story__avatar-wrap dashboard-story__avatar-wrap--add ${currentUserPhotoUrl ? 'dashboard-story__avatar-wrap--with-photo' : ''}`}>
+                  {currentUserPhotoUrl ? <img src={currentUserPhotoUrl} alt="" className="dashboard-story__avatar" /> : null}
+                  <span className="dashboard-story__avatar dashboard-story__avatar--add">+</span>
+                </span>
+                <span className="dashboard-story__label">Add story</span>
+              </button>
+            )}
+            {railItems.map(({ item, hasUnseen }) => (
+              <button
+                key={`story-${item.storyId}`}
+                type="button"
+                className={`dashboard-story ${hasUnseen ? '' : 'is-seen'}`}
+                onClick={() => {
+                  const ownerKey = storyOwnerKey(item)
+                  const originalIndex = items.findIndex((row) => storyOwnerKey(row) === ownerKey)
+                  if (originalIndex >= 0) setSelectedIndex(originalIndex)
+                }}
+                aria-label={`Open story ${item.title || 'Untitled'}`}
+              >
+                <span className="dashboard-story__avatar-wrap">
+                  {resolveMediaSrc(item) ? (
+                    isStoryVideoUrl(resolveMediaSrc(item)) ? (
+                      <video
+                        src={resolveMediaSrc(item)}
+                        className="dashboard-story__avatar"
+                        muted
+                        playsInline
+                        preload="metadata"
+                        aria-hidden
+                        onError={() => advanceMediaFallback(item)}
+                      />
                     ) : (
-                      <span className="dashboard-story__avatar dashboard-story__avatar--placeholder">
-                        {(item.title || 'S').trim().slice(0, 1).toUpperCase()}
-                      </span>
-                    )}
-                    <span className="dashboard-story__author">{item.title}</span>
-                  </span>
-                  <span className="dashboard-story__label">{item.title || 'Untitled'}</span>
-                </button>
-              ))}
-            </div>
-          </>
+                      <img src={resolveMediaSrc(item)} alt="" className="dashboard-story__avatar" onError={() => advanceMediaFallback(item)} />
+                    )
+                  ) : (
+                    <span className="dashboard-story__avatar dashboard-story__avatar--placeholder">
+                      {(item.title || 'S').trim().slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                  <span className="dashboard-story__author">{item.title}</span>
+                </span>
+                <span className="dashboard-story__label">{item.title || 'Untitled'}</span>
+              </button>
+            ))}
+          </div>
         )}
       </section>
 
@@ -870,23 +790,13 @@ export default function DashboardStories() {
                 >
                   {selectedOwnerStories.length > 0 && (
                     <div className="dashboard-story-progress" aria-label="Story progress">
-                      {selectedOwnerStories.map((ownerStory, idx) => {
-                        const isPast = idx < selectedOwnerStoryIndex
-                        const isCurrent = idx === selectedOwnerStoryIndex
-                        const progressPct = Math.min(100, Math.max(0, (storyProgressMs / STORY_AUTOPLAY_MS) * 100))
-                        return (
-                          <span
-                            key={`story-progress-${ownerStory.storyId}`}
-                            className={`dashboard-story-progress__segment ${isPast || isCurrent ? 'is-active' : ''}`}
-                            style={isCurrent
-                              ? {
-                                  background: `linear-gradient(to right, rgba(241,245,249,0.95) ${progressPct}%, rgba(148,163,184,0.45) ${progressPct}%)`,
-                                }
-                              : undefined}
-                            aria-hidden
-                          />
-                        )
-                      })}
+                      {selectedOwnerStories.map((ownerStory, idx) => (
+                        <span
+                          key={`story-progress-${ownerStory.storyId}`}
+                          className={`dashboard-story-progress__segment ${idx <= selectedOwnerStoryIndex ? 'is-active' : ''}`}
+                          aria-hidden
+                        />
+                      ))}
                     </div>
                   )}
                   <div className="dashboard-story-topbar" onClick={(event) => event.stopPropagation()}>
@@ -907,14 +817,8 @@ export default function DashboardStories() {
                       <button type="button" className="dashboard-story-topbar__icon-btn" aria-label="Sound" title="Sound">
                         🔊
                       </button>
-                      <button
-                        type="button"
-                        className="dashboard-story-topbar__icon-btn"
-                        onClick={() => setIsStoryPaused((prev) => !prev)}
-                        aria-label={isStoryPaused ? 'Play' : 'Pause'}
-                        title={isStoryPaused ? 'Play' : 'Pause'}
-                      >
-                        {isStoryPaused ? '▶' : '⏸'}
+                      <button type="button" className="dashboard-story-topbar__icon-btn" aria-label="Play" title="Play">
+                        ▶
                       </button>
                       {canDeleteSelected && (
                         <div className="dashboard-story-menu-wrap">

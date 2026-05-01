@@ -45,10 +45,6 @@ function getToken(): string | null {
   }
 }
 
-function getApiKey(): string {
-  return String(import.meta.env.VITE_API_KEY ?? '').trim()
-}
-
 /** Current JWT from localStorage (same value sent as `Authorization`), if any. */
 export function getAuthToken(): string | null {
   return getToken()
@@ -185,12 +181,10 @@ export async function apiRequest<T = unknown>(
   const p = path.startsWith('/') ? path : `/${path}`
   const bases = getBaseUrls()
   const token = getToken()
-  const apiKey = getApiKey()
   const sessionId = getSessionId()
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(apiKey ? { 'X-API-Key': apiKey } : {}),
     ...(sessionId ? { 'X-Session-Id': sessionId } : {}),
     ...(fetchInit.headers as Record<string, string>),
   }
@@ -328,7 +322,6 @@ export async function apiMultipartRequest<T = unknown>(
   const p = path.startsWith('/') ? path : `/${path}`
   const bases = getBaseUrls()
   const token = getToken()
-  const apiKey = getApiKey()
   const sessionId = getSessionId()
 
   GET_RESPONSE_CACHE.clear()
@@ -337,7 +330,6 @@ export async function apiMultipartRequest<T = unknown>(
   const mergedHeaders = fetchInit.headers as Record<string, string> | undefined
   const headers: Record<string, string> = {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(apiKey ? { 'X-API-Key': apiKey } : {}),
     ...(sessionId ? { 'X-Session-Id': sessionId } : {}),
   }
   if (mergedHeaders) {

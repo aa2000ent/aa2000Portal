@@ -68,6 +68,68 @@ function parseTimestampMs(v: string): number {
   return Number.isFinite(ms) ? ms : NaN
 }
 
+/** Merge optimistic `chat-*` rows with server echo — same conv, same text, ~same time. Sender may differ (DB full name vs display). */
+function mergeOptimisticWithEchoes(messages: ChatMessage[]): ChatMessage[] {
+  const sorted = [...messages].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+  const out: ChatMessage[] = []
+  const WINDOW = 6
+
+  for (const m of sorted) {
+    let handled = false
+    for (let k = out.length - 1; k >= 0 && k >= out.length - WINDOW; k--) {
+      const p = out[k]
+      if (p.conversationId !== m.conversationId) continue
+      if (p.text.trim().toLowerCase() !== m.text.trim().toLowerCase()) continue
+      const pt = parseTimestampMs(p.timestamp)
+      const mt = parseTimestampMs(m.timestamp)
+      if (!Number.isFinite(pt) || !Number.isFinite(mt) || Math.abs(pt - mt) > 35_000) continue
+
+      const pOpt = p.id.startsWith('chat-')
+      const mOpt = m.id.startsWith('chat-')
+      const sameSender = normalizeIdentity(p.sender) === normalizeIdentity(m.sender)
+      const echoPair = pOpt !== mOpt
+
+      // Own message: optimistic + server may use different display strings — still one bubble.
+      if (echoPair && !sameSender) {
+        if (pOpt && !mOpt) {
+          const rankP = DELIVERY_RANK[p.status ?? 'sent']
+          const rankM = DELIVERY_RANK[m.status ?? 'sent']
+          out[k] = rankM >= rankP ? m : { ...m, status: p.status }
+          handled = true
+          break
+        }
+        if (!pOpt && mOpt) {
+          handled = true
+          break
+        }
+      }
+
+      if (!sameSender && !echoPair) continue
+
+      // Duplicate server deliveries (poll + socket): drop the later one.
+      if (!pOpt && !mOpt) {
+        handled = true
+        break
+      }
+      // Replace optimistic with server row (canonical id + timestamp).
+      if (pOpt && !mOpt) {
+        const rankP = DELIVERY_RANK[p.status ?? 'sent']
+        const rankM = DELIVERY_RANK[m.status ?? 'sent']
+        out[k] = rankM >= rankP ? m : { ...m, status: p.status }
+        handled = true
+        break
+      }
+      // Server already stored; drop trailing optimistic echo.
+      if (!pOpt && mOpt) {
+        handled = true
+        break
+      }
+    }
+    if (!handled) out.push(m)
+  }
+  return out
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [lastReadAt, setLastReadAt] = useState<Record<string, string>>(() => {
@@ -200,35 +262,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       for (const m of entries) put(m)
 
       const deduped = Array.from(byKey.values())
-        .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+      const merged = mergeOptimisticWithEchoes(deduped)
 
-      // Secondary collapse: same conversation+text within 10s window.
-      // Handles cases where optimistic and server timestamps differ slightly.
-      const collapsed: ChatMessage[] = []
-      for (const msg of deduped) {
-        const last = collapsed[collapsed.length - 1]
-        if (!last) {
-          collapsed.push(msg)
-          continue
-        }
-        const sameConversation = last.conversationId === msg.conversationId
-        const sameText = last.text.trim().toLowerCase() === msg.text.trim().toLowerCase()
-        const lastMs = parseTimestampMs(last.timestamp)
-        const msgMs = parseTimestampMs(msg.timestamp)
-        const closeInTime =
-          Number.isFinite(lastMs) &&
-          Number.isFinite(msgMs) &&
-          Math.abs(msgMs - lastMs) <= 10_000
-        if (sameConversation && sameText && closeInTime) {
-          if (last.id.startsWith('chat-') && !msg.id.startsWith('chat-')) {
-            collapsed[collapsed.length - 1] = msg
-          }
-          continue
-        }
-        collapsed.push(msg)
-      }
-
-      return collapsed
+      return merged
         .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
         .slice(-MAX_MESSAGES)
     })

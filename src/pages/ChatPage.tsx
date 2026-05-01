@@ -1,12 +1,22 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { io, type Socket } from 'socket.io-client'
 import { useChat, getConversationId } from '../contexts/ChatContext'
 import { useEmployees } from '../contexts/EmployeesContext'
-import { apiMultipartRequest, apiRequest, getPortalAccountId, getPortalUsername } from '../api/client'
+import { apiRequest, getPortalAccountId, getPortalEmpId, getPortalUsername } from '../api/client'
 import { getBaseUrl } from '../api/config'
 import { fetchStories, isStoryVideoUrl, mapStoriesForDashboard } from '../api/stories'
 
+/**
+ * Backend (Express) contract — keep in sync with your router:
+ *
+ * - **POST** `/webhook/conversation/:employeeID` — `:employeeID` is the **receiver** (peer). Body: `senderEmpID`, `senderName`, `receiverName`, `message`.
+ *   Server emits Socket.IO event `message` to **`emp_${receiver}`** and **`emp_${sender}`** with payload `{ timestamp, senderEmpID, senderName, senderImage, receiverEmpID, receiverName, receiverImage, message }`.
+ * - **GET** `/webhook/conversation/:employeeID` — `:employeeID` is the **user whose inbox/history** you load (logged-in user’s `Emp_ID`). Optional **`?from=<peerEmpId>`** narrows to that 1:1 thread (`from` / `toEmpID` match in the txt log).
+ * - Client joins rooms **`emp_${meEmpIdForChat}`** so incoming `message` events match `io.to('emp_…')` on the server.
+ *
+ * Path prefix here is `VITE_API` → `/ai-services-conversation-chat/...` (see `apiRequest` base URL).
+ */
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
   marketing: 'Marketing',
@@ -58,6 +68,16 @@ type StoryPreview = {
   title: string
   avatarUrl?: string
   date?: string
+}
+
+/** POST /webhook/conversation/:receiverEmpID success body (matches Express handler). */
+type ConversationWebhookPostData = {
+  timestamp?: string
+  message?: string
+  senderEmpID?: string | number
+  receiverEmpID?: string | number
+  senderName?: string
+  receiverName?: string
 }
 
 type WebhookConversationResponse = {
@@ -368,6 +388,16 @@ export default function ChatPage() {
     return resolvedSenderEmpId ? `emp-id:${resolvedSenderEmpId}` : currentSenderId
   }, [signedEmployee?.id, signedAccountId, currentSenderId, currentSender, employees])
   const currentParticipantEmpId = useMemo(() => getEmployeeIdFromChatUserId(currentParticipantId), [currentParticipantId])
+  /** Single source for “this browser’s” Emp_ID: must match backend `emp_${id}` rooms + GET /webhook/conversation/:id */
+  const meEmpIdForChat = useMemo(() => {
+    if (Number.isFinite(currentParticipantEmpId) && (currentParticipantEmpId as number) > 0) {
+      return currentParticipantEmpId as number
+    }
+    const fromSession = getPortalEmpId()
+    if (fromSession != null && Number.isFinite(fromSession) && fromSession > 0) return fromSession
+    if (signedEmployee?.id && signedEmployee.id > 0) return Number(signedEmployee.id)
+    return null
+  }, [currentParticipantEmpId, signedEmployee?.id])
   const currentDisplayName = useMemo(() => {
     const signedName = String(signedEmployee?.name ?? '').trim()
     if (signedName) return signedName
@@ -415,14 +445,13 @@ export default function ChatPage() {
   const [openStorySubIndex, setOpenStorySubIndex] = useState(0)
   const [isStoryPaused, setIsStoryPaused] = useState(false)
   const [storyProgressMs, setStoryProgressMs] = useState(0)
-  const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const storyFrameRef = useRef<number | null>(null)
   const storyLastTickRef = useRef<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const newChatRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const gifInputRef = useRef<HTMLInputElement>(null)
   const socketRef = useRef<Socket | null>(null)
+  const [socketConnected, setSocketConnected] = useState(false)
+  const lastSubmitRef = useRef<{ signature: string; at: number } | null>(null)
   const conversationItemRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const previousConversationTopsRef = useRef<Map<string, number>>(new Map())
 
@@ -766,14 +795,20 @@ export default function ChatPage() {
 
   useEffect(() => {
     // Only poll the logged-in employee conversation endpoint.
-    // Avoid scanning every employee ID, which causes excessive GET traffic.
-    const targetEmployeeIds = currentParticipantEmpId ? [currentParticipantEmpId] : []
+    // When a thread is open, pass ?from=<peerEmpId> (matches backend) for a smaller payload + faster sync.
+    const targetEmployeeIds = meEmpIdForChat && meEmpIdForChat > 0 ? [meEmpIdForChat] : []
     if (targetEmployeeIds.length === 0) return
+
+    const selectedPeerEmpId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
+    const fromQuery =
+      selectedPeerEmpId && selectedPeerEmpId > 0
+        ? `?from=${encodeURIComponent(String(selectedPeerEmpId))}`
+        : ''
 
     const fetchConversationHistory = () =>
       Promise.all(
         targetEmployeeIds.map((employeeId) =>
-          apiRequest<WebhookConversationResponse>(`/ai-services-conversation-chat/webhook/conversation/${employeeId}`, {
+          apiRequest<WebhookConversationResponse>(`/ai-services-conversation-chat/webhook/conversation/${employeeId}${fromQuery}`, {
             method: 'GET',
             portal: { suppressFailureLog: true },
           })
@@ -997,28 +1032,50 @@ export default function ChatPage() {
     // Immediate sync on mount and periodic sync to ensure cross-user delivery
     // even if websocket events are dropped/mismatched.
     runSync()
-    timer = window.setInterval(runSync, 5000)
+    // Open thread: poll often — many users “can send but not receive” when WS is flaky but still “connected”.
+    // List view: slow down when socket is up to save traffic.
+    const pollMs = fromQuery ? 4000 : socketConnected ? 45_000 : 8000
+    timer = window.setInterval(runSync, pollMs)
 
     return () => {
       if (timer != null) window.clearInterval(timer)
     }
-  }, [currentParticipantEmpId, employees, currentParticipantId, currentSender, currentDisplayName, upsertMessages])
+  }, [
+    meEmpIdForChat,
+    employees,
+    currentParticipantId,
+    currentSender,
+    currentDisplayName,
+    upsertMessages,
+    selectedUser,
+    socketConnected,
+  ])
 
   useEffect(() => {
     const roleFallbackEmployeeIds = employees
       .map((e) => Number(e.id))
       .filter((id) => Number.isFinite(id) && id > 0)
-    const targetEmployeeIds = signedEmployee?.id ? [signedEmployee.id] : roleFallbackEmployeeIds
+    // Join the same Emp_ID as GET /conversation/:id — not only signedEmployee (list can disagree with session/login).
+    const targetEmployeeIds =
+      meEmpIdForChat && meEmpIdForChat > 0
+        ? [meEmpIdForChat]
+        : signedEmployee?.id
+          ? [signedEmployee.id]
+          : roleFallbackEmployeeIds
     if (targetEmployeeIds.length === 0) return
 
     const socketBase = buildSocketBaseUrl()
     const socket = io(socketBase, {
       transports: ['websocket', 'polling'],
       withCredentials: true,
+      reconnection: true,
+      reconnectionAttempts: 20,
+      reconnectionDelay: 800,
     })
     socketRef.current = socket
 
     socket.on('connect', () => {
+      setSocketConnected(true)
       for (const employeeId of targetEmployeeIds) {
         // Support multiple backend room-join conventions.
         socket.emit('join', { employeeID: employeeId })
@@ -1033,6 +1090,14 @@ export default function ChatPage() {
         socket.emit('join', `emp_${employeeId}`)
         socket.emit('joinRoom', `emp_${employeeId}`)
       }
+    })
+
+    socket.on('disconnect', () => {
+      setSocketConnected(false)
+    })
+
+    socket.on('connect_error', () => {
+      setSocketConnected(false)
     })
 
     const onIncomingMessage = (evt: {
@@ -1053,42 +1118,80 @@ export default function ChatPage() {
       createdAt?: string
       date?: string
     }) => {
+      // Backend contract: POST echo + io.emit use senderEmpID, receiverEmpID, message, timestamp (no legacy "sender" string).
       const receiverEmpId = Number(evt.receiverEmpID ?? evt.receiverEmpId ?? evt.employeeID ?? evt.employeeId)
       const senderEmpId = Number(evt.senderEmpID)
-      const employeeId = Number.isFinite(receiverEmpId) && receiverEmpId > 0
-        ? receiverEmpId
-        : senderEmpId
       const timestamp = String(evt.timestamp ?? evt.createdAt ?? evt.date ?? '').trim()
+      const text = String(evt.message ?? evt.text ?? evt.content ?? '').trim()
+      if (!timestamp || !text) return
+      if (!(Number.isFinite(senderEmpId) && senderEmpId > 0) && !(Number.isFinite(receiverEmpId) && receiverEmpId > 0)) return
+
       const rawSender = String(evt.sender ?? '').trim() || (
         Number.isFinite(senderEmpId) && senderEmpId > 0
           ? buildWebhookSenderMeta({
               fromId: `emp-id:${senderEmpId}`,
               fromName: String(evt.senderName ?? 'Unknown').trim() || 'Unknown',
-              toId: Number.isFinite(receiverEmpId) && receiverEmpId > 0 ? `emp-id:${receiverEmpId}` : currentSenderId,
+              toId: Number.isFinite(receiverEmpId) && receiverEmpId > 0 ? `emp-id:${receiverEmpId}` : currentParticipantId,
               toName: String(evt.receiverName ?? 'Unknown').trim() || 'Unknown',
             })
           : 'system'
       )
-      const text = String(evt.message ?? evt.text ?? evt.content ?? '').trim()
-      if (!Number.isFinite(employeeId) || employeeId < 1 || !timestamp || !text) return
 
       const meta = parseWebhookSenderMeta(rawSender)
-      const normalizedFromId = normalizeParticipantId(meta.fromId, meta.fromName, employees)
-      const normalizedToId = normalizeParticipantId(meta.toId, meta.toName, employees)
-      const otherId =
-        normalizedFromId && normalizedFromId !== currentSenderId
-          ? normalizedFromId
-          : normalizedToId && normalizedToId !== currentSenderId
-            ? normalizedToId
-            : `emp-id:${employeeId}`
-      const normalizedOtherId = isEmpId(otherId) ? otherId : toStableNonEmpId(otherId, meta.toName)
+      const fallbackFromId =
+        Number.isFinite(senderEmpId) && senderEmpId > 0
+          ? `emp-id:${senderEmpId}`
+          : undefined
+      const fallbackToId =
+        Number.isFinite(receiverEmpId) && receiverEmpId > 0
+          ? `emp-id:${receiverEmpId}`
+          : undefined
+      const fallbackFromName = String(evt.senderName ?? evt.sender ?? '').trim()
+      const fallbackToName = String(evt.receiverName ?? '').trim()
+      const normalizedFromId = normalizeParticipantId(meta.fromId || fallbackFromId, meta.fromName || fallbackFromName, employees)
+      const normalizedToId = normalizeParticipantId(meta.toId || fallbackToId, meta.toName || fallbackToName, employees)
 
-      const conversationId = getConversationId(currentSenderId, normalizedOtherId)
-      const senderLabel = normalizedFromId === currentSenderId ? currentSender : (meta.fromName || 'Employee')
-      const deliveryStatus = normalizedFromId === currentSenderId ? 'delivered' : undefined
+      const selfId = currentParticipantId
+      let peerParticipantId: string | undefined
+      if (
+        Number.isFinite(senderEmpId) &&
+        senderEmpId > 0 &&
+        Number.isFinite(receiverEmpId) &&
+        receiverEmpId > 0
+      ) {
+        const s = `emp-id:${senderEmpId}`
+        const r = `emp-id:${receiverEmpId}`
+        if (s === selfId) peerParticipantId = r
+        else if (r === selfId) peerParticipantId = s
+        else peerParticipantId = r
+      } else {
+        const otherId =
+          normalizedFromId && normalizedFromId !== selfId
+            ? normalizedFromId
+            : normalizedToId && normalizedToId !== selfId
+              ? normalizedToId
+              : fallbackFromId && fallbackFromId !== selfId
+                ? fallbackFromId
+                : fallbackToId
+        peerParticipantId = otherId
+      }
+
+      const normalizedOtherId = peerParticipantId
+        ? isEmpId(peerParticipantId)
+          ? peerParticipantId
+          : toStableNonEmpId(peerParticipantId, meta.toName || meta.fromName)
+        : AI_SERVICE_USER.id
+
+      // Must match GET/poll conversation keys (participant id resolution), not only currentSenderId.
+      const conversationId = getConversationId(currentParticipantId, normalizedOtherId)
+      const isOwnSocket =
+        (Number.isFinite(senderEmpId) && senderEmpId > 0 && senderEmpId === currentParticipantEmpId) ||
+        normalizedFromId === selfId
+      const senderLabel = isOwnSocket ? currentDisplayName : String(meta.fromName || evt.senderName || 'Employee').trim() || 'Employee'
+      const deliveryStatus = isOwnSocket ? 'delivered' : undefined
       upsertMessages([
         {
-          id: buildMessageId(currentSenderId, normalizedOtherId, timestamp, text),
+          id: buildMessageId(currentParticipantId, normalizedOtherId, timestamp, text),
           conversationId,
           sender: senderLabel,
           text,
@@ -1096,37 +1199,55 @@ export default function ChatPage() {
           status: deliveryStatus,
         },
       ])
-      const peerEmpId = senderEmpId === currentParticipantEmpId ? receiverEmpId : senderEmpId
-      const peerId = `emp-id:${peerEmpId}`
-      const peerFromEmployees = employees.find((e) => Number(e.id) === peerEmpId)
-      const peerImageFromSocket = senderEmpId === currentParticipantEmpId
-        ? toImageSrc(evt.receiverImage)
-        : toImageSrc(evt.senderImage)
+      const peerEmpId =
+        Number.isFinite(senderEmpId) &&
+        senderEmpId > 0 &&
+        Number.isFinite(receiverEmpId) &&
+        receiverEmpId > 0
+          ? senderEmpId === currentParticipantEmpId
+            ? receiverEmpId
+            : receiverEmpId === currentParticipantEmpId
+              ? senderEmpId
+              : senderEmpId
+          : getEmployeeIdFromChatUserId(normalizedOtherId) ?? 0
+      const peerId = peerEmpId > 0 ? `emp-id:${peerEmpId}` : normalizedOtherId
+      const peerFromEmployees = peerEmpId > 0 ? employees.find((e) => Number(e.id) === peerEmpId) : undefined
+      const peerImageFromSocket =
+        Number.isFinite(senderEmpId) &&
+        senderEmpId > 0 &&
+        Number.isFinite(receiverEmpId) &&
+        receiverEmpId > 0
+          ? senderEmpId === currentParticipantEmpId
+            ? toImageSrc(evt.receiverImage)
+            : toImageSrc(evt.senderImage)
+          : undefined
       const peerName =
         String(peerFromEmployees?.name ?? '').trim() ||
         (peerEmpId === senderEmpId ? String(evt.senderName ?? '').trim() : String(evt.receiverName ?? '').trim()) ||
-        `Employee ${peerEmpId}`
-      setWebhookUsers((prev) => {
-        const existing = prev.find((u) => u.id === peerId)
-        if (existing) {
-          if (!existing.photoUrl && peerImageFromSocket) {
-            return prev.map((u) => (u.id === peerId ? { ...u, photoUrl: peerImageFromSocket } : u))
+        (peerEmpId > 0 ? `Employee ${peerEmpId}` : String(meta.fromName || meta.toName || 'Unknown').trim())
+      if (peerId && peerId !== currentParticipantId) {
+        setWebhookUsers((prev) => {
+          const existing = prev.find((u) => u.id === peerId)
+          if (existing) {
+            if (!existing.photoUrl && peerImageFromSocket) {
+              return prev.map((u) => (u.id === peerId ? { ...u, photoUrl: peerImageFromSocket } : u))
+            }
+            return prev
           }
-          return prev
-        }
-        return [
-          ...prev,
-          {
-            id: peerId,
-            name: peerName,
-            role: String(peerFromEmployees?.role ?? '').trim() || 'Employee',
-            photoUrl: peerImageFromSocket || peerFromEmployees?.photoUrl,
-            search: `${peerName} employee`.toLowerCase(),
-          },
-        ]
-      })
-      if (normalizedFromId !== currentSenderId) {
-        markLatestOwnMessageSeen(conversationId, currentSender)
+          return [
+            ...prev,
+            {
+              id: peerId,
+              name: peerName,
+              role: String(peerFromEmployees?.role ?? '').trim() || 'Employee',
+              photoUrl: peerImageFromSocket || peerFromEmployees?.photoUrl,
+              search: `${peerName} employee`.toLowerCase(),
+            },
+          ]
+        })
+      }
+      if (!isOwnSocket) {
+        markLatestOwnMessageSeen(conversationId, currentDisplayName)
       }
     }
 
@@ -1140,6 +1261,7 @@ export default function ChatPage() {
     socket.on('conversationMessage', onIncomingMessage)
 
     return () => {
+      setSocketConnected(false)
       for (const employeeId of targetEmployeeIds) {
         socket.emit('leave', { employeeID: employeeId })
         socket.emit('leave', { employeeId })
@@ -1163,80 +1285,76 @@ export default function ChatPage() {
       socket.disconnect()
       socketRef.current = null
     }
-  }, [currentParticipantEmpId, currentSender, currentDisplayName, employees, upsertMessages, signedEmployee, currentSenderId, markLatestOwnMessageSeen])
-
-  const queuePendingFiles = useCallback((incoming: File[], opts?: { gifOnly?: boolean }) => {
-    const next = incoming.filter((file) => {
-      if (opts?.gifOnly) {
-        return file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')
-      }
-      return true
-    })
-    if (next.length === 0) return
-    setPendingFiles((prev) => {
-      const merged = [...prev]
-      for (const file of next) {
-        const dup = merged.some((f) => f.name === file.name && f.size === file.size && f.lastModified === file.lastModified)
-        if (!dup) merged.push(file)
-      }
-      return merged.slice(0, 5)
-    })
-  }, [])
+  }, [
+    meEmpIdForChat,
+    currentParticipantEmpId,
+    currentParticipantId,
+    currentSender,
+    currentDisplayName,
+    employees,
+    upsertMessages,
+    signedEmployee,
+    markLatestOwnMessageSeen,
+  ])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const text = inputValue.trim()
-    const files = pendingFiles
-    if ((!text && files.length === 0) || !conversationId) return
-    const attachmentLabel = files.length > 0
-      ? `Attachment${files.length > 1 ? 's' : ''}: ${files.map((f) => f.name).join(', ')}`
-      : ''
-    const optimisticText = text || attachmentLabel
+    if (!text || !conversationId) return
+    const submitSignature = [conversationId, text.toLowerCase()].join('|')
+    const now = Date.now()
+    if (
+      lastSubmitRef.current &&
+      lastSubmitRef.current.signature === submitSignature &&
+      now - lastSubmitRef.current.at < 900
+    ) {
+      return
+    }
+    lastSubmitRef.current = { signature: submitSignature, at: now }
     // Optimistic local append so the message doesn't "disappear" while waiting webhook/socket echo.
-    const optimisticId = addMessage(conversationId, currentSender, optimisticText, { status: 'sending' })
+    const optimisticId = addMessage(conversationId, currentDisplayName, text, { status: 'sending' })
+    if (optimisticId) setMessageStatus(optimisticId, 'sent')
     setInputValue('')
-    setPendingFiles([])
-    if (fileInputRef.current) fileInputRef.current.value = ''
-    if (gifInputRef.current) gifInputRef.current.value = ''
 
     // Trigger webhook logging when sender/receiver employee IDs are resolvable.
     const selectedEmployeeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
-    const senderEmployeeId = signedEmployee?.id ?? null
+    const senderEmployeeId = meEmpIdForChat ?? signedEmployee?.id ?? null
     if (!(selectedEmployeeId && selectedEmployeeId > 0) || !(senderEmployeeId && senderEmployeeId > 0)) return
 
     if (selectedEmployeeId && selectedEmployeeId > 0) {
       const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
-      const senderEmpID = senderEmployeeId && senderEmployeeId > 0 ? String(senderEmployeeId) : ''
-      if (!senderEmpID) return
+      if (!(senderEmployeeId > 0)) return
       const endpoint = `/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`
       void (async () => {
         try {
-          if (files.length > 0) {
-            const formData = new FormData()
-            formData.append('senderEmpID', senderEmpID)
-            formData.append('senderName', currentSender)
-            formData.append('receiverName', selectedMeta.name)
-            formData.append('message', text)
-            // Common backend shape: `attachments` array + optional single `attachment`.
-            for (const file of files) formData.append('attachments', file)
-            if (files[0]) formData.append('attachment', files[0])
-            await apiMultipartRequest(endpoint, formData, {
-              method: 'POST',
-              portal: { suppressFailureLog: true },
-            })
-          } else {
-            await apiRequest(endpoint, {
-              method: 'POST',
-              body: JSON.stringify({
-                senderEmpID,
-                senderName: currentSender,
-                receiverName: selectedMeta.name,
-                message: text,
-              }),
-              portal: { suppressFailureLog: true },
-            })
+          const res = await apiRequest<{ success?: boolean; data?: ConversationWebhookPostData }>(endpoint, {
+            method: 'POST',
+            body: JSON.stringify({
+              senderEmpID: senderEmployeeId,
+              senderName: currentDisplayName,
+              receiverName: selectedMeta.name,
+              message: text,
+            }),
+            portal: { suppressFailureLog: true },
+          })
+          const payload = res && typeof res === 'object' ? res.data : undefined
+          const serverTs = payload?.timestamp ? String(payload.timestamp).trim() : ''
+          const serverText = String(payload?.message ?? text).trim()
+          const serverSender = String(payload?.senderName ?? currentDisplayName).trim() || currentDisplayName
+          if (serverTs && selectedUser && conversationId) {
+            upsertMessages([
+              {
+                id: buildMessageId(currentParticipantId, selectedUser, serverTs, serverText),
+                conversationId,
+                sender: serverSender,
+                text: serverText,
+                timestamp: serverTs,
+                status: 'delivered',
+              },
+            ])
+          } else if (optimisticId) {
+            setMessageStatus(optimisticId, 'delivered')
           }
-          if (optimisticId) setMessageStatus(optimisticId, 'sent')
         } catch {
           // Keep chat UX responsive even if webhook logging fails.
         }
@@ -1541,32 +1659,6 @@ export default function ChatPage() {
               <button type="button" className="messenger-composer-btn" aria-label="Emoji">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
               </button>
-              <button
-                type="button"
-                className="messenger-composer-btn"
-                aria-label="Attach file"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                hidden
-                onChange={(e) => {
-                  queuePendingFiles(Array.from(e.target.files ?? []))
-                }}
-              />
-              <input
-                ref={gifInputRef}
-                type="file"
-                accept="image/gif,.gif"
-                hidden
-                onChange={(e) => {
-                  queuePendingFiles(Array.from(e.target.files ?? []), { gifOnly: true })
-                }}
-              />
               <input
                 type="text"
                 value={inputValue}
@@ -1577,24 +1669,11 @@ export default function ChatPage() {
                 autoComplete="off"
                 maxLength={2000}
               />
-              {pendingFiles.length > 0 && (
-                <span className="messenger-conv-role" title={pendingFiles.map((f) => f.name).join(', ')}>
-                  {pendingFiles.length} file{pendingFiles.length > 1 ? 's' : ''} selected
-                </span>
-              )}
-              <button
-                type="button"
-                className="messenger-composer-btn"
-                aria-label="Attach GIF"
-                onClick={() => gifInputRef.current?.click()}
-              >
-                GIF
-              </button>
               <button
                 type="submit"
                 className="messenger-composer-send"
                 aria-label="Send"
-                disabled={!inputValue.trim() && pendingFiles.length === 0}
+                disabled={!inputValue.trim()}
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
               </button>

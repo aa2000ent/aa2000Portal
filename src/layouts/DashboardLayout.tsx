@@ -3,7 +3,7 @@ import { Outlet, useLocation, Link } from 'react-router-dom'
 import logoImg from '../assets/logo/logo.avif'
 import { SidebarProvider, useSidebar } from '../contexts/SidebarContext'
 import { fetchEmployees } from '../api/employees'
-import { getPortalAccountId, getPortalUsername } from '../api/client'
+import { getPortalAccountId, getPortalEmpId, getPortalUsername } from '../api/client'
 
 function DashboardMainWithScroll() {
   const { scrollContainerRef } = useSidebar()
@@ -47,9 +47,10 @@ function DashboardHeader() {
   useEffect(() => {
     let cancelled = false
     const accIdNum = Number(getPortalAccountId() ?? 0)
+    const empIdNum = Number(getPortalEmpId() ?? 0)
     const username = String(getPortalUsername() ?? '').trim().toLowerCase()
 
-    if (accIdNum <= 0 && !username) {
+    if (accIdNum <= 0 && empIdNum <= 0 && !username) {
       setProfilePhotoUrl(undefined)
       return
     }
@@ -59,6 +60,7 @@ function DashboardHeader() {
         const list = await fetchEmployees()
         const me =
           (accIdNum > 0 ? list.find((e) => e.accId === accIdNum) : undefined) ??
+          (empIdNum > 0 ? list.find((e) => Number(e.id ?? 0) === empIdNum) : undefined) ??
           (username ? list.find((e) => e.email.toLowerCase() === username || e.name.toLowerCase() === username) : undefined)
         if (!cancelled) {
           setProfilePhotoUrl(me?.photoUrl)

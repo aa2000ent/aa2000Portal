@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import type { Socket } from 'socket.io-client'
+import callerRingtoneSrc from '../assets/ringtone/caller.mp3'
+import receiverRingtoneSrc from '../assets/ringtone/reciever.mp3'
 
 export type CallPhase = 'idle' | 'calling' | 'ringing' | 'in_call'
 export type CallType = 'audio' | 'video'
@@ -64,6 +66,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const myDisplayNameRef = useRef<string>('')
   const detachListenersRef = useRef<(() => void) | null>(null)
   const facingModeRef = useRef<CameraFacingMode>('user')
+  const callerToneRef = useRef<HTMLAudioElement | null>(null)
+  const receiverToneRef = useRef<HTMLAudioElement | null>(null)
 
   const inferCallTypeFromOffer = (offer: RTCSessionDescriptionInit | undefined): CallType => {
     const sdp = String(offer?.sdp ?? '')
@@ -80,6 +84,57 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     facingModeRef.current = cameraFacingMode
   }, [cameraFacingMode])
+
+  const stopRingtone = useCallback((target: 'caller' | 'receiver' | 'all' = 'all') => {
+    const stop = (audio: HTMLAudioElement | null) => {
+      if (!audio) return
+      audio.pause()
+      audio.currentTime = 0
+    }
+    if (target === 'caller') {
+      stop(callerToneRef.current)
+      return
+    }
+    if (target === 'receiver') {
+      stop(receiverToneRef.current)
+      return
+    }
+    stop(callerToneRef.current)
+    stop(receiverToneRef.current)
+  }, [])
+
+  const playRingtone = useCallback((target: 'caller' | 'receiver') => {
+    const ref = target === 'caller' ? callerToneRef : receiverToneRef
+    if (!ref.current) {
+      const audio = new Audio(target === 'caller' ? callerRingtoneSrc : receiverRingtoneSrc)
+      audio.loop = true
+      audio.preload = 'auto'
+      ref.current = audio
+    }
+    const audio = ref.current
+    if (!audio) return
+    audio.currentTime = 0
+    void audio.play().catch(() => {
+      // Autoplay may be blocked until user interaction.
+    })
+  }, [])
+
+  useEffect(() => {
+    const isIncomingRinging = callPhase === 'ringing' && Boolean(incomingCall)
+    const isOutgoingRinging = (callPhase === 'calling' || callPhase === 'ringing') && !incomingCall
+
+    if (isIncomingRinging) {
+      stopRingtone('caller')
+      playRingtone('receiver')
+      return
+    }
+    if (isOutgoingRinging) {
+      stopRingtone('receiver')
+      playRingtone('caller')
+      return
+    }
+    stopRingtone('all')
+  }, [callPhase, incomingCall, playRingtone, stopRingtone])
 
   const teardownCall = useCallback(() => {
     const pc = peerConnectionRef.current
@@ -387,7 +442,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const clearError = useCallback(() => setCallError(''), [])
 
-  useEffect(() => () => teardownCall(), [teardownCall])
+  useEffect(
+    () => () => {
+      stopRingtone('all')
+      teardownCall()
+    },
+    [stopRingtone, teardownCall],
+  )
 
   const value = useMemo(
     () => ({

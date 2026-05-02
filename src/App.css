@@ -169,6 +169,23 @@
   clip-path: inset(0 round 999px);
 }
 
+.dashboard-story__status-corner {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 0;
+  height: 0;
+  border-top: 20px solid #3b82f6;
+  border-left: 20px solid transparent;
+  border-top-right-radius: 4px;
+  z-index: 3;
+  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.55));
+}
+
+.dashboard-story__status-corner.is-seen {
+  border-top-color: #94a3b8;
+}
+
 .dashboard-stories__rail .dashboard-story--add {
   gap: 0;
   position: relative;
@@ -221,6 +238,38 @@
   text-shadow: 0 1px 8px rgba(2, 6, 23, 0.95);
 }
 
+.dashboard-story__author-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-width: 0;
+}
+
+.dashboard-story__author-profile {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #1e293b;
+  border: 1px solid rgba(226, 232, 240, 0.75);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.dashboard-story__author-profile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dashboard-story__author-profile > span {
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
 .dashboard-story__label {
   display: block;
   width: 100%;
@@ -236,17 +285,17 @@
 }
 
 .dashboard-story.is-seen .dashboard-story__avatar-wrap {
-  background: linear-gradient(145deg, #94a3b8, #cbd5e1);
+  background: linear-gradient(145deg, #3b82f6, #0ea5e9 45%, #22c55e);
 }
 
 .dashboard-story.is-seen .dashboard-story__avatar {
-  filter: grayscale(0.9) brightness(0.8);
-  border-color: rgba(100, 116, 139, 0.65);
+  filter: none;
+  border-color: rgba(15, 23, 42, 0.65);
 }
 
 .dashboard-story.is-seen .dashboard-story__author {
   background: transparent;
-  color: #cbd5e1;
+  color: #f1f5f9;
 }
 
 .dashboard-story:not(.dashboard-story--add):hover .dashboard-story__avatar-wrap {
@@ -353,10 +402,11 @@
 
 .dashboard-story-viewer__list-item.is-seen:not(.is-active) .dashboard-story-viewer__list-avatar img,
 .dashboard-story-viewer__list-item.is-seen:not(.is-active) .dashboard-story-viewer__list-avatar video {
-  filter: grayscale(0.85) brightness(0.82);
+  filter: none;
 }
 
 .dashboard-story-viewer__list-avatar {
+  position: relative;
   width: 44px;
   height: 44px;
   border-radius: 10px;
@@ -375,6 +425,20 @@
   object-fit: cover;
 }
 
+.dashboard-story-viewer__list-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-top: 12px solid #3b82f6;
+  border-left: 12px solid transparent;
+}
+
+.dashboard-story-viewer__list-corner.is-seen {
+  border-top-color: #94a3b8;
+}
+
 .dashboard-story-viewer__list-copy {
   min-width: 0;
   display: flex;
@@ -387,6 +451,37 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.dashboard-story-viewer__list-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.dashboard-story-viewer__author-profile {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #1e293b;
+  border: 1px solid rgba(226, 232, 240, 0.7);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.dashboard-story-viewer__author-profile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dashboard-story-viewer__author-profile > span {
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: #e2e8f0;
 }
 
 .dashboard-story-viewer__list-copy small {
@@ -2990,12 +3085,48 @@ html[data-theme="dark"] .dashboard-graph-desc {
   outline: none;
 }
 
+.dashboard-app-header-profile-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  border-radius: 9999px;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .dashboard-app-header-profile-photo {
   width: 100%;
   height: 100%;
   border-radius: 9999px;
   object-fit: cover;
   display: block;
+}
+
+.dashboard-app-header-profile-name {
+  display: inline-block;
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+@media (max-width: 640px) {
+  .dashboard-app-header-profile {
+    max-width: 56vw !important;
+    padding-right: 0.5rem;
+  }
+
+  .dashboard-app-header-profile-name {
+    max-width: 130px;
+    font-size: 0.78rem;
+  }
 }
 
 /* ========== Sidebar chat (trigger in side nav) ========== */

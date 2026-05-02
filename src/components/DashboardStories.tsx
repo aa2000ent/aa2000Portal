@@ -342,12 +342,18 @@ export default function DashboardStories() {
 
   const hasItems = useMemo(() => items.length > 0, [items])
   const currentAccId = useMemo(() => Number(getPortalAccountId() ?? 0), [])
+  const currentEmpId = useMemo(() => Number(getPortalEmpId() ?? 0), [])
   const canCreateStories = true
   const isStoryViewed = (id: number): boolean => Boolean(viewedStories[String(id)])
   const storyOwnerKey = (item: DashboardStoryItem): string => {
     if (item.accId > 0) return `acc:${item.accId}`
     if (item.employeeId > 0) return `emp:${item.employeeId}`
     return `title:${item.title.trim().toLowerCase()}`
+  }
+  const isMyStoryOwner = (item: DashboardStoryItem): boolean => {
+    if (currentAccId > 0 && item.accId > 0) return item.accId === currentAccId
+    if (currentEmpId > 0 && item.employeeId > 0) return item.employeeId === currentEmpId
+    return false
   }
   const railItems = useMemo(() => {
     const byOwner = new Map<string, { item: DashboardStoryItem; hasUnseen: boolean }>()
@@ -363,10 +369,14 @@ export default function DashboardStories() {
       }
     }
     const grouped = [...byOwner.values()]
-    const unseenOwners = grouped.filter((x) => x.hasUnseen)
-    const seenOwners = grouped.filter((x) => !x.hasUnseen)
-    return [...unseenOwners, ...seenOwners]
-  }, [items, viewedStories])
+    const mine = grouped.filter(({ item }) => isMyStoryOwner(item))
+    const others = grouped.filter(({ item }) => !isMyStoryOwner(item))
+    const sortBySeen = (list: Array<{ item: DashboardStoryItem; hasUnseen: boolean }>) => [
+      ...list.filter((x) => x.hasUnseen),
+      ...list.filter((x) => !x.hasUnseen),
+    ]
+    return [...sortBySeen(mine), ...sortBySeen(others)]
+  }, [items, viewedStories, currentAccId, currentEmpId])
   const groupedOwnerItems = useMemo(() => railItems.map((x) => x.item), [railItems])
 
   const handleAddStory = () => {
@@ -705,7 +715,22 @@ export default function DashboardStories() {
                       {(item.title || 'S').trim().slice(0, 1).toUpperCase()}
                     </span>
                   )}
-                  <span className="dashboard-story__author">{item.title}</span>
+                  <span
+                    className={`dashboard-story__status-corner ${hasUnseen ? 'is-unseen' : 'is-seen'}`}
+                    aria-hidden
+                  />
+                  <span className="dashboard-story__author">
+                    <span className="dashboard-story__author-meta">
+                      <span className="dashboard-story__author-profile" aria-hidden>
+                        {item.authorPhotoUrl ? (
+                          <img src={item.authorPhotoUrl} alt="" />
+                        ) : (
+                          <span>{(item.title || 'U').trim().slice(0, 1).toUpperCase()}</span>
+                        )}
+                      </span>
+                      <span>{item.title}</span>
+                    </span>
+                  </span>
                 </span>
                 <span className="dashboard-story__label">{item.title || 'Untitled'}</span>
               </button>
@@ -761,9 +786,22 @@ export default function DashboardStories() {
                       ) : (
                         <span>{(item.title || 'S').trim().slice(0, 1).toUpperCase()}</span>
                       )}
+                      <span
+                        className={`dashboard-story-viewer__list-corner ${isStoryViewed(item.storyId) ? 'is-seen' : 'is-unseen'}`}
+                        aria-hidden
+                      />
                     </span>
                     <span className="dashboard-story-viewer__list-copy">
-                      <strong>{item.title}</strong>
+                      <strong className="dashboard-story-viewer__list-author">
+                        <span className="dashboard-story-viewer__author-profile" aria-hidden>
+                          {item.authorPhotoUrl ? (
+                            <img src={item.authorPhotoUrl} alt="" />
+                          ) : (
+                            <span>{(item.title || 'U').trim().slice(0, 1).toUpperCase()}</span>
+                          )}
+                        </span>
+                        <span>{item.title}</span>
+                      </strong>
                       <small>{formatDateLabel(item.date)}</small>
                     </span>
                   </button>

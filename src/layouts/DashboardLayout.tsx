@@ -17,41 +17,26 @@ function DashboardMainWithScroll() {
   )
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  admin: 'Admin',
-  marketing: 'Marketing',
-  sale: 'Sale',
-  purchasing: 'Purchasing',
-  customer: 'Customer',
-  supplier: 'Supplier',
-  operations: 'Operations',
-  finance: 'Finance',
-  financial: 'Financial',
-  accounting: 'Accounting',
-  engineering: 'Engineering',
-  technical: 'Technical',
-  ceo: 'CEO',
-  'co-ceo': 'CO-CEO',
-  'general-manager': 'General Manager',
-}
-
 function DashboardHeader() {
   const location = useLocation()
   const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
-  const roleLabel = ROLE_LABELS[path] ?? path
   const isAdmin = location.pathname.startsWith('/admin')
   const profileTo = isAdmin ? '/admin/profile' : `/${path}/profile`
   const { isOpen, toggle } = useSidebar()
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | undefined>()
+  const [accountDisplayName, setAccountDisplayName] = useState<string>('')
 
   useEffect(() => {
     let cancelled = false
     const accIdNum = Number(getPortalAccountId() ?? 0)
     const empIdNum = Number(getPortalEmpId() ?? 0)
-    const username = String(getPortalUsername() ?? '').trim().toLowerCase()
+    const rawUsername = String(getPortalUsername() ?? '').trim()
+    const username = rawUsername.toLowerCase()
+    setAccountDisplayName(rawUsername)
 
     if (accIdNum <= 0 && empIdNum <= 0 && !username) {
       setProfilePhotoUrl(undefined)
+      setAccountDisplayName('')
       return
     }
 
@@ -64,9 +49,13 @@ function DashboardHeader() {
           (username ? list.find((e) => e.email.toLowerCase() === username || e.name.toLowerCase() === username) : undefined)
         if (!cancelled) {
           setProfilePhotoUrl(me?.photoUrl)
+          setAccountDisplayName(String(me?.name ?? rawUsername).trim())
         }
       } catch {
-        if (!cancelled) setProfilePhotoUrl(undefined)
+        if (!cancelled) {
+          setProfilePhotoUrl(undefined)
+          setAccountDisplayName(rawUsername)
+        }
       }
     })()
 
@@ -94,30 +83,30 @@ function DashboardHeader() {
         </button>
         <img src={logoImg} alt="AA2000" className="h-9 w-auto object-contain flex-shrink-0" />
         <span className="font-semibold text-base tracking-tight text-slate-100 hidden sm:inline">Portal</span>
-        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-white/12 text-sky-200 border border-white/18">
-          {roleLabel}
-        </span>
       </div>
       <div className="flex items-center justify-end gap-2 flex-1 min-w-0 shrink-0">
         <Link
           to={profileTo}
-          className="dashboard-app-header-profile flex items-center justify-center w-10 h-10 rounded-full border border-white/20 bg-white/10 text-slate-200 no-underline transition-all duration-200 hover:bg-white/18 hover:text-white hover:border-white/30 focus:outline-none focus:ring-2 focus:ring-sky-400/40 focus:ring-offset-2 focus:ring-offset-slate-900"
+          className="dashboard-app-header-profile flex items-center gap-2 pl-1.5 pr-2.5 py-1 min-w-0 max-w-[70vw] sm:max-w-[320px] rounded-full border border-white/20 bg-white/10 text-slate-200 no-underline transition-all duration-200 hover:bg-white/18 hover:text-white hover:border-white/30 focus:outline-none focus:ring-2 focus:ring-sky-400/40 focus:ring-offset-2 focus:ring-offset-slate-900"
           title="Profile"
           aria-label="Profile"
         >
-          {profilePhotoUrl ? (
-            <img
-              src={profilePhotoUrl}
-              alt="Profile"
-              className="dashboard-app-header-profile-photo"
-              onError={() => setProfilePhotoUrl(undefined)}
-            />
-          ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-          )}
+          <span className="dashboard-app-header-profile-avatar" aria-hidden>
+            {profilePhotoUrl ? (
+              <img
+                src={profilePhotoUrl}
+                alt="Profile"
+                className="dashboard-app-header-profile-photo"
+                onError={() => setProfilePhotoUrl(undefined)}
+              />
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            )}
+          </span>
+          <span className="dashboard-app-header-profile-name">{accountDisplayName || 'My profile'}</span>
         </Link>
       </div>
       </div>

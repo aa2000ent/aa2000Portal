@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useCall } from '../contexts/CallContext'
+import { fetchEmployees } from '../api/employees'
 
 function useCallTimer(active: boolean) {
   const [seconds, setSeconds] = useState(0)
@@ -138,6 +139,35 @@ export default function CallPopup() {
     }
   }, [callPhase, callType, bumpControls])
 
+  const [peerPhotoUrl, setPeerPhotoUrl] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (callPhase === 'idle') {
+      setPeerPhotoUrl(undefined)
+      return
+    }
+
+    let active = true
+    fetchEmployees()
+      .then((employees) => {
+        if (!active) return
+        if (incomingCall?.callerId) {
+          const e = employees.find((x) => Number(x.id) === incomingCall.callerId)
+          if (e?.photoUrl) setPeerPhotoUrl(e.photoUrl)
+        } else if (callPeerName) {
+          const e = employees.find(
+            (x) => String(x.name ?? '').trim().toLowerCase() === callPeerName.trim().toLowerCase()
+          )
+          if (e?.photoUrl) setPeerPhotoUrl(e.photoUrl)
+        }
+      })
+      .catch(() => {})
+
+    return () => {
+      active = false
+    }
+  }, [callPhase, incomingCall?.callerId, callPeerName])
+
   const handleMute = () => {
     setMuted((m) => {
       const next = !m
@@ -240,7 +270,17 @@ export default function CallPopup() {
           {!((isInCall && wantsVideo) || (isCalling && wantsVideo)) && (
             <div className="call-popup-info">
               <div className={`call-avatar-wrap ${isIncoming ? 'call-avatar-wrap--ring' : ''}`}>
-                <div className="call-avatar">{getInitials(peerName)}</div>
+                <div className="call-avatar" style={{ overflow: 'hidden', padding: peerPhotoUrl ? 0 : undefined }}>
+                  {peerPhotoUrl ? (
+                    <img
+                      src={peerPhotoUrl}
+                      alt={peerName}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    getInitials(peerName)
+                  )}
+                </div>
                 {isIncoming && (
                   <>
                     <div className="call-ring call-ring--1" />

@@ -419,6 +419,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       socket.on('connect', () => {
         socket.emit('call:register', { employeeID: empId })
+        socket.emit('join', { employeeID: empId })
+        socket.emit('join', { employeeId: empId })
+        socket.emit('join', empId)
+        socket.emit('joinRoom', { employeeID: empId })
+        socket.emit('joinRoom', { employeeId: empId })
+        socket.emit('joinRoom', empId)
+        socket.emit('join_room', { employeeID: empId })
+        socket.emit('join_room', { employeeId: empId })
+        socket.emit('join_room', empId)
+        socket.emit('join', `emp_${empId}`)
+        socket.emit('joinRoom', `emp_${empId}`)
       })
     }
 

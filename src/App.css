@@ -98,11 +98,18 @@
   padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
 }
 
-/* Phone: make video call fullscreen (edge-to-edge) */
+/* Phone: make video call fullscreen (edge-to-edge) and audio responsive */
 @media (max-width: 768px) {
   .call-popup-overlay {
-    align-items: stretch;
-    justify-content: stretch;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+
+  .call-popup-card {
+    padding: 1.75rem 1.25rem 1.5rem;
+    width: 100%;
+    max-width: 340px;
   }
 
   .call-popup-card--video {
@@ -111,6 +118,7 @@
     min-width: 0;
     height: 100dvh;
     border-radius: 0;
+    padding: 0;
   }
 
   /* Incoming video call (no remote video yet): center avatar + buttons, avoid blank bottom. */

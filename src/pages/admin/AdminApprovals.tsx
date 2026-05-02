@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import * as XLSX from 'xlsx'
+import { readSheet } from 'read-excel-file/browser'
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useApprovals, type ApprovalRequest, type ApprovalStatus } from '../../contexts/ApprovalsContext'
 import { useEmployees, DEFAULT_PASSWORD } from '../../contexts/EmployeesContext'
@@ -115,29 +115,36 @@ function isInlinePreviewableMime(mime: string): boolean {
   return m.startsWith('image/') || m.includes('pdf') || m.startsWith('text/')
 }
 
-function parseSpreadsheetPreview(fileData: unknown): { headers: string[]; rows: string[][] } | null {
+function decodeBase64ToArrayBuffer(b64: string): ArrayBuffer | null {
   try {
-    let workbook: XLSX.WorkBook | null = null
+    const binary = atob(b64.replace(/\s/g, ''))
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+    return bytes.buffer
+  } catch {
+    return null
+  }
+}
+
+async function parseSpreadsheetPreview(fileData: unknown): Promise<{ headers: string[]; rows: string[][] } | null> {
+  try {
+    let input: ArrayBuffer | null = null
     if (typeof fileData === 'string') {
       const s = fileData.trim()
       if (!s) return null
       if (s.startsWith('data:')) {
         const comma = s.indexOf(',')
         if (comma < 0) return null
-        const b64 = s.slice(comma + 1)
-        workbook = XLSX.read(b64, { type: 'base64' })
+        input = decodeBase64ToArrayBuffer(s.slice(comma + 1))
       } else {
-        // Backend commonly returns raw base64.
-        workbook = XLSX.read(s, { type: 'base64' })
+        input = decodeBase64ToArrayBuffer(s)
       }
     } else if (Array.isArray(fileData) && fileData.every((n) => Number.isFinite(n))) {
-      workbook = XLSX.read(new Uint8Array(fileData as number[]), { type: 'array' })
+      const u8 = new Uint8Array(fileData as number[])
+      input = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)
     }
-    if (!workbook || workbook.SheetNames.length === 0) return null
-    const firstSheet = workbook.SheetNames[0]
-    const ws = workbook.Sheets[firstSheet]
-    if (!ws) return null
-    const matrix = XLSX.utils.sheet_to_json<(string | number | boolean | null)[]>(ws, { header: 1, raw: false, blankrows: false })
+    if (!input) return null
+    const matrix = await readSheet(input)
     if (!Array.isArray(matrix) || matrix.length === 0) return null
     const rowsAsStrings = matrix.map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? '')) : []))
     const headers = rowsAsStrings[0] ?? []
@@ -368,15 +375,18 @@ export default function AdminApprovals() {
     if (proofHref && canOpenProofDirectly(proofHref)) {
       const fileName = String((row as Record<string, unknown>).fileName ?? row.title ?? `leave-proof-${sid || rid || 'file'}`)
       const mime = resolvePreviewMime(String((row as Record<string, unknown>).fileName ?? ''), typeof proofRaw === 'string' ? proofRaw : '', proofHref)
-      const sheet = mime.includes('spreadsheetml') || mime.includes('ms-excel') ? parseSpreadsheetPreview(proofHref) : null
-      setLeaveDetailProof({ loading: false, src: proofHref, mime, fileName, sheet, error: null })
+      void (async () => {
+        const sheet =
+          mime.includes('spreadsheetml') || mime.includes('ms-excel') ? await parseSpreadsheetPreview(proofHref) : null
+        setLeaveDetailProof({ loading: false, src: proofHref, mime, fileName, sheet, error: null })
+      })()
       return
     }
 
     if (sid > 0) {
       setLeaveDetailProof({ loading: true, src: null, mime: '', fileName: '', sheet: null, error: null })
       void fetchFileLeaveById(sid)
-        .then((one) => {
+        .then(async (one) => {
           const r = one as unknown as Record<string, unknown>
           // Try all common field names for the original filename
           const fileName = String(
@@ -399,7 +409,8 @@ export default function AdminApprovals() {
             if (detected !== 'application/octet-stream') mime = detected
           }
 
-          const sheet = mime.includes('spreadsheetml') || mime.includes('ms-excel') ? parseSpreadsheetPreview(rawFileData) : null
+          const sheet =
+            mime.includes('spreadsheetml') || mime.includes('ms-excel') ? await parseSpreadsheetPreview(rawFileData) : null
           const fromFileData = asDataUrlFromUnknownFileData(rawFileData, mime)
           if (fromFileData) {
             const src = fromFileData.startsWith('/') ? resolveProofFileUrl(fromFileData) ?? '' : fromFileData

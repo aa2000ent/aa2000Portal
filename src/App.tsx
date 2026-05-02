@@ -7,6 +7,8 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import { ActivityLogProvider } from './contexts/ActivityLogContext'
 import { ApplicationsProvider } from './contexts/ApplicationsContext'
 import { ChatProvider } from './contexts/ChatContext'
+import { CallProvider } from './contexts/CallContext'
+import CallPopup from './components/CallPopup'
 
 const Login = lazy(() => import('./pages/Login'))
 const Register = lazy(() => import('./pages/Register'))
@@ -81,6 +83,7 @@ function App() {
     <ActivityLogProvider>
       <ApplicationsProvider>
         <ChatProvider>
+        <CallProvider>
           <BrowserRouter>
             <ErrorBoundary fallback={<RootErrorFallback />}>
             <Suspense fallback={<PageLoader />}>
@@ -183,6 +186,8 @@ function App() {
             </Suspense>
             </ErrorBoundary>
           </BrowserRouter>
+          <CallPopup />
+        </CallProvider>
         </ChatProvider>
       </ApplicationsProvider>
     </ActivityLogProvider>

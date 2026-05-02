@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, Suspense, useMemo } from 'react'
-import { Outlet, NavLink, useNavigate, useLocation, matchPath } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, matchPath } from 'react-router-dom'
 import { io, type Socket } from 'socket.io-client'
 import ErrorBoundary from '../components/ErrorBoundary'
 import ConfirmDialog from '../components/ConfirmDialog'
+import CallPopup from '../components/CallPopup'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { getConversationId, useChat } from '../contexts/ChatContext'
 import { useSidebar } from '../contexts/SidebarContext'
@@ -193,10 +194,9 @@ function buildSocketBaseUrl(): string {
 }
 
 export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
-  const navigate = useNavigate()
   const location = useLocation()
   const { addEntry } = useActivityLog()
-  const { messages, getUnreadCount, upsertMessages } = useChat()
+  const { messages, getUnreadCount, upsertMessages, chatPollingActive } = useChat()
   const { isOpen: isSidebarOpen, setOpen: setSidebarOpen, scrollContainerRef, savedScrollTopRef } = useSidebar()
   const [isCollapsed, setCollapsed] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({})
@@ -236,7 +236,8 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
         target: 'Portal',
         details: 'Session ended',
       })
-      navigate('/', { replace: true })
+      // Hard redirect so Edge and all browsers fully reset React state and session.
+      window.location.replace('/')
     })()
   }
 
@@ -279,6 +280,8 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
     let socket: Socket | null = null
 
     const syncUnreadMessages = async () => {
+      // ChatPage is already polling — skip to avoid double requests and flooding.
+      if (chatPollingActive) return
       const accId = Number(getPortalAccountId() ?? 0)
       const username = String(getPortalUsername() ?? '').trim().toLowerCase()
       if (!accId && !username) return
@@ -364,7 +367,15 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
       const signedEmpId = Number(signedEmployee?.id ?? 0)
       if (!Number.isFinite(signedEmpId) || signedEmpId <= 0 || cancelled) return
 
-      socket = io(buildSocketBaseUrl(), { transports: ['websocket', 'polling'], withCredentials: true })
+      socket = io(buildSocketBaseUrl(), {
+        transports: ['websocket', 'polling'],
+        withCredentials: true,
+        timeout: 4000,
+        reconnection: true,
+        reconnectionAttempts: 20,
+        reconnectionDelay: 500,
+        reconnectionDelayMax: 3000,
+      })
       socket.on('connect', () => {
         socket?.emit('join', { employeeID: signedEmpId })
         socket?.emit('join', { employeeId: signedEmpId })
@@ -406,7 +417,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
         socket = null
       }
     }
-  }, [upsertMessages])
+  }, [upsertMessages, chatPollingActive])
 
   // Restore scroll position after sidebar open/close or collapse/expand
   useEffect(() => {
@@ -465,20 +476,20 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
       <aside
         ref={sidebarRef}
         className={`sidebar-panel
-          flex flex-col px-4 pt-6 pb-3
+          flex flex-col min-h-0 px-4 pt-6 pb-3
           md:fixed md:top-[var(--dashboard-header-h)] md:left-0 md:bottom-0 md:z-40
           md:transition-[transform,width,min-width] md:duration-300 md:ease-[cubic-bezier(0.4,0,0.2,1)]
           w-[240px] min-w-[240px]
           md:[contain:layout_style] md:translate-z-0
           ${isTransitioning ? 'md:will-change-[width,min-width]' : ''}
           ${showCollapsed ? 'md:w-[76px] md:min-w-[76px] md:overflow-visible' : ''}
-          max-md:fixed max-md:left-0 max-md:top-[var(--dashboard-header-h)] max-md:bottom-0 max-md:w-[200px] max-md:min-w-[200px] max-md:p-3 max-md:pt-4 max-md:pb-0
+          max-md:fixed max-md:left-0 max-md:top-[var(--dashboard-header-h)] max-md:bottom-auto max-md:w-[min(280px,calc(100vw-12px))] max-md:min-w-0 max-md:max-w-[calc(100vw-12px)] max-md:p-3 max-md:pt-4 max-md:pb-0
           max-md:-translate-x-full max-md:transition-transform max-md:duration-300 max-md:ease-[cubic-bezier(0.4,0,0.2,1)] max-md:z-[1001] max-md:flex max-md:flex-col max-md:overflow-hidden
           ${isSidebarOpen && isMobile ? 'max-md:translate-x-0 max-md:shadow-xl' : ''}
         `}
         aria-label={`${roleLabel} navigation`}
       >
-        <nav className="sidebar-panel-nav flex flex-col gap-1 pt-1 px-2 flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain">
+        <nav className="sidebar-panel-nav flex flex-col gap-1 pt-1 px-2 pb-6 flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-clip overscroll-y-contain">
           {navItems.length > 0 ? (
             navItems.map(({ to, label, end, icon, children }) => {
               const childItems = children ?? []
@@ -524,7 +535,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
               }
 
               return (
-                <div key={to} className="sidebar-nav-group">
+                <div key={to} className="sidebar-nav-group min-w-0">
                   <button
                     type="button"
                     className={`sidebar-nav-link sidebar-nav-link--parent flex w-full min-w-0 items-center gap-3 py-3 px-3 min-h-[44px] rounded-lg border-none text-sm font-medium bg-transparent cursor-pointer ${isParentActive ? 'active' : ''} ${showCollapsed ? 'md:justify-center md:px-0 md:gap-0' : ''}`}
@@ -564,7 +575,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
                           onClick={() => window.innerWidth <= 768 && setSidebarOpen(false)}
                           title={child.label}
                         >
-                          <span className="sidebar-nav-label sidebar-nav-label--subnav min-w-0 flex-1 whitespace-normal break-words text-left leading-snug block">
+                          <span className="sidebar-nav-label--subnav min-w-0 flex-1 text-left text-[13px] leading-snug break-words whitespace-normal block">
                             {child.label}
                           </span>
                         </NavLink>
@@ -632,6 +643,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
         onConfirm={handleLogoutConfirm}
         onCancel={() => setSignOutConfirmOpen(false)}
       />
+      <CallPopup />
       <div
         ref={mainContentScrollRef}
         className="flex-1 min-w-0 pt-4 pb-10 px-8 max-md:pt-4 max-md:pb-8 max-md:px-5 max-md:block md:transition-[margin-left] md:duration-300 md:ease-[cubic-bezier(0.4,0,0.2,1)] overflow-y-auto overflow-x-hidden"

@@ -38,6 +38,9 @@ type ChatContextValue = {
   markConversationRead: (conversationId: string) => void
   panelOpen: boolean
   setPanelOpen: (open: boolean) => void
+  /** True while ChatPage is mounted and polling — SidebarLayout skips its own poll to avoid double requests. */
+  chatPollingActive: boolean
+  setChatPollingActive: (active: boolean) => void
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null)
@@ -143,6 +146,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   })
   const [panelOpen, setPanelOpen] = useState(false)
+  const [chatPollingActive, setChatPollingActive] = useState(false)
 
   useEffect(() => {
     try {
@@ -283,8 +287,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       markConversationRead,
       panelOpen,
       setPanelOpen,
+      chatPollingActive,
+      setChatPollingActive,
     }),
-    [messages, getMessagesForConversation, getLastMessageForConversation, addMessage, upsertMessages, setMessageStatus, markLatestOwnMessageSeen, getUnreadCount, markConversationRead, panelOpen]
+    [messages, getMessagesForConversation, getLastMessageForConversation, addMessage, upsertMessages, setMessageStatus, markLatestOwnMessageSeen, getUnreadCount, markConversationRead, panelOpen, chatPollingActive]
   )
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>

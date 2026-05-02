@@ -63,6 +63,24 @@ export type LogoutResponse = {
   message: string
 }
 
+/** Per-endpoint ceiling so logout never waits on a hung Tailscale/backend `fetch()` (defaults are unbounded). */
+const LOGOUT_FETCH_TIMEOUT_MS = 4500
+
+function logoutAbortSignal(timeoutMs: number): AbortSignal {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(timeoutMs)
+  }
+  const c = new AbortController()
+  setTimeout(() => c.abort(), timeoutMs)
+  return c.signal
+}
+
+function isAbortError(e: unknown): boolean {
+  if (e instanceof DOMException && e.name === 'AbortError') return true
+  if (e instanceof Error && e.name === 'AbortError') return true
+  return false
+}
+
 /**
  * POST body: `{ username }`. Paths from `getLogoutCandidatePaths()` (see `VITE_LOGOUT_PATH` in `.env.example`).
  * All attempts use quiet logging; local sign-out still runs if the server has no route.
@@ -80,11 +98,16 @@ export async function logoutSecurity(username: string | null | undefined): Promi
         method: 'POST',
         body,
         portal: { suppressFailureLog: true },
+        signal: logoutAbortSignal(LOGOUT_FETCH_TIMEOUT_MS),
       })
       return
     } catch (e) {
       lastErr = e
     }
+  }
+
+  if (isAbortError(lastErr)) {
+    console.info('[Portal] Logout API timed out (slow/offline backend); cleared local session anyway.')
   }
 
   const msg = lastErr instanceof Error ? lastErr.message : String(lastErr ?? '')

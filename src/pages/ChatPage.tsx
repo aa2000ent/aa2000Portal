@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { io, type Socket } from 'socket.io-client'
 import { useChat, getConversationId } from '../contexts/ChatContext'
+import { useCall } from '../contexts/CallContext'
 import { useEmployees } from '../contexts/EmployeesContext'
 import { apiRequest, getPortalAccountId, getPortalEmpId, getPortalUsername } from '../api/client'
 import { getBaseUrl } from '../api/config'
@@ -69,15 +70,6 @@ type StoryPreview = {
   avatarUrl?: string
   date?: string
 }
-
-type SocketCallIncoming = {
-  callId: string
-  callerId: number
-  callerName?: string
-  offer: RTCSessionDescriptionInit
-}
-
-type CallPhase = 'idle' | 'calling' | 'ringing' | 'in_call'
 
 /** POST /webhook/conversation/:receiverEmpID success body (matches Express handler). */
 type ConversationWebhookPostData = {
@@ -402,11 +394,35 @@ export default function ChatPage() {
     if (Number.isFinite(currentParticipantEmpId) && (currentParticipantEmpId as number) > 0) {
       return currentParticipantEmpId as number
     }
-    const fromSession = getPortalEmpId()
-    if (fromSession != null && Number.isFinite(fromSession) && fromSession > 0) return fromSession
+    // Check employees list first — gives the real Emp_ID, not acc_ID.
     if (signedEmployee?.id && signedEmployee.id > 0) return Number(signedEmployee.id)
+    // Only use session value if it actually matches a known employee (avoids acc_ID confusion).
+    const fromSession = getPortalEmpId()
+    if (fromSession != null && Number.isFinite(fromSession) && fromSession > 0) {
+      if (employees.some((e) => Number(e.id) === fromSession)) return fromSession
+    }
+
+    // Fallback: match by username/email in employees list.
+    if (signedUsername) {
+      const key = signedUsername.trim().toLowerCase()
+      const byEmail = employees.find((e) =>
+        String(e.email ?? '').trim().toLowerCase() === key ||
+        String(e.email ?? '').trim().toLowerCase().split('@')[0] === key
+      )
+      if (byEmail?.id) return Number(byEmail.id)
+      const byName = employees.find((e) => String(e.name ?? '').trim().toLowerCase() === key)
+      if (byName?.id) return Number(byName.id)
+    }
+
+    // Last resort: match by role label (only if exactly 1 employee has that role).
+    const rk = roleLabel.trim().toLowerCase()
+    if (rk) {
+      const byRole = employees.filter((e) => String(e.role ?? '').trim().toLowerCase() === rk)
+      if (byRole.length === 1 && byRole[0].id) return Number(byRole[0].id)
+    }
+
     return null
-  }, [currentParticipantEmpId, signedEmployee?.id])
+  }, [currentParticipantEmpId, signedEmployee?.id, employees, signedUsername, roleLabel])
   const currentDisplayName = useMemo(() => {
     const signedName = String(signedEmployee?.name ?? '').trim()
     if (signedName) return signedName
@@ -434,7 +450,14 @@ export default function ChatPage() {
     markLatestOwnMessageSeen,
     getUnreadCount,
     markConversationRead,
+    setChatPollingActive,
   } = useChat()
+
+  // Tell SidebarLayout to pause its own polling while ChatPage is mounted.
+  useEffect(() => {
+    setChatPollingActive(true)
+    return () => setChatPollingActive(false)
+  }, [setChatPollingActive])
   const [inputValue, setInputValue] = useState('')
   const [searchUser, setSearchUser] = useState('')
   const [selectedUser, setSelectedUser] = useState<string | null>(null)
@@ -459,79 +482,13 @@ export default function ChatPage() {
   const listRef = useRef<HTMLDivElement>(null)
   const newChatRef = useRef<HTMLDivElement>(null)
   const socketRef = useRef<Socket | null>(null)
-  const [socketConnected, setSocketConnected] = useState(false)
-  const [callPhase, setCallPhase] = useState<CallPhase>('idle')
-  const [callError, setCallError] = useState('')
-  const [incomingCall, setIncomingCall] = useState<SocketCallIncoming | null>(null)
-  const [callPeerName, setCallPeerName] = useState('')
-  const currentCallIdRef = useRef<string | null>(null)
-  const currentCallPeerEmpIdRef = useRef<number | null>(null)
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
-  const localStreamRef = useRef<MediaStream | null>(null)
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
-  const pendingIceRef = useRef<RTCIceCandidateInit[]>([])
-  const callPhaseRef = useRef<CallPhase>('idle')
+  const { bindCallSocket, startCall, endCall: endCallAction, callPhase, callError, callPeerName } = useCall()
+  const forceSyncRef = useRef<(() => void) | null>(null)
+  const pollAbortRef = useRef<AbortController | null>(null)
+  const sendInFlightRef = useRef(false)
   const lastSubmitRef = useRef<{ signature: string; at: number } | null>(null)
   const conversationItemRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const previousConversationTopsRef = useRef<Map<string, number>>(new Map())
-
-  const teardownCall = (options?: { keepLocalStream?: boolean }) => {
-    const pc = peerConnectionRef.current
-    if (pc) {
-      pc.onicecandidate = null
-      pc.ontrack = null
-      pc.close()
-    }
-    peerConnectionRef.current = null
-    pendingIceRef.current = []
-    currentCallIdRef.current = null
-    currentCallPeerEmpIdRef.current = null
-    setCallPhase('idle')
-    setCallPeerName('')
-    setIncomingCall(null)
-    if (!options?.keepLocalStream && localStreamRef.current) {
-      for (const track of localStreamRef.current.getTracks()) track.stop()
-      localStreamRef.current = null
-    }
-    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null
-  }
-
-  useEffect(() => {
-    callPhaseRef.current = callPhase
-  }, [callPhase])
-
-  const ensureAudioStream = async (): Promise<MediaStream> => {
-    if (localStreamRef.current) return localStreamRef.current
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-    localStreamRef.current = stream
-    return stream
-  }
-
-  const ensurePeerConnection = (targetEmpId: number): RTCPeerConnection => {
-    const existing = peerConnectionRef.current
-    if (existing) return existing
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    })
-    pc.onicecandidate = (event) => {
-      if (!event.candidate) return
-      socketRef.current?.emit('call:ice-candidate', {
-        targetId: targetEmpId,
-        candidate: event.candidate,
-      })
-    }
-    pc.ontrack = (event) => {
-      if (!remoteAudioRef.current) return
-      const [stream] = event.streams
-      if (!stream) return
-      remoteAudioRef.current.srcObject = stream
-      void remoteAudioRef.current.play().catch(() => {
-        // Browser autoplay policies may block until user interaction.
-      })
-    }
-    peerConnectionRef.current = pc
-    return pc
-  }
 
   const allChatUsers = useMemo<ChatUser[]>(() => {
     const fromEmployees = employees
@@ -628,6 +585,8 @@ export default function ChatPage() {
     () => otherUsers.find((u) => u.id === selectedUser) ?? null,
     [otherUsers, selectedUser],
   )
+  const selectedUserObjRef = useRef(selectedUserObj)
+  selectedUserObjRef.current = selectedUserObj
   const conversationId = selectedUser ? getConversationId(currentParticipantId, selectedUser) : null
   const messages = useMemo(
     () => (conversationId ? getMessagesForConversation(conversationId) : []),
@@ -877,17 +836,18 @@ export default function ChatPage() {
     const targetEmployeeIds = meEmpIdForChat && meEmpIdForChat > 0 ? [meEmpIdForChat] : []
     if (targetEmployeeIds.length === 0) return
 
-    const selectedPeerEmpId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
-    const fromQuery =
-      selectedPeerEmpId && selectedPeerEmpId > 0
-        ? `?from=${encodeURIComponent(String(selectedPeerEmpId))}`
-        : ''
+    const fetchConversationHistory = () => {
+      // Abort any previous pending poll before starting a new one.
+      if (pollAbortRef.current) pollAbortRef.current.abort()
+      const controller = new AbortController()
+      pollAbortRef.current = controller
 
-    const fetchConversationHistory = () =>
-      Promise.all(
+      return Promise.all(
         targetEmployeeIds.map((employeeId) =>
-          apiRequest<WebhookConversationResponse>(`/ai-services-conversation-chat/webhook/conversation/${employeeId}${fromQuery}`, {
+          apiRequest<WebhookConversationResponse>(`/ai-services-conversation-chat/webhook/conversation/${employeeId}`, {
             method: 'GET',
+            cache: 'no-store',
+            signal: controller.signal,
             portal: { suppressFailureLog: true },
           })
             .then((res) => ({
@@ -1101,22 +1061,37 @@ export default function ChatPage() {
         }
         if (parsed.length > 0) upsertMessages(parsed)
       })
-
-    let timer: number | null = null
-    const runSync = () => {
-      void fetchConversationHistory()
     }
 
-    // Immediate sync on mount and periodic sync to ensure cross-user delivery
-    // even if websocket events are dropped/mismatched.
+    let timer: number | null = null
+    let syncInFlight = false
+    const runSync = () => {
+      if (syncInFlight || sendInFlightRef.current) return
+      syncInFlight = true
+      fetchConversationHistory().finally(() => { syncInFlight = false })
+    }
+
+    forceSyncRef.current = runSync
+
+    // Immediate sync on mount.
     runSync()
-    // Open thread: poll often — many users “can send but not receive” when WS is flaky but still “connected”.
-    // List view: slow down when socket is up to save traffic.
-    const pollMs = fromQuery ? 4000 : socketConnected ? 45_000 : 8000
+
+    // Poll every 1500ms — fast enough for near-realtime, avoids flooding with large responses.
+    const pollMs = 1500
     timer = window.setInterval(runSync, pollMs)
 
+    // Sync immediately when tab becomes visible or window regains focus.
+    const onVisible = () => { if (document.visibilityState === 'visible') runSync() }
+    const onFocus = () => runSync()
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onFocus)
+
     return () => {
+      forceSyncRef.current = null
       if (timer != null) window.clearInterval(timer)
+      if (pollAbortRef.current) { pollAbortRef.current.abort(); pollAbortRef.current = null }
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onFocus)
     }
   }, [
     meEmpIdForChat,
@@ -1126,7 +1101,6 @@ export default function ChatPage() {
     currentDisplayName,
     upsertMessages,
     selectedUser,
-    socketConnected,
   ])
 
   useEffect(() => {
@@ -1144,20 +1118,30 @@ export default function ChatPage() {
 
     const socketBase = buildSocketBaseUrl()
     const socket = io(socketBase, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
       withCredentials: true,
+      timeout: 4000,
       reconnection: true,
-      reconnectionAttempts: 20,
-      reconnectionDelay: 800,
+      reconnectionAttempts: 50,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 3000,
+      randomizationFactor: 0.1,
     })
     socketRef.current = socket
 
+    const registerEmpId = meEmpIdForChat ?? signedEmployee?.id ?? null
+    bindCallSocket(
+      socket,
+      registerEmpId && registerEmpId > 0 ? { empId: registerEmpId, displayName: currentDisplayName } : null,
+    )
+
     socket.on('connect', () => {
-      setSocketConnected(true)
-      const registerEmpId = meEmpIdForChat ?? signedEmployee?.id ?? null
-      if (registerEmpId && registerEmpId > 0) {
-        socket.emit('call:register', { employeeID: registerEmpId })
+      const emp = meEmpIdForChat ?? signedEmployee?.id ?? null
+      if (emp && emp > 0) {
+        socket.emit('call:register', { employeeID: emp })
       }
+      // Immediately sync on (re)connect to catch any messages missed while disconnected.
+      forceSyncRef.current?.()
       for (const employeeId of targetEmployeeIds) {
         // Support multiple backend room-join conventions.
         socket.emit('join', { employeeID: employeeId })
@@ -1172,82 +1156,6 @@ export default function ChatPage() {
         socket.emit('join', `emp_${employeeId}`)
         socket.emit('joinRoom', `emp_${employeeId}`)
       }
-    })
-
-    socket.on('disconnect', () => {
-      setSocketConnected(false)
-    })
-
-    socket.on('connect_error', () => {
-      setSocketConnected(false)
-    })
-
-    socket.on('call:error', (payload: { message?: string }) => {
-      setCallError(String(payload?.message ?? 'Call failed.').trim() || 'Call failed.')
-      teardownCall()
-    })
-
-    socket.on('call:initiated', (payload: { callId?: string }) => {
-      if (payload?.callId) currentCallIdRef.current = payload.callId
-      setCallPhase('ringing')
-    })
-
-    socket.on('call:incoming', (payload: SocketCallIncoming) => {
-      if (callPhaseRef.current !== 'idle') {
-        socket.emit('call:reject', {
-          callId: payload.callId,
-          callerId: payload.callerId,
-        })
-        return
-      }
-      setIncomingCall(payload)
-      setCallPhase('ringing')
-      setCallPeerName(String(payload.callerName ?? `Employee ${payload.callerId}`))
-      currentCallIdRef.current = payload.callId
-      currentCallPeerEmpIdRef.current = Number(payload.callerId)
-    })
-
-    socket.on('call:answered', async (payload: { callId?: string; answer?: RTCSessionDescriptionInit }) => {
-      const pc = peerConnectionRef.current
-      if (!pc || !payload?.answer) return
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(payload.answer))
-        for (const c of pendingIceRef.current) {
-          await pc.addIceCandidate(new RTCIceCandidate(c))
-        }
-        pendingIceRef.current = []
-        setCallPhase('in_call')
-      } catch {
-        setCallError('Failed to establish call.')
-        teardownCall()
-      }
-    })
-
-    socket.on('call:rejected', () => {
-      setCallError('Call was rejected.')
-      teardownCall()
-    })
-
-    socket.on('call:ice-candidate', async (payload: { candidate?: RTCIceCandidateInit }) => {
-      if (!payload?.candidate) return
-      const pc = peerConnectionRef.current
-      if (!pc) {
-        pendingIceRef.current.push(payload.candidate)
-        return
-      }
-      try {
-        if (pc.remoteDescription) {
-          await pc.addIceCandidate(new RTCIceCandidate(payload.candidate))
-        } else {
-          pendingIceRef.current.push(payload.candidate)
-        }
-      } catch {
-        // Ignore invalid ICE candidate payloads.
-      }
-    })
-
-    socket.on('call:ended', () => {
-      teardownCall()
     })
 
     const onIncomingMessage = (evt: {
@@ -1411,7 +1319,7 @@ export default function ChatPage() {
     socket.on('conversationMessage', onIncomingMessage)
 
     return () => {
-      setSocketConnected(false)
+      bindCallSocket(null, null)
       for (const employeeId of targetEmployeeIds) {
         socket.emit('leave', { employeeID: employeeId })
         socket.emit('leave', { employeeId })
@@ -1432,14 +1340,6 @@ export default function ChatPage() {
       socket.off('receiveMessage', onIncomingMessage)
       socket.off('conversation_message', onIncomingMessage)
       socket.off('conversationMessage', onIncomingMessage)
-      socket.off('call:error')
-      socket.off('call:initiated')
-      socket.off('call:incoming')
-      socket.off('call:answered')
-      socket.off('call:rejected')
-      socket.off('call:ice-candidate')
-      socket.off('call:ended')
-      teardownCall()
       socket.disconnect()
       socketRef.current = null
     }
@@ -1453,166 +1353,129 @@ export default function ChatPage() {
     upsertMessages,
     signedEmployee,
     markLatestOwnMessageSeen,
+    bindCallSocket,
+    currentDisplayName,
   ])
 
-  useEffect(() => {
-    return () => {
-      teardownCall()
-    }
-  }, [])
-
   const handleStartVoiceCall = async () => {
-    setCallError('')
     if (callPhase !== 'idle') return
     const calleeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
-    const callerId = meEmpIdForChat ?? signedEmployee?.id ?? null
-    if (!(calleeId && calleeId > 0) || !(callerId && callerId > 0)) {
-      setCallError('Only employees can be called.')
-      return
-    }
-    const socket = socketRef.current
-    if (!socket || !socket.connected) {
-      setCallError('Socket is not connected.')
-      return
-    }
-    currentCallPeerEmpIdRef.current = calleeId
-    setCallPeerName(selectedUserObj?.name ?? `Employee ${calleeId}`)
-    try {
-      const stream = await ensureAudioStream()
-      const pc = ensurePeerConnection(calleeId)
-      for (const track of stream.getTracks()) pc.addTrack(track, stream)
-      const offer = await pc.createOffer()
-      await pc.setLocalDescription(offer)
-      setCallPhase('calling')
-      socket.emit('call:offer', {
-        callerId,
-        calleeId,
-        callerName: currentDisplayName,
-        offer,
-      })
-    } catch {
-      setCallError('Microphone access denied or unavailable.')
-      teardownCall()
-    }
+    if (!(calleeId && calleeId > 0)) return
+    await startCall(calleeId, selectedUserObj?.name ?? `Employee ${calleeId}`, 'audio')
   }
 
-  const handleAcceptCall = async () => {
-    const incoming = incomingCall
-    if (!incoming) return
-    const socket = socketRef.current
-    if (!socket || !socket.connected) {
-      setCallError('Socket is not connected.')
-      teardownCall()
-      return
-    }
-    try {
-      const stream = await ensureAudioStream()
-      const pc = ensurePeerConnection(incoming.callerId)
-      for (const track of stream.getTracks()) pc.addTrack(track, stream)
-      await pc.setRemoteDescription(new RTCSessionDescription(incoming.offer))
-      const answer = await pc.createAnswer()
-      await pc.setLocalDescription(answer)
-      for (const c of pendingIceRef.current) {
-        await pc.addIceCandidate(new RTCIceCandidate(c))
-      }
-      pendingIceRef.current = []
-      socket.emit('call:answer', {
-        callId: incoming.callId,
-        callerId: incoming.callerId,
-        answer,
-      })
-      setIncomingCall(null)
-      setCallPhase('in_call')
-    } catch {
-      setCallError('Failed to answer call.')
-      teardownCall()
-    }
-  }
-
-  const handleRejectCall = () => {
-    const incoming = incomingCall
-    if (!incoming) return
-    socketRef.current?.emit('call:reject', {
-      callId: incoming.callId,
-      callerId: incoming.callerId,
-    })
-    setIncomingCall(null)
-    setCallPhase('idle')
-    setCallPeerName('')
-  }
-
-  const handleEndCall = () => {
-    const targetId = currentCallPeerEmpIdRef.current
-    const callId = currentCallIdRef.current
-    if (targetId && callId) {
-      socketRef.current?.emit('call:end', { callId, targetId })
-    }
-    teardownCall()
+  const handleStartVideoCall = async () => {
+    if (callPhase !== 'idle') return
+    const calleeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
+    if (!(calleeId && calleeId > 0)) return
+    await startCall(calleeId, selectedUserObj?.name ?? `Employee ${calleeId}`, 'video')
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const text = inputValue.trim()
     if (!text || !conversationId) return
-    const submitSignature = [conversationId, text.toLowerCase()].join('|')
+
+    // Prevent true double-tap within 300ms only.
+    const submitSignature = [conversationId, text.toLowerCase(), Date.now().toString()].join('|')
     const now = Date.now()
     if (
       lastSubmitRef.current &&
-      lastSubmitRef.current.signature === submitSignature &&
-      now - lastSubmitRef.current.at < 900
+      lastSubmitRef.current.signature.startsWith([conversationId, text.toLowerCase()].join('|')) &&
+      now - lastSubmitRef.current.at < 300
     ) {
       return
     }
     lastSubmitRef.current = { signature: submitSignature, at: now }
-    // Optimistic local append so the message doesn't "disappear" while waiting webhook/socket echo.
+
+    // Show message immediately in UI (optimistic).
     const optimisticId = addMessage(conversationId, currentDisplayName, text, { status: 'sending' })
-    if (optimisticId) setMessageStatus(optimisticId, 'sent')
     setInputValue('')
 
-    // Trigger webhook logging when sender/receiver employee IDs are resolvable.
-    const selectedEmployeeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
-    const senderEmployeeId = meEmpIdForChat ?? signedEmployee?.id ?? null
-    if (!(selectedEmployeeId && selectedEmployeeId > 0) || !(senderEmployeeId && senderEmployeeId > 0)) return
-
-    if (selectedEmployeeId && selectedEmployeeId > 0) {
-      const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
-      if (!(senderEmployeeId > 0)) return
-      const endpoint = `/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`
-      void (async () => {
-        try {
-          const res = await apiRequest<{ success?: boolean; data?: ConversationWebhookPostData }>(endpoint, {
-            method: 'POST',
-            body: JSON.stringify({
-              senderEmpID: senderEmployeeId,
-              senderName: currentDisplayName,
-              receiverName: selectedMeta.name,
-              message: text,
-            }),
-            portal: { suppressFailureLog: true },
-          })
-          const payload = res && typeof res === 'object' ? res.data : undefined
-          const serverTs = payload?.timestamp ? String(payload.timestamp).trim() : ''
-          const serverText = String(payload?.message ?? text).trim()
-          const serverSender = String(payload?.senderName ?? currentDisplayName).trim() || currentDisplayName
-          if (serverTs && selectedUser && conversationId) {
-            upsertMessages([
-              {
-                id: buildMessageId(currentParticipantId, selectedUser, serverTs, serverText),
-                conversationId,
-                sender: serverSender,
-                text: serverText,
-                timestamp: serverTs,
-                status: 'delivered',
-              },
-            ])
-          } else if (optimisticId) {
-            setMessageStatus(optimisticId, 'delivered')
-          }
-        } catch {
-          // Keep chat UX responsive even if webhook logging fails.
-        }
-      })()
+    // Primary resolution via emp-id prefix.
+    let selectedEmployeeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
+    // Fallback: resolve by name or role from employees list (covers role:admin, role:finance, etc.)
+    if (!selectedEmployeeId && selectedUserObj) {
+      const nameKey = selectedUserObj.name.trim().toLowerCase()
+      const roleKey = selectedUserObj.role.trim().toLowerCase()
+      const byName = employees.find((e) => String(e.name ?? '').trim().toLowerCase() === nameKey)
+      if (byName?.id) {
+        selectedEmployeeId = Number(byName.id)
+      } else {
+        const byRole = employees.filter((e) => String(e.role ?? '').trim().toLowerCase() === roleKey)
+        if (byRole.length === 1 && byRole[0].id) selectedEmployeeId = Number(byRole[0].id)
+      }
     }
+
+    let senderEmployeeId: number | null = meEmpIdForChat ?? signedEmployee?.id ?? null
+    // Fallback: resolve sender by username/email from employees list.
+    if (!senderEmployeeId && signedUsername) {
+      const key = signedUsername.trim().toLowerCase()
+      const byEmail = employees.find((e) => String(e.email ?? '').trim().toLowerCase() === key || String(e.email ?? '').trim().toLowerCase().split('@')[0] === key)
+      if (byEmail?.id) senderEmployeeId = Number(byEmail.id)
+      if (!senderEmployeeId) {
+        const byName = employees.find((e) => String(e.name ?? '').trim().toLowerCase() === key)
+        if (byName?.id) senderEmployeeId = Number(byName.id)
+      }
+    }
+
+    // If IDs still can't be resolved, at least mark as sent locally so UI isn't stuck.
+    if (!(selectedEmployeeId && selectedEmployeeId > 0) || !(senderEmployeeId && senderEmployeeId > 0)) {
+      if (optimisticId) setMessageStatus(optimisticId, 'sent')
+      return
+    }
+
+    const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
+    const endpoint = `/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`
+    // Abort any pending poll so the connection is free for the POST.
+    if (pollAbortRef.current) { pollAbortRef.current.abort(); pollAbortRef.current = null }
+    sendInFlightRef.current = true
+
+    // 8-second timeout — ensures sendInFlightRef is always released even if server hangs.
+    const sendAbort = new AbortController()
+    const sendTimeout = window.setTimeout(() => sendAbort.abort(), 8000)
+
+    void (async () => {
+      try {
+        const res = await apiRequest<{ success?: boolean; data?: ConversationWebhookPostData }>(endpoint, {
+          method: 'POST',
+          signal: sendAbort.signal,
+          body: JSON.stringify({
+            senderEmpID: senderEmployeeId,
+            senderName: currentDisplayName,
+            receiverName: selectedMeta.name,
+            message: text,
+          }),
+          portal: { suppressFailureLog: true },
+        })
+        const payload = res && typeof res === 'object' ? res.data : undefined
+        const serverTs = payload?.timestamp ? String(payload.timestamp).trim() : ''
+        const serverText = String(payload?.message ?? text).trim()
+        const serverSender = String(payload?.senderName ?? currentDisplayName).trim() || currentDisplayName
+        if (serverTs && selectedUser && conversationId) {
+          upsertMessages([
+            {
+              id: buildMessageId(currentParticipantId, selectedUser, serverTs, serverText),
+              conversationId,
+              sender: serverSender,
+              text: serverText,
+              timestamp: serverTs,
+              status: 'delivered',
+            },
+          ])
+        } else if (optimisticId) {
+          setMessageStatus(optimisticId, 'delivered')
+        }
+      } catch {
+        // Keep message visible in UI even if server fails or times out.
+        if (optimisticId) setMessageStatus(optimisticId, 'sent')
+      } finally {
+        window.clearTimeout(sendTimeout)
+        sendInFlightRef.current = false
+        // Sync immediately after send so receiver sees the message fast.
+        forceSyncRef.current?.()
+      }
+    })()
   }
 
   return (
@@ -1841,14 +1704,20 @@ export default function ChatPage() {
                 {callError && <span className="messenger-thread-role">{callError}</span>}
               </div>
               <div className="messenger-thread-actions">
-                <button type="button" className="messenger-icon-btn" aria-label="Video call">
+                <button
+                  type="button"
+                  className="messenger-icon-btn"
+                  aria-label="Video call"
+                  onClick={callPhase === 'idle' ? () => void handleStartVideoCall() : endCallAction}
+                  disabled={!selectedUserObj || !getEmployeeIdFromChatUserId(selectedUserObj.id)}
+                >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
                 </button>
                 <button
                   type="button"
                   className="messenger-icon-btn"
                   aria-label={callPhase === 'idle' ? 'Voice call' : 'End call'}
-                  onClick={callPhase === 'idle' ? handleStartVoiceCall : handleEndCall}
+                  onClick={callPhase === 'idle' ? () => void handleStartVoiceCall() : endCallAction}
                   disabled={!selectedUserObj || !getEmployeeIdFromChatUserId(selectedUserObj.id)}
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></svg>
@@ -1859,19 +1728,6 @@ export default function ChatPage() {
               </div>
             </header>
             <div ref={listRef} className="messenger-messages">
-              {incomingCall && (
-                <div className="messenger-empty" style={{ marginBottom: '0.75rem' }}>
-                  Incoming call from {incomingCall.callerName || `Employee ${incomingCall.callerId}`}.
-                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
-                    <button type="button" className="messenger-icon-btn" onClick={handleAcceptCall} aria-label="Accept call">
-                      Accept
-                    </button>
-                    <button type="button" className="messenger-icon-btn" onClick={handleRejectCall} aria-label="Reject call">
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              )}
               {messages.length === 0 ? (
                 <p className="messenger-empty">No messages yet. Say hello!</p>
               ) : (
@@ -1956,7 +1812,6 @@ export default function ChatPage() {
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
               </button>
             </form>
-            <audio ref={remoteAudioRef} autoPlay style={{ display: 'none' }} />
           </>
         ) : (
           <div className="messenger-thread-placeholder">

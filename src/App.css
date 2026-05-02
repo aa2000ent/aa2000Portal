@@ -8714,3 +8714,13 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
 .online-employees-list li {
   padding: 0.2rem 0;
 }
+
+.online-employees-list-item {
+  list-style: none;
+  margin-left: -1.25rem;
+  padding-left: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}

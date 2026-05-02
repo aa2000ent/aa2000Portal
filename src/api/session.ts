@@ -23,6 +23,11 @@ export type ActiveEmployeeResponse = {
   Emp_fname: string
   Emp_mname?: string | null
   Emp_lname: string
+  s_ID?: number | string | null
+  sessionId?: number | string | null
+  sessionID?: number | string | null
+  acc_sessionID?: number | string | null
+  [key: string]: unknown
 }
 
 const DEFAULT_SESSION_PATH_PREFIXES = [
@@ -94,4 +99,21 @@ export async function fetchAllActiveEmployees(): Promise<ActiveEmployeeResponse[
   return apiRequest<ActiveEmployeeResponse[]>('/session/get/all-active-employees', {
     method: 'GET',
   })
+}
+
+/**
+ * Force logout a live session id.
+ * Matches backend route: PUT /session/update/session-logout/:id
+ */
+export async function forceLogoutSession(sessionId: number | string, s_status = 'Offline'): Promise<{
+  success?: boolean
+  message?: string
+}> {
+  return apiRequest<{ success?: boolean; message?: string }>(
+    `/session/update/session-logout/${encodeURIComponent(String(sessionId))}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ s_status }),
+    },
+  )
 }

@@ -22,7 +22,7 @@ import { useApplications } from '../../contexts/ApplicationsContext'
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { buildAdminDashboardSeries, buildPortalAppsAudiencePie } from '../../utils/dashboardAnalytics'
-import { fetchAllActiveEmployees, type ActiveEmployeeResponse } from '../../api/session'
+import { fetchAllActiveEmployees, forceLogoutSession, type ActiveEmployeeResponse } from '../../api/session'
 import ActiveAnnouncementsCard from '../../components/ActiveAnnouncementsCard'
 import DashboardStories from '../../components/DashboardStories'
 
@@ -96,6 +96,61 @@ export default function AdminDashboard() {
   const [isOnlineModalOpen, setIsOnlineModalOpen] = useState(false)
   const [isLoadingActiveEmployees, setIsLoadingActiveEmployees] = useState(false)
   const [activeEmployeesError, setActiveEmployeesError] = useState<string | null>(null)
+  const [offlineSubmittingSessionId, setOfflineSubmittingSessionId] = useState<string | null>(null)
+
+  const asRecord = (value: unknown): Record<string, unknown> =>
+    value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  const resolveSessionId = (employee: ActiveEmployeeResponse): string | null => {
+    const root = asRecord(employee)
+    const sessionObj = asRecord(root.Session)
+    const accountObj = asRecord(root.Account)
+    const candidate =
+      employee.s_ID ??
+      employee.sessionId ??
+      employee.sessionID ??
+      employee.acc_sessionID ??
+      root.s_ID ??
+      root.s_id ??
+      root.sessionId ??
+      root.sessionID ??
+      root.acc_sessionID ??
+      sessionObj.s_ID ??
+      sessionObj.s_id ??
+      sessionObj.sessionId ??
+      sessionObj.sessionID ??
+      accountObj.acc_sessionID
+    if (candidate == null) return null
+    const out = String(candidate).trim()
+    return out ? out : null
+  }
+
+  const resolveEmployeeFullName = (employee: ActiveEmployeeResponse): string => {
+    const root = asRecord(employee)
+    const nestedEmployee = asRecord(root.Employee)
+    const first = String(employee.Emp_fname ?? nestedEmployee.Emp_fname ?? '').trim()
+    const middle = String(employee.Emp_mname ?? nestedEmployee.Emp_mname ?? '').trim()
+    const last = String(employee.Emp_lname ?? nestedEmployee.Emp_lname ?? '').trim()
+    return [first, middle, last].filter(Boolean).join(' ') || 'Unknown employee'
+  }
+
+  const loadActiveEmployees = async (options?: { quiet?: boolean }) => {
+    if (!options?.quiet) {
+      setIsLoadingActiveEmployees(true)
+      setActiveEmployeesError(null)
+    }
+    try {
+      const data = await fetchAllActiveEmployees()
+      setActiveEmployees(Array.isArray(data) ? data : [])
+      if (!options?.quiet) setActiveEmployeesError(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load active employees.'
+      if (!options?.quiet) setActiveEmployeesError(message)
+      if (!options?.quiet) setActiveEmployees([])
+    } finally {
+      if (!options?.quiet) setIsLoadingActiveEmployees(false)
+    }
+  }
 
   useEffect(() => {
     if (!isOnlineModalOpen) return
@@ -110,26 +165,42 @@ export default function AdminDashboard() {
     }
   }, [isOnlineModalOpen])
 
+  useEffect(() => {
+    void loadActiveEmployees()
+    const timer = window.setInterval(() => {
+      void loadActiveEmployees({ quiet: true })
+    }, 20_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
   const handleOnlineNowClick = async () => {
     setIsOnlineModalOpen(true)
-    setIsLoadingActiveEmployees(true)
+    await loadActiveEmployees()
+  }
+
+  const handleMarkEmployeeOffline = async (employee: ActiveEmployeeResponse) => {
+    const sessionId = resolveSessionId(employee)
+    if (!sessionId) {
+      setActiveEmployeesError('Cannot logout this row: backend response is missing session s_ID.')
+      return
+    }
+    setOfflineSubmittingSessionId(sessionId)
     setActiveEmployeesError(null)
     try {
-      const data = await fetchAllActiveEmployees()
-      setActiveEmployees(Array.isArray(data) ? data : [])
+      await forceLogoutSession(sessionId, 'Offline')
+      await loadActiveEmployees()
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to load active employees.'
+      const message = error instanceof Error ? error.message : 'Failed to mark employee offline.'
       setActiveEmployeesError(message)
-      setActiveEmployees([])
     } finally {
-      setIsLoadingActiveEmployees(false)
+      setOfflineSubmittingSessionId(null)
     }
   }
 
   const stats: Array<{ label: string; value: number | string; icon: string }> = [
     { label: 'Total users', value: totalUsers, icon: 'users' },
     { label: 'Applications', value: apps.length, icon: 'apps' },
-    { label: 'Online now', value: activeEmployees.length > 0 ? activeEmployees.length : '—', icon: 'online' },
+    { label: 'Online now', value: activeEmployees.length, icon: 'online' },
     { label: 'Pending approval', value: pendingCount, icon: 'pending' },
   ]
 
@@ -368,9 +439,23 @@ export default function AdminDashboard() {
             ) : (
               <ul className="online-employees-list">
                 {activeEmployees.map((employee, index) => {
-                  const middle = employee.Emp_mname?.trim()
-                  const fullName = [employee.Emp_fname, middle, employee.Emp_lname].filter(Boolean).join(' ')
-                  return <li key={`${fullName}-${index}`}>{fullName}</li>
+                  const fullName = resolveEmployeeFullName(employee)
+                  const sessionId = resolveSessionId(employee)
+                  const disabled = !sessionId || offlineSubmittingSessionId === sessionId
+                  return (
+                    <li key={`${fullName}-${sessionId ?? index}`} className="online-employees-list-item">
+                      <span>{fullName}</span>
+                      <button
+                        type="button"
+                        className="employees-btn employees-btn-secondary"
+                        onClick={() => void handleMarkEmployeeOffline(employee)}
+                        disabled={disabled}
+                        aria-label={`Set ${fullName} offline`}
+                      >
+                        Offline
+                      </button>
+                    </li>
+                  )
                 })}
               </ul>
             )}

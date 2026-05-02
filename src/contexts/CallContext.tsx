@@ -346,6 +346,32 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       const onEnded = () => teardownCall()
 
+      const onChatMessage = (evt: any) => {
+        // Do not notify if they are actively looking at the chat page
+        const isChatPath = window.location.pathname.includes('/chat')
+        const isActiveChatWindow = isChatPath && document.visibilityState === 'visible'
+        
+        // Do not notify for our own messages sent from another session
+        const myEmpId = myEmpIdRef.current
+        const senderEmpId = Number(evt.senderEmpID)
+        const isOwnMessage = myEmpId && myEmpId > 0 && senderEmpId === myEmpId
+
+        if (isActiveChatWindow || isOwnMessage) return
+
+        const senderName = String(evt.senderName ?? evt.sender ?? 'Employee').trim()
+        const text = String(evt.message ?? evt.text ?? evt.content ?? 'Sent a new message').trim()
+
+        if (Notification.permission === 'granted') {
+          new Notification(`New message from ${senderName}`, { body: text })
+        } else if (Notification.permission !== 'denied') {
+          Notification.requestPermission().then((perm) => {
+            if (perm === 'granted') {
+              new Notification(`New message from ${senderName}`, { body: text })
+            }
+          })
+        }
+      }
+
       socket.on('call:error', onError)
       socket.on('call:initiated', onInitiated)
       socket.on('call:incoming', onIncoming)
@@ -353,6 +379,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       socket.on('call:rejected', onRejected)
       socket.on('call:ice-candidate', onIce)
       socket.on('call:ended', onEnded)
+
+      // Chat notifications
+      socket.on('message', onChatMessage)
+      socket.on('chat_message', onChatMessage)
+      socket.on('new_message', onChatMessage)
+      socket.on('receive_message', onChatMessage)
+      socket.on('receiveMessage', onChatMessage)
+      socket.on('conversation_message', onChatMessage)
 
       detachListenersRef.current = () => {
         socket.off('call:error', onError)
@@ -362,6 +396,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
         socket.off('call:rejected', onRejected)
         socket.off('call:ice-candidate', onIce)
         socket.off('call:ended', onEnded)
+        
+        socket.off('message', onChatMessage)
+        socket.off('chat_message', onChatMessage)
+        socket.off('new_message', onChatMessage)
+        socket.off('receive_message', onChatMessage)
+        socket.off('receiveMessage', onChatMessage)
+        socket.off('conversation_message', onChatMessage)
       }
     },
     [teardownCall],

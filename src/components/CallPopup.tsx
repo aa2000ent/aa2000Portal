@@ -66,6 +66,23 @@ export default function CallPopup() {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [uiFullscreen, setUiFullscreen] = useState(false)
   const videoCardRef = useRef<HTMLDivElement | null>(null)
+  const [controlsHidden, setControlsHidden] = useState(false)
+  const hideTimerRef = useRef<number | null>(null)
+
+  const clearHideTimer = () => {
+    if (hideTimerRef.current) {
+      window.clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+  }
+
+  const bumpControls = useCallback(() => {
+    setControlsHidden(false)
+    clearHideTimer()
+    hideTimerRef.current = window.setTimeout(() => {
+      setControlsHidden(true)
+    }, 5000)
+  }, [])
 
   const toggleFullscreen = async () => {
     const root = videoCardRef.current
@@ -105,6 +122,21 @@ export default function CallPopup() {
   useEffect(() => {
     if (callPhase === 'idle') { setMuted(false); setCamOff(false) }
   }, [callPhase])
+
+  // Auto-hide video call controls after inactivity.
+  useEffect(() => {
+    const activeVideo = callPhase === 'in_call' && (callType === 'video')
+    if (!activeVideo) {
+      setControlsHidden(false)
+      clearHideTimer()
+      return
+    }
+
+    bumpControls()
+    return () => {
+      clearHideTimer()
+    }
+  }, [callPhase, callType, bumpControls])
 
   const handleMute = () => {
     setMuted((m) => {
@@ -152,10 +184,14 @@ export default function CallPopup() {
           } ${uiFullscreen ? 'call-popup-card--ui-fullscreen' : ''} ${
             wantsVideo && (isCalling || isIncoming) && !isInCall ? 'call-popup-card--video-shell' : ''
           }`}
+          onMouseMove={isInCall && wantsVideo ? bumpControls : undefined}
+          onMouseDown={isInCall && wantsVideo ? bumpControls : undefined}
+          onTouchStart={isInCall && wantsVideo ? bumpControls : undefined}
+          onKeyDown={isInCall && wantsVideo ? bumpControls : undefined}
         >
           {/* ── Video call: connected (both sides — remote main, local PiP) ── */}
           {isInCall && wantsVideo && (
-            <div className="call-video-stage">
+            <div className="call-video-stage" onClick={bumpControls} role="presentation">
               <video ref={remoteVideoRef} className="call-video-remote" autoPlay playsInline />
               <video
                 ref={localVideoRef}
@@ -227,7 +263,7 @@ export default function CallPopup() {
           )}
 
           {/* ── Controls ──────────────────────────────── */}
-          <div className="call-controls">
+          <div className={`call-controls ${controlsHidden && isInCall && wantsVideo ? 'call-controls--hidden' : ''}`}>
 
             {isIncoming && (
               <>

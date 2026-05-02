@@ -34,6 +34,35 @@
   padding: 0;
   overflow: hidden;
   border-radius: 20px;
+  position: relative;
+}
+
+/* Native Fullscreen API: make the call UI truly edge-to-edge (desktop + mobile). */
+.call-popup-card--video:fullscreen,
+.call-popup-card--video:-webkit-full-screen {
+  width: 100vw;
+  max-width: 100vw;
+  min-width: 0;
+  height: 100dvh;
+  border-radius: 0;
+  background: #000;
+}
+
+.call-popup-card--video:fullscreen .call-video-stage,
+.call-popup-card--video:-webkit-full-screen .call-video-stage {
+  height: 100%;
+  aspect-ratio: auto;
+  background: #000;
+}
+
+.call-popup-card--video:fullscreen .call-controls,
+.call-popup-card--video:-webkit-full-screen .call-controls {
+  margin-top: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
 }
 
 /* Fallback fullscreen (no Fullscreen API, or user prefers overlay). */
@@ -56,7 +85,17 @@
   left: 0;
   right: 0;
   bottom: 0;
-  padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
+}
+
+/* Incoming/ringing shell: controls must stay at bottom consistently. */
+.call-popup-card--video.call-popup-card--video-shell .call-controls {
+  margin-top: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
 }
 
 /* Phone: make video call fullscreen (edge-to-edge) */
@@ -108,7 +147,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
+    padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -205,10 +244,12 @@
   right: 12px;
   width: 120px;
   aspect-ratio: 4/3;
-  object-fit: cover;
+  /* Show full self camera frame (no crop), especially on portrait mobile cameras. */
+  object-fit: contain;
+  background: transparent;
   border-radius: 12px;
-  border: 2px solid rgba(255,255,255,0.2);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  border: none;
+  box-shadow: none;
   z-index: 3;
 }
 
@@ -228,6 +269,20 @@
   text-shadow: 0 1px 3px rgba(0,0,0,0.8);
   z-index: 4;
   pointer-events: none;
+}
+
+/* Desktop: make the local “You” preview bigger */
+@media (min-width: 769px) {
+  .call-video-local {
+    width: 200px;
+    border-radius: 14px;
+  }
+
+  .call-video-label--pip {
+    width: 200px;
+    bottom: calc(12px + 150px + 8px);
+    font-size: 0.7rem;
+  }
 }
 
 .call-video-remote--placeholder {
@@ -275,13 +330,23 @@
   width: 100%;
   position: relative;
   z-index: 3;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.call-controls--hidden {
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
 }
 
 .call-popup-card--video .call-controls {
   background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
-  padding: 1rem 1.25rem 1.25rem;
-  position: relative;
-  margin-top: -48px;
+  padding: 0.75rem 1.25rem max(0.35rem, env(safe-area-inset-bottom, 0px));
+  margin-top: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
 
 .call-btn {

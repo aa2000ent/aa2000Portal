@@ -17,12 +17,15 @@ export type CallerIdentityBinding = {
   displayName: string
 }
 
+export type CameraFacingMode = 'user' | 'environment'
+
 type CallContextValue = {
   callPhase: CallPhase
   callError: string
   incomingCall: SocketCallIncoming | null
   callPeerName: string
   callType: CallType
+  cameraFacingMode: CameraFacingMode
   localStream: MediaStream | null
   remoteStream: MediaStream | null
   /** Single shared chat socket (`ChatPage`): attach signalling listeners — no separate IO client. */
@@ -31,6 +34,7 @@ type CallContextValue = {
   acceptCall: () => Promise<void>
   rejectCall: () => void
   endCall: () => void
+  switchCamera: () => Promise<void>
   clearError: () => void
 }
 
@@ -42,6 +46,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [incomingCall, setIncomingCall] = useState<SocketCallIncoming | null>(null)
   const [callPeerName, setCallPeerName] = useState('')
   const [callType, setCallType] = useState<CallType>('audio')
+  const [cameraFacingMode, setCameraFacingMode] = useState<CameraFacingMode>('user')
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
 
@@ -58,6 +63,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const myEmpIdRef = useRef<number | null>(null)
   const myDisplayNameRef = useRef<string>('')
   const detachListenersRef = useRef<(() => void) | null>(null)
+  const facingModeRef = useRef<CameraFacingMode>('user')
 
   const inferCallTypeFromOffer = (offer: RTCSessionDescriptionInit | undefined): CallType => {
     const sdp = String(offer?.sdp ?? '')
@@ -71,6 +77,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     callTypeRef.current = callType
   }, [callType])
+  useEffect(() => {
+    facingModeRef.current = cameraFacingMode
+  }, [cameraFacingMode])
 
   const teardownCall = useCallback(() => {
     const pc = peerConnectionRef.current
@@ -107,16 +116,30 @@ export function CallProvider({ children }: { children: ReactNode }) {
       localStreamRef.current = null
       setLocalStream(null)
     }
+    const facingMode = facingModeRef.current
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
       video:
         type === 'video'
-          ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+          ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode }
           : false,
     })
     localStreamRef.current = stream
     setLocalStream(stream)
     return stream
+  }, [])
+
+  const replaceVideoTrackOnPeerConnection = useCallback(async (newTrack: MediaStreamTrack) => {
+    const pc = peerConnectionRef.current
+    if (!pc) return
+    const sender = pc.getSenders().find((s) => s.track?.kind === 'video') ?? null
+    if (sender) {
+      try {
+        await sender.replaceTrack(newTrack)
+      } catch {
+        // ignore — some browsers require renegotiation; local preview still updates.
+      }
+    }
   }, [])
 
   const ensurePeerConnection = useCallback((targetEmpId: number): RTCPeerConnection => {
@@ -327,6 +350,41 @@ export function CallProvider({ children }: { children: ReactNode }) {
     teardownCall()
   }, [teardownCall])
 
+  const switchCamera = useCallback(async () => {
+    // Only meaningful for video-capable calls.
+    if (callTypeRef.current !== 'video' && !(incomingCall && (incomingCall.callType ?? inferCallTypeFromOffer(incomingCall.offer)) === 'video')) {
+      return
+    }
+    const current = facingModeRef.current
+    const next: CameraFacingMode = current === 'user' ? 'environment' : 'user'
+    setCameraFacingMode(next)
+    facingModeRef.current = next
+
+    const existing = localStreamRef.current
+    // Acquire a fresh video track for the requested facing mode.
+    const fresh = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: next },
+    })
+    const newVideoTrack = fresh.getVideoTracks()[0]
+    if (!newVideoTrack) return
+
+    if (existing) {
+      for (const t of existing.getVideoTracks()) {
+        try { t.stop() } catch {}
+        try { existing.removeTrack(t) } catch {}
+      }
+      existing.addTrack(newVideoTrack)
+      localStreamRef.current = existing
+      setLocalStream(new MediaStream(existing.getTracks()))
+    } else {
+      localStreamRef.current = fresh
+      setLocalStream(fresh)
+    }
+
+    await replaceVideoTrackOnPeerConnection(newVideoTrack)
+  }, [incomingCall, inferCallTypeFromOffer, replaceVideoTrackOnPeerConnection])
+
   const clearError = useCallback(() => setCallError(''), [])
 
   useEffect(() => () => teardownCall(), [teardownCall])
@@ -338,6 +396,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       incomingCall,
       callPeerName,
       callType,
+      cameraFacingMode,
       localStream,
       remoteStream,
       bindCallSocket,
@@ -345,6 +404,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       acceptCall,
       rejectCall,
       endCall,
+      switchCamera,
       clearError,
     }),
     [
@@ -353,6 +413,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       incomingCall,
       callPeerName,
       callType,
+      cameraFacingMode,
       localStream,
       remoteStream,
       bindCallSocket,
@@ -360,6 +421,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       acceptCall,
       rejectCall,
       endCall,
+      switchCamera,
       clearError,
     ],
   )

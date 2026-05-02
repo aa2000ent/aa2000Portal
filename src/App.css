@@ -177,6 +177,10 @@
   z-index: 3;
 }
 
+.call-video-local--mirrored {
+  transform: scaleX(-1);
+}
+
 .call-video-label--pip {
   position: absolute;
   right: 12px;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useCall } from '../contexts/CallContext'
 
 function useCallTimer(active: boolean) {
@@ -50,8 +50,9 @@ function useStreamRef(stream: MediaStream | null) {
 export default function CallPopup() {
   const {
     callPhase, callError, incomingCall, callPeerName, callType,
+    cameraFacingMode,
     localStream, remoteStream,
-    acceptCall, rejectCall, endCall, clearError,
+    acceptCall, rejectCall, endCall, switchCamera, clearError,
   } = useCall()
 
   const timer = useCallTimer(callPhase === 'in_call')
@@ -61,6 +62,31 @@ export default function CallPopup() {
   const localVideoRef = useStreamRef(localStream) as (el: HTMLVideoElement | null) => void
   const remoteVideoRef = useStreamRef(remoteStream) as (el: HTMLVideoElement | null) => void
   const remoteAudioRef = useStreamRef(remoteStream) as (el: HTMLAudioElement | null) => void
+
+  const isMobile = useMemo(() => (typeof window !== 'undefined' ? window.matchMedia('(max-width: 768px)').matches : false), [])
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  const toggleFullscreen = async () => {
+    try {
+      const root = document.querySelector('.call-popup-card--video') as HTMLElement | null
+      if (!root) return
+      if (!document.fullscreenElement) {
+        await root.requestFullscreen()
+        setIsFullscreen(true)
+      } else {
+        await document.exitFullscreen()
+        setIsFullscreen(false)
+      }
+    } catch {
+      // ignore unsupported fullscreen
+    }
+  }
+
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
 
   // Auto-dismiss error after 4 seconds
   useEffect(() => {
@@ -124,7 +150,7 @@ export default function CallPopup() {
               <video ref={remoteVideoRef} className="call-video-remote" autoPlay playsInline />
               <video
                 ref={localVideoRef}
-                className="call-video-local"
+                className={`call-video-local ${cameraFacingMode === 'user' ? 'call-video-local--mirrored' : ''}`}
                 autoPlay
                 playsInline
                 muted
@@ -147,7 +173,7 @@ export default function CallPopup() {
               </div>
               <video
                 ref={localVideoRef}
-                className="call-video-local"
+                className={`call-video-local ${cameraFacingMode === 'user' ? 'call-video-local--mirrored' : ''}`}
                 autoPlay
                 playsInline
                 muted
@@ -270,6 +296,51 @@ export default function CallPopup() {
                       </svg>
                     )}
                     <span>{camOff ? 'Cam On' : 'Cam Off'}</span>
+                  </button>
+                )}
+
+                {isVideoActive && (
+                  <button
+                    type="button"
+                    className="call-btn call-btn--mute"
+                    onClick={() => void switchCamera()}
+                    aria-label="Switch camera"
+                  >
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M23 7l-7 5 7 5V7z" />
+                      <rect x="1" y="5" width="15" height="14" rx="2" />
+                      <path d="M7 9l-2 2 2 2" />
+                      <path d="M9 11H5" />
+                      <path d="M10 15l2-2-2-2" />
+                      <path d="M12 13h4" />
+                    </svg>
+                    <span>Flip</span>
+                  </button>
+                )}
+
+                {isVideoActive && isMobile && (
+                  <button
+                    type="button"
+                    className={`call-btn call-btn--mute ${isFullscreen ? 'active' : ''}`}
+                    onClick={() => void toggleFullscreen()}
+                    aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                  >
+                    {isFullscreen ? (
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+                        <path d="M16 3h3a2 2 0 0 1 2 2v3" />
+                        <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
+                        <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+                      </svg>
+                    ) : (
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+                        <path d="M16 3h3a2 2 0 0 1 2 2v3" />
+                        <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
+                        <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+                      </svg>
+                    )}
+                    <span>{isFullscreen ? 'Exit' : 'Full'}</span>
                   </button>
                 )}
 

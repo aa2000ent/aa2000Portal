@@ -1,7 +1,10 @@
 import { createContext, useContext, useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
-import type { Socket } from 'socket.io-client'
+import { io, type Socket } from 'socket.io-client'
 import callerRingtoneSrc from '../assets/ringtone/caller.mp3'
 import receiverRingtoneSrc from '../assets/ringtone/reciever.mp3'
+import { getPortalAccountId, getPortalEmpId, getPortalUsername, isPortalSessionActive } from '../api/client'
+import { fetchEmployees } from '../api/employees'
+import { getBaseUrl } from '../api/config'
 
 export type CallPhase = 'idle' | 'calling' | 'ringing' | 'in_call'
 export type CallType = 'audio' | 'video'
@@ -53,6 +56,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
 
   const socketRef = useRef<Socket | null>(null)
+  const internalSocketRef = useRef<Socket | null>(null)
   const callPhaseRef = useRef<CallPhase>('idle')
   const callTypeRef = useRef<CallType>('audio')
   const currentCallIdRef = useRef<string | null>(null)
@@ -68,6 +72,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const facingModeRef = useRef<CameraFacingMode>('user')
   const callerToneRef = useRef<HTMLAudioElement | null>(null)
   const receiverToneRef = useRef<HTMLAudioElement | null>(null)
+
+  const buildSocketBaseUrl = (): string => {
+    const raw = String(import.meta.env.VITE_SOCKET_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? '').trim()
+    if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '')
+    try {
+      const base = getBaseUrl()
+      if (/^https?:\/\//i.test(base)) return base.replace(/\/$/, '')
+    } catch {
+      /* ignore */
+    }
+    return window.location.origin
+  }
 
   const inferCallTypeFromOffer = (offer: RTCSessionDescriptionInit | undefined): CallType => {
     const sdp = String(offer?.sdp ?? '')
@@ -230,6 +246,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       detachListenersRef.current = null
       socketRef.current = socket
 
+      // If we're switching to an external socket (ChatPage), shut down the internal one to avoid double ringing.
+      if (socket && internalSocketRef.current && socket !== internalSocketRef.current) {
+        try { internalSocketRef.current.disconnect() } catch {}
+        internalSocketRef.current = null
+      }
+
       if (identity && identity.empId > 0) {
         myEmpIdRef.current = identity.empId
         myDisplayNameRef.current = String(identity.displayName ?? '').trim()
@@ -310,6 +332,74 @@ export function CallProvider({ children }: { children: ReactNode }) {
     },
     [teardownCall],
   )
+
+  // Keep calls ringing even when ChatPage isn't mounted by maintaining a lightweight internal socket.
+  useEffect(() => {
+    let cancelled = false
+    let retryTimer: number | null = null
+
+    const ensureInternal = async () => {
+      if (cancelled) return
+      if (!isPortalSessionActive()) return
+      if (socketRef.current) return // ChatPage already bound a socket
+      if (internalSocketRef.current) return
+
+      // Resolve my employee id for call registration.
+      const sessionEmpId = getPortalEmpId()
+      const accId = Number(getPortalAccountId() ?? 0)
+      const username = String(getPortalUsername() ?? '').trim().toLowerCase()
+
+      let empId = sessionEmpId ?? null
+      let displayName = username
+      if (!empId) {
+        const employees = await fetchEmployees().catch(() => [])
+        if (cancelled) return
+        const me =
+          (accId > 0 ? employees.find((e) => Number(e.accId ?? 0) === accId) : undefined) ||
+          (username ? employees.find((e) => String(e.email ?? '').trim().toLowerCase() === username) : undefined) ||
+          (username ? employees.find((e) => String(e.name ?? '').trim().toLowerCase() === username) : undefined)
+        if (me?.id) empId = Number(me.id)
+        displayName = String(me?.name ?? '').trim() || username
+      }
+
+      if (!empId || empId <= 0) {
+        // Not logged in / no Emp_ID yet — retry briefly.
+        retryTimer = window.setTimeout(ensureInternal, 1200)
+        return
+      }
+
+      myEmpIdRef.current = empId
+      myDisplayNameRef.current = displayName
+
+      const socket = io(buildSocketBaseUrl(), {
+        transports: ['polling', 'websocket'],
+        withCredentials: true,
+        timeout: 4000,
+        reconnection: true,
+        reconnectionAttempts: 50,
+        reconnectionDelay: 500,
+        reconnectionDelayMax: 3000,
+      })
+      internalSocketRef.current = socket
+      bindCallSocket(socket, { empId, displayName })
+
+      socket.on('connect', () => {
+        socket.emit('call:register', { employeeID: empId })
+      })
+    }
+
+    void ensureInternal()
+    const onFocus = () => { void ensureInternal() }
+    window.addEventListener('focus', onFocus)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', onFocus)
+      if (retryTimer) window.clearTimeout(retryTimer)
+      try { internalSocketRef.current?.disconnect() } catch {}
+      internalSocketRef.current = null
+    }
+  }, [bindCallSocket])
 
   const startCall = useCallback(
     async (calleeEmpId: number, calleeName: string, type: CallType = 'audio') => {

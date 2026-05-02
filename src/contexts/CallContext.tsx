@@ -214,6 +214,34 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const tuneRealtimeSender = useCallback(async (sender: RTCRtpSender) => {
+    try {
+      const params = sender.getParameters()
+      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}]
+      // Favor low latency over quality. Keep bitrate modest so congested links don't buffer.
+      for (const enc of params.encodings) {
+        if (typeof enc.maxBitrate !== 'number') enc.maxBitrate = 900_000 // ~0.9 Mbps
+        ;(enc as any).networkPriority ??= 'high'
+        ;(enc as any).priority ??= 'high'
+      }
+      ;(params as any).degradationPreference ??= 'maintain-framerate'
+      await sender.setParameters(params)
+    } catch {
+      // Ignore if unsupported by browser.
+    }
+  }, [])
+
+  const configureTrackHints = (stream: MediaStream) => {
+    try {
+      for (const t of stream.getTracks()) {
+        if (t.kind === 'video') (t as any).contentHint = 'motion'
+        if (t.kind === 'audio') (t as any).contentHint = 'speech'
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   const ensurePeerConnection = useCallback((targetEmpId: number): RTCPeerConnection => {
     if (peerConnectionRef.current) return peerConnectionRef.current
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
@@ -431,8 +459,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       setCallType(type)
       try {
         const stream = await ensureMediaStream(type)
+        configureTrackHints(stream)
         const pc = ensurePeerConnection(calleeEmpId)
-        for (const t of stream.getTracks()) pc.addTrack(t, stream)
+        for (const t of stream.getTracks()) {
+          const sender = pc.addTrack(t, stream)
+          if (t.kind === 'video') void tuneRealtimeSender(sender)
+        }
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
@@ -469,7 +501,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const pc = ensurePeerConnection(incoming.callerId)
         await pc.setRemoteDescription(new RTCSessionDescription(incoming.offer))
         const stream = await ensureMediaStream(type)
-        for (const t of stream.getTracks()) pc.addTrack(t, stream)
+        configureTrackHints(stream)
+        for (const t of stream.getTracks()) {
+          const sender = pc.addTrack(t, stream)
+          if (t.kind === 'video') void tuneRealtimeSender(sender)
+        }
         const answer = await pc.createAnswer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
@@ -524,6 +560,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     })
     const newVideoTrack = fresh.getVideoTracks()[0]
     if (!newVideoTrack) return
+    try { (newVideoTrack as any).contentHint = 'motion' } catch {}
 
     if (existing) {
       for (const t of existing.getVideoTracks()) {
@@ -539,6 +576,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     await replaceVideoTrackOnPeerConnection(newVideoTrack)
+    const pc = peerConnectionRef.current
+    const sender = pc?.getSenders().find((s) => s.track?.kind === 'video')
+    if (sender) void tuneRealtimeSender(sender)
   }, [incomingCall, inferCallTypeFromOffer, replaceVideoTrackOnPeerConnection])
 
   const clearError = useCallback(() => setCallError(''), [])

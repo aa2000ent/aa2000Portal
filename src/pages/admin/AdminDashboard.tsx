@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   LineChart,
   Line,
@@ -22,6 +22,7 @@ import { useApplications } from '../../contexts/ApplicationsContext'
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { buildAdminDashboardSeries, buildPortalAppsAudiencePie } from '../../utils/dashboardAnalytics'
+import { fetchAllActiveEmployees, type ActiveEmployeeResponse } from '../../api/session'
 import ActiveAnnouncementsCard from '../../components/ActiveAnnouncementsCard'
 import DashboardStories from '../../components/DashboardStories'
 
@@ -91,11 +92,44 @@ export default function AdminDashboard() {
     () => weeklyActivityData.some((r) => (r.logins ?? 0) > 0 || (r.actions ?? 0) > 0),
     [weeklyActivityData],
   )
+  const [activeEmployees, setActiveEmployees] = useState<ActiveEmployeeResponse[]>([])
+  const [isOnlineModalOpen, setIsOnlineModalOpen] = useState(false)
+  const [isLoadingActiveEmployees, setIsLoadingActiveEmployees] = useState(false)
+  const [activeEmployeesError, setActiveEmployeesError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isOnlineModalOpen) return
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOnlineModalOpen(false)
+    }
+    document.addEventListener('keydown', handleEscape)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+      document.body.style.overflow = ''
+    }
+  }, [isOnlineModalOpen])
+
+  const handleOnlineNowClick = async () => {
+    setIsOnlineModalOpen(true)
+    setIsLoadingActiveEmployees(true)
+    setActiveEmployeesError(null)
+    try {
+      const data = await fetchAllActiveEmployees()
+      setActiveEmployees(Array.isArray(data) ? data : [])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load active employees.'
+      setActiveEmployeesError(message)
+      setActiveEmployees([])
+    } finally {
+      setIsLoadingActiveEmployees(false)
+    }
+  }
 
   const stats: Array<{ label: string; value: number | string; icon: string }> = [
     { label: 'Total users', value: totalUsers, icon: 'users' },
     { label: 'Applications', value: apps.length, icon: 'apps' },
-    { label: 'Online now', value: '—', icon: 'online' },
+    { label: 'Online now', value: activeEmployees.length > 0 ? activeEmployees.length : '—', icon: 'online' },
     { label: 'Pending approval', value: pendingCount, icon: 'pending' },
   ]
 
@@ -111,8 +145,22 @@ export default function AdminDashboard() {
           {stats.map(({ label, value, icon }, i) => (
               <div
                 key={label}
-                className="dashboard-stat-card"
+                className={`dashboard-stat-card${icon === 'online' ? ' dashboard-stat-card--interactive' : ''}`}
                 style={{ animationDelay: `${i * 60}ms` }}
+                role={icon === 'online' ? 'button' : undefined}
+                tabIndex={icon === 'online' ? 0 : undefined}
+                onClick={icon === 'online' ? handleOnlineNowClick : undefined}
+                onKeyDown={
+                  icon === 'online'
+                    ? (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          void handleOnlineNowClick()
+                        }
+                      }
+                    : undefined
+                }
+                aria-label={icon === 'online' ? 'Open online employees list' : undefined}
               >
                 <span className="dashboard-stat-value">
                   {typeof value === 'number' ? value.toLocaleString() : value}
@@ -287,6 +335,48 @@ export default function AdminDashboard() {
         </div>
         <ActiveAnnouncementsCard />
       </div>
+      {isOnlineModalOpen && (
+        <div
+          className="confirm-dialog-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="online-employees-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setIsOnlineModalOpen(false)
+          }}
+        >
+          <div className="confirm-dialog-box online-employees-modal">
+            <div className="online-employees-modal-header">
+              <h2 id="online-employees-title" className="confirm-dialog-title">
+                Online employees
+              </h2>
+              <button
+                type="button"
+                className="modal-close"
+                aria-label="Close online employees list"
+                onClick={() => setIsOnlineModalOpen(false)}
+              >
+                x
+              </button>
+            </div>
+            {isLoadingActiveEmployees ? (
+              <p className="confirm-dialog-message">Loading active sessions...</p>
+            ) : activeEmployeesError ? (
+              <p className="confirm-dialog-message">{activeEmployeesError}</p>
+            ) : activeEmployees.length === 0 ? (
+              <p className="confirm-dialog-message">No active employees found.</p>
+            ) : (
+              <ul className="online-employees-list">
+                {activeEmployees.map((employee, index) => {
+                  const middle = employee.Emp_mname?.trim()
+                  const fullName = [employee.Emp_fname, middle, employee.Emp_lname].filter(Boolean).join(' ')
+                  return <li key={`${fullName}-${index}`}>{fullName}</li>
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

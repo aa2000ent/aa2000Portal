@@ -19,6 +19,12 @@ export type SessionLookupResponse = {
   employee: Record<string, unknown> | null
 }
 
+export type ActiveEmployeeResponse = {
+  Emp_fname: string
+  Emp_mname?: string | null
+  Emp_lname: string
+}
+
 const DEFAULT_SESSION_PATH_PREFIXES = [
   '/session',
   '/security/session',
@@ -78,4 +84,14 @@ export async function fetchSessionByToken(sessionToken: string): Promise<Session
     }
   }
   return null
+}
+
+/**
+ * Fetch active employees from current live sessions.
+ * Matches backend route: GET /session/get/all-active-employees
+ */
+export async function fetchAllActiveEmployees(): Promise<ActiveEmployeeResponse[]> {
+  return apiRequest<ActiveEmployeeResponse[]>('/session/get/all-active-employees', {
+    method: 'GET',
+  })
 }

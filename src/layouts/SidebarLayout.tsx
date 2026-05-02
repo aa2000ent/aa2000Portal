@@ -558,12 +558,15 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
                           key={child.to}
                           to={child.to}
                           end={child.end}
-                          className={({ isActive }) => `sidebar-nav-link sidebar-nav-link--sub flex w-full min-w-0 items-center gap-3 py-2.5 px-3 min-h-[38px] rounded-lg no-underline text-sm font-medium ${isActive ? 'active' : ''}`}
+                          className={({ isActive }) => `sidebar-nav-link sidebar-nav-link--sub flex w-full min-w-0 items-start gap-3 py-2.5 px-3 min-h-[38px] rounded-lg no-underline text-sm font-medium ${isActive ? 'active' : ''}`}
                           onMouseEnter={() => prefetchRoute(child.to)}
                           onFocus={() => prefetchRoute(child.to)}
                           onClick={() => window.innerWidth <= 768 && setSidebarOpen(false)}
+                          title={child.label}
                         >
-                          <span className="sidebar-nav-label overflow-hidden whitespace-nowrap block">{child.label}</span>
+                          <span className="sidebar-nav-label sidebar-nav-label--subnav min-w-0 flex-1 whitespace-normal break-words text-left leading-snug block">
+                            {child.label}
+                          </span>
                         </NavLink>
                       ))}
                     </div>

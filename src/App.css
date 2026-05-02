@@ -1016,6 +1016,10 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   color: #6b7280;
+  white-space: normal;
+  line-height: 1.25;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .dashboard-announcement-slide__footer {
@@ -2881,6 +2885,11 @@ html[data-theme="dark"] .dashboard-graph-desc {
 .sidebar-panel .sidebar-nav-link--sub {
   color: color-mix(in srgb, var(--aa-shell-text-muted) 92%, white 8%);
   min-height: 38px;
+}
+
+.sidebar-panel .sidebar-nav-label--subnav {
+  overflow: visible;
+  hyphens: auto;
 }
 
 .sidebar-panel .sidebar-footer-btn {

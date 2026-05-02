@@ -38,6 +38,7 @@ const PortalApplications = lazy(() => import('./pages/PortalApplications'))
 const PortalProfile = lazy(() => import('./pages/PortalProfile'))
 const PortalPublicAnnouncement = lazy(() => import('./pages/PortalPublicAnnouncement'))
 const PortalMemo = lazy(() => import('./pages/PortalMemo'))
+const PortalMeetingMinutes = lazy(() => import('./pages/PortalMeetingMinutes'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
 const GeneralManagerDashboard = lazy(() => import('./pages/general-manager/GeneralManagerDashboard'))
 const DepartmentLeave = lazy(() => import('./pages/_shared/DepartmentLeave'))
@@ -96,6 +97,7 @@ function App() {
                     <Route path="applications" element={<AdminApplications />} />
                     <Route path="announcement/public-announcement" element={<PortalPublicAnnouncement />} />
                     <Route path="announcement/memo" element={<PortalMemo />} />
+                    <Route path="announcement/meeting-minutes" element={<PortalMeetingMinutes />} />
                     <Route path="approvals" element={<Navigate to="/admin/approvals/signups" replace />} />
                     <Route path="approvals/signups" element={<AdminApprovals />} />
                     <Route path="approvals/leave-requests" element={<AdminApprovals />} />
@@ -107,6 +109,7 @@ function App() {
                     <Route path="marketing/applications" element={<PortalApplications />} />
                     <Route path="marketing/announcement/public-announcement" element={<PortalPublicAnnouncement />} />
                     <Route path="marketing/announcement/memo" element={<PortalMemo />} />
+                    <Route path="marketing/announcement/meeting-minutes" element={<PortalMeetingMinutes />} />
                     <Route path="marketing/profile" element={<PortalProfile />} />
                     <Route path="marketing/chat" element={<ChatPage />} />
                     <Route path="sale" element={<SaleDashboard />} />
@@ -161,12 +164,14 @@ function App() {
                     <Route path=":segment/leave/status" element={<DepartmentLeaveStatus />} />
                     <Route path=":segment/announcement/public-announcement" element={<PortalPublicAnnouncement />} />
                     <Route path=":segment/announcement/memo" element={<PortalMemo />} />
+                    <Route path=":segment/announcement/meeting-minutes" element={<PortalMeetingMinutes />} />
                   </Route>
                   <Route path="general-manager" element={<GeneralManagerLayout />}>
                     <Route index element={<GeneralManagerDashboard />} />
                     <Route path="applications" element={<PortalApplications />} />
                     <Route path="announcement/public-announcement" element={<PortalPublicAnnouncement />} />
                     <Route path="announcement/memo" element={<PortalMemo />} />
+                    <Route path="announcement/meeting-minutes" element={<PortalMeetingMinutes />} />
                     <Route path="profile" element={<PortalProfile />} />
                     <Route path="chat" element={<ChatPage />} />
                     <Route path="history" element={<AdminHistory variant="general-manager" />} />

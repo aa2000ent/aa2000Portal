@@ -17,6 +17,7 @@ const adminNavItems: NavItem[] = [
     children: [
       { to: '/admin/announcement/public-announcement', label: 'PUBLIC ANNOUNCEMENT', end: true },
       { to: '/admin/announcement/memo', label: 'MEMO', end: true },
+      { to: '/admin/announcement/meeting-minutes', label: 'MEETING MINUTES', end: true },
     ],
   },
   {

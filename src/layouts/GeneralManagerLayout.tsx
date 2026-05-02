@@ -15,6 +15,7 @@ const gmNavItems: NavItem[] = [
     children: [
       { to: '/general-manager/announcement/public-announcement', label: 'PUBLIC ANNOUNCEMENT', end: true },
       { to: '/general-manager/announcement/memo', label: 'MEMO', end: true },
+      { to: '/general-manager/announcement/meeting-minutes', label: 'MEETING MINUTES', end: true },
     ],
   },
   { to: '/general-manager/history', label: 'Activity logs', end: false, icon: 'history' },

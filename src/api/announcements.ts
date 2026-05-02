@@ -1,7 +1,29 @@
 import { apiRequest } from './client'
 
-export type AnnouncementType = 'ANNOUNCEMENT' | 'MEMO'
+export type AnnouncementType = 'ANNOUNCEMENT' | 'MEMO' | 'MEETING_MINUTES'
 export type AnnouncementStatus = 'ACTIVE' | 'INACTIVE'
+
+export function announcementKindLabel(type: AnnouncementType): string {
+  switch (type) {
+    case 'MEMO':
+      return 'MEMO'
+    case 'MEETING_MINUTES':
+      return 'MEETING MINUTES'
+    default:
+      return 'PUBLIC ANNOUNCEMENT'
+  }
+}
+
+export function announcementDialogEyebrow(type: AnnouncementType): string {
+  switch (type) {
+    case 'MEMO':
+      return 'Internal memo'
+    case 'MEETING_MINUTES':
+      return 'Meeting minutes'
+    default:
+      return 'Public announcement'
+  }
+}
 
 export interface AnnouncementItem {
   an_ID: number
@@ -18,7 +40,12 @@ export interface AnnouncementItem {
 type RawAnnouncement = Record<string, unknown>
 
 function parseType(value: unknown): AnnouncementType {
-  return String(value ?? 'ANNOUNCEMENT').toUpperCase() === 'MEMO' ? 'MEMO' : 'ANNOUNCEMENT'
+  const raw = String(value ?? 'ANNOUNCEMENT')
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_')
+  if (raw === 'MEMO') return 'MEMO'
+  if (raw === 'MEETING_MINUTES' || raw === 'MEETINGMINUTES') return 'MEETING_MINUTES'
+  return 'ANNOUNCEMENT'
 }
 
 function parseStatus(value: unknown): AnnouncementStatus {

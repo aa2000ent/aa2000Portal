@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { fetchAnnouncementsByType, type AnnouncementItem } from '../api/announcements'
+import {
+  announcementDialogEyebrow,
+  announcementKindLabel,
+  fetchAnnouncementsByType,
+  type AnnouncementItem,
+} from '../api/announcements'
 
 function sortNewestFirst(list: AnnouncementItem[]): AnnouncementItem[] {
   return [...list].sort((a, b) => {
@@ -25,9 +30,14 @@ function formatDateLabel(value?: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function settledAnnouncements(result: PromiseSettledResult<AnnouncementItem[]>): AnnouncementItem[] {
+  return result.status === 'fulfilled' ? result.value : []
+}
+
 export default function ActiveAnnouncementsCard() {
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([])
   const [memos, setMemos] = useState<AnnouncementItem[]>([])
+  const [meetingMinutes, setMeetingMinutes] = useState<AnnouncementItem[]>([])
   const [slideIndex, setSlideIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -39,13 +49,27 @@ export default function ActiveAnnouncementsCard() {
       setLoading(true)
       setError(null)
       try {
-        const [announcementList, memoList] = await Promise.all([
+        const results = await Promise.allSettled([
           fetchAnnouncementsByType('ANNOUNCEMENT'),
           fetchAnnouncementsByType('MEMO'),
+          fetchAnnouncementsByType('MEETING_MINUTES'),
         ])
         if (cancelled) return
+        if (results.every((r) => r.status === 'rejected')) {
+          const reason = results[0].status === 'rejected' ? results[0].reason : null
+          setError(reason instanceof Error ? reason.message : 'Failed to load active announcements.')
+          setAnnouncements([])
+          setMemos([])
+          setMeetingMinutes([])
+          return
+        }
+        setError(null)
+        const announcementList = settledAnnouncements(results[0])
+        const memoList = settledAnnouncements(results[1])
+        const minutesList = settledAnnouncements(results[2])
         setAnnouncements(sortNewestFirst(announcementList).filter((x) => x.Status === 'ACTIVE'))
         setMemos(sortNewestFirst(memoList).filter((x) => x.Status === 'ACTIVE'))
+        setMeetingMinutes(sortNewestFirst(minutesList).filter((x) => x.Status === 'ACTIVE'))
       } catch (e) {
         if (cancelled) return
         setError(e instanceof Error ? e.message : 'Failed to load active announcements.')
@@ -59,8 +83,9 @@ export default function ActiveAnnouncementsCard() {
   }, [])
 
   const activeItems = useMemo(
-    () => sortNewestFirst([...announcements, ...memos]).filter((x) => x.Status === 'ACTIVE'),
-    [announcements, memos]
+    () =>
+      sortNewestFirst([...announcements, ...memos, ...meetingMinutes]).filter((x) => x.Status === 'ACTIVE'),
+    [announcements, memos, meetingMinutes]
   )
   const hasData = activeItems.length > 0
   const visibleCards = useMemo(
@@ -77,7 +102,7 @@ export default function ActiveAnnouncementsCard() {
 
   useEffect(() => {
     setSlideIndex(0)
-  }, [announcements.length, memos.length])
+  }, [announcements.length, memos.length, meetingMinutes.length])
 
   useEffect(() => {
     if (activeItems.length <= 1) return
@@ -106,7 +131,7 @@ export default function ActiveAnnouncementsCard() {
       <section className="dashboard-announcement-showcase" aria-label="Active announcements slideshow">
         <div className="dashboard-announcement-showcase__head">
           <h2 className="dashboard-announcement-showcase__title">ANNOUNCEMENTS</h2>
-          <span className="dashboard-announcement-showcase__hint">Latest announcements and memos</span>
+          <span className="dashboard-announcement-showcase__hint">Latest announcements, memos, and meeting minutes</span>
         </div>
         <div className="dashboard-graph-wrap">
           {loading ? (
@@ -114,7 +139,7 @@ export default function ActiveAnnouncementsCard() {
           ) : error ? (
             <div className="dashboard-graph-empty">{error}</div>
           ) : !hasData ? (
-            <div className="dashboard-graph-empty">No active announcements or memos found.</div>
+            <div className="dashboard-graph-empty">No active announcements, memos, or meeting minutes found.</div>
           ) : (
             <div className="dashboard-announcement-slider">
               {visibleCards.map(({ item, index, offset }) => (
@@ -149,7 +174,7 @@ export default function ActiveAnnouncementsCard() {
                     <h3 className="dashboard-announcement-slide__title">{item.Title || 'Untitled'}</h3>
                     <p className="dashboard-announcement-slide__desc">{item.Description || 'No description.'}</p>
                     <div className="dashboard-announcement-slide__footer">
-                      <p className="dashboard-announcement-slide__meta">{item.type === 'MEMO' ? 'MEMO' : 'PUBLIC ANNOUNCEMENT'}</p>
+                      <p className="dashboard-announcement-slide__meta">{announcementKindLabel(item.type)}</p>
                       <p className="dashboard-announcement-slide__date">{formatDateLabel(item.Date)}</p>
                     </div>
                   </button>
@@ -199,7 +224,7 @@ export default function ActiveAnnouncementsCard() {
             onClick={(event) => event.stopPropagation()}
           >
             <p className="dashboard-announcement-dialog__eyebrow">
-              {selectedItem.type === 'MEMO' ? 'Internal memo' : 'Public announcement'}
+              {announcementDialogEyebrow(selectedItem.type)}
             </p>
             <button
               type="button"

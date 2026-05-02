@@ -27,6 +27,7 @@ function navForSegment(segment: string): NavItem[] {
       children: [
         { to: `/${segment}/announcement/public-announcement`, label: 'PUBLIC ANNOUNCEMENT', end: true },
         { to: `/${segment}/announcement/memo`, label: 'MEMO', end: true },
+        { to: `/${segment}/announcement/meeting-minutes`, label: 'MEETING MINUTES', end: true },
       ],
     },
     { to: `/${segment}/chat`, label: 'Chat', end: false, icon: 'chat' },

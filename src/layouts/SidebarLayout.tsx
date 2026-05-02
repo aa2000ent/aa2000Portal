@@ -478,7 +478,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
         `}
         aria-label={`${roleLabel} navigation`}
       >
-        <nav className="flex flex-col gap-1 pt-1 px-2 flex-1 min-h-0 overflow-hidden">
+        <nav className="sidebar-panel-nav flex flex-col gap-1 pt-1 px-2 flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain">
           {navItems.length > 0 ? (
             navItems.map(({ to, label, end, icon, children }) => {
               const childItems = children ?? []

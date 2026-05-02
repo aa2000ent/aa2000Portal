@@ -2901,7 +2901,7 @@ html[data-theme="dark"] .dashboard-graph-desc {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* Ensure sidebar never scrolls with content (desktop) */
+/* Desktop: sidebar shell fixed to viewport; nav scrolls when items exceed height */
 @media (min-width: 769px) {
   .sidebar-panel {
     position: fixed !important;
@@ -2911,6 +2911,14 @@ html[data-theme="dark"] .dashboard-graph-desc {
     height: calc(100dvh - var(--dashboard-header-h)) !important;
     overflow: hidden !important;
     z-index: 40;
+  }
+
+  .sidebar-panel nav.sidebar-panel-nav {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
   }
 }
 

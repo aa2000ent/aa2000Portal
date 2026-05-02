@@ -59,6 +59,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const myDisplayNameRef = useRef<string>('')
   const detachListenersRef = useRef<(() => void) | null>(null)
 
+  const inferCallTypeFromOffer = (offer: RTCSessionDescriptionInit | undefined): CallType => {
+    const sdp = String(offer?.sdp ?? '')
+    // If the offer includes a video m-line, it’s a video call (some servers don’t forward `callType`).
+    return /m=video\b/i.test(sdp) ? 'video' : 'audio'
+  }
+
   useEffect(() => {
     callPhaseRef.current = callPhase
   }, [callPhase])
@@ -165,9 +171,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
           socket.emit('call:reject', { callId: p.callId, callerId: p.callerId })
           return
         }
-        setIncomingCall(p)
+        const inferred = p.callType ?? inferCallTypeFromOffer(p.offer)
+        setIncomingCall({ ...p, callType: inferred })
         setCallPhase('ringing')
-        setCallType(p.callType ?? 'audio')
+        setCallType(inferred)
         setCallPeerName(String(p.callerName ?? `Employee ${p.callerId}`))
         currentCallIdRef.current = p.callId
         currentCallPeerEmpIdRef.current = Number(p.callerId)
@@ -277,7 +284,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       teardownCall()
       return
     }
-    const type = incoming.callType ?? 'audio'
+    const type = incoming.callType ?? inferCallTypeFromOffer(incoming.offer)
     setCallType(type)
     try {
         const pc = ensurePeerConnection(incoming.callerId)

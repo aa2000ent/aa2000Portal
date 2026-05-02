@@ -74,6 +74,16 @@
     border-radius: 0;
   }
 
+  /* Incoming video call (no remote video yet): center avatar + buttons, avoid blank bottom. */
+  .call-popup-card--video.call-popup-card--video-shell {
+    padding: 2.25rem 1.5rem 6.5rem; /* leave room for absolute controls */
+    justify-content: center;
+    gap: 1.5rem;
+    background:
+      radial-gradient(1200px 800px at 50% -10%, rgba(59, 130, 246, 0.25), transparent 60%),
+      rgba(15, 23, 42, 0.98);
+  }
+
   .call-video-stage {
     height: 100%;
     aspect-ratio: auto;

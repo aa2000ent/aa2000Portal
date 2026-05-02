@@ -149,7 +149,9 @@ export default function CallPopup() {
           ref={wantsVideo && (isInCall || isCalling || isIncoming) ? videoCardRef : undefined}
           className={`call-popup-card ${
             wantsVideo && (isInCall || isCalling || isIncoming) ? 'call-popup-card--video' : ''
-          } ${uiFullscreen ? 'call-popup-card--ui-fullscreen' : ''}`}
+          } ${uiFullscreen ? 'call-popup-card--ui-fullscreen' : ''} ${
+            wantsVideo && (isCalling || isIncoming) && !isInCall ? 'call-popup-card--video-shell' : ''
+          }`}
         >
           {/* ── Video call: connected (both sides — remote main, local PiP) ── */}
           {isInCall && wantsVideo && (

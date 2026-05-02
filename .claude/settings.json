@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\portu\\\\aa2000portal\\\\src\" -Recurse -Filter \"*chat*\" -ErrorAction SilentlyContinue)",
+      "Bash(git pull *)",
+      "Bash(git stash *)",
+      "Bash(git add *)",
+      "Bash(xargs grep *)",
+      "Bash(npx tsc *)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
+    ]
+  }
+}

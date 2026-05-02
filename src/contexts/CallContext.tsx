@@ -1,7 +1,10 @@
 import { createContext, useContext, useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
-import type { Socket } from 'socket.io-client'
+import { io, type Socket } from 'socket.io-client'
 import callerRingtoneSrc from '../assets/ringtone/caller.mp3'
 import receiverRingtoneSrc from '../assets/ringtone/reciever.mp3'
+import { getPortalAccountId, getPortalEmpId, getPortalUsername, isPortalSessionActive } from '../api/client'
+import { fetchEmployees } from '../api/employees'
+import { getBaseUrl } from '../api/config'
 
 export type CallPhase = 'idle' | 'calling' | 'ringing' | 'in_call'
 export type CallType = 'audio' | 'video'
@@ -53,6 +56,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
 
   const socketRef = useRef<Socket | null>(null)
+  const internalSocketRef = useRef<Socket | null>(null)
   const callPhaseRef = useRef<CallPhase>('idle')
   const callTypeRef = useRef<CallType>('audio')
   const currentCallIdRef = useRef<string | null>(null)
@@ -68,6 +72,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const facingModeRef = useRef<CameraFacingMode>('user')
   const callerToneRef = useRef<HTMLAudioElement | null>(null)
   const receiverToneRef = useRef<HTMLAudioElement | null>(null)
+  const ensureInternalSocketRef = useRef<(() => void) | null>(null)
+
+  const buildSocketBaseUrl = (): string => {
+    const raw = String(import.meta.env.VITE_SOCKET_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? '').trim()
+    if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '')
+    try {
+      const base = getBaseUrl()
+      if (/^https?:\/\//i.test(base)) return base.replace(/\/$/, '')
+    } catch {
+      /* ignore */
+    }
+    return window.location.origin
+  }
 
   const inferCallTypeFromOffer = (offer: RTCSessionDescriptionInit | undefined): CallType => {
     const sdp = String(offer?.sdp ?? '')
@@ -197,6 +214,34 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const tuneRealtimeSender = useCallback(async (sender: RTCRtpSender) => {
+    try {
+      const params = sender.getParameters()
+      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}]
+      // Favor low latency over quality. Keep bitrate modest so congested links don't buffer.
+      for (const enc of params.encodings) {
+        if (typeof enc.maxBitrate !== 'number') enc.maxBitrate = 900_000 // ~0.9 Mbps
+        ;(enc as any).networkPriority ??= 'high'
+        ;(enc as any).priority ??= 'high'
+      }
+      ;(params as any).degradationPreference ??= 'maintain-framerate'
+      await sender.setParameters(params)
+    } catch {
+      // Ignore if unsupported by browser.
+    }
+  }, [])
+
+  const configureTrackHints = (stream: MediaStream) => {
+    try {
+      for (const t of stream.getTracks()) {
+        if (t.kind === 'video') (t as any).contentHint = 'motion'
+        if (t.kind === 'audio') (t as any).contentHint = 'speech'
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   const ensurePeerConnection = useCallback((targetEmpId: number): RTCPeerConnection => {
     if (peerConnectionRef.current) return peerConnectionRef.current
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
@@ -230,11 +275,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
       detachListenersRef.current = null
       socketRef.current = socket
 
+      // If we're switching to an external socket (ChatPage), shut down the internal one to avoid double ringing.
+      if (socket && internalSocketRef.current && socket !== internalSocketRef.current) {
+        try { internalSocketRef.current.disconnect() } catch {}
+        internalSocketRef.current = null
+      }
+
       if (identity && identity.empId > 0) {
         myEmpIdRef.current = identity.empId
         myDisplayNameRef.current = String(identity.displayName ?? '').trim()
       }
-      if (!socket) return
+      if (!socket) {
+        // ChatPage unmounted — immediately re-establish the internal call socket
+        // so calls still ring on other pages without requiring a focus change.
+        queueMicrotask(() => ensureInternalSocketRef.current?.())
+        return
+      }
 
       const onError = (p: { message?: string }) => {
         setCallError(String(p?.message ?? 'Call failed.').trim() || 'Call failed.')
@@ -311,6 +367,79 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [teardownCall],
   )
 
+  // Keep calls ringing even when ChatPage isn't mounted by maintaining a lightweight internal socket.
+  useEffect(() => {
+    let cancelled = false
+    let retryTimer: number | null = null
+
+    const ensureInternal = async () => {
+      if (cancelled) return
+      if (!isPortalSessionActive()) return
+      if (socketRef.current) return // ChatPage already bound a socket
+      if (internalSocketRef.current) return
+
+      // Resolve my employee id for call registration.
+      const sessionEmpId = getPortalEmpId()
+      const accId = Number(getPortalAccountId() ?? 0)
+      const username = String(getPortalUsername() ?? '').trim().toLowerCase()
+
+      let empId = sessionEmpId ?? null
+      let displayName = username
+      if (!empId) {
+        const employees = await fetchEmployees().catch(() => [])
+        if (cancelled) return
+        const me =
+          (accId > 0 ? employees.find((e) => Number(e.accId ?? 0) === accId) : undefined) ||
+          (username ? employees.find((e) => String(e.email ?? '').trim().toLowerCase() === username) : undefined) ||
+          (username ? employees.find((e) => String(e.name ?? '').trim().toLowerCase() === username) : undefined)
+        if (me?.id) empId = Number(me.id)
+        displayName = String(me?.name ?? '').trim() || username
+      }
+
+      if (!empId || empId <= 0) {
+        // Not logged in / no Emp_ID yet — retry briefly.
+        retryTimer = window.setTimeout(ensureInternal, 1200)
+        return
+      }
+
+      myEmpIdRef.current = empId
+      myDisplayNameRef.current = displayName
+
+      const socket = io(buildSocketBaseUrl(), {
+        transports: ['polling', 'websocket'],
+        withCredentials: true,
+        timeout: 4000,
+        reconnection: true,
+        reconnectionAttempts: 50,
+        reconnectionDelay: 500,
+        reconnectionDelayMax: 3000,
+      })
+      internalSocketRef.current = socket
+      bindCallSocket(socket, { empId, displayName })
+
+      socket.on('connect', () => {
+        socket.emit('call:register', { employeeID: empId })
+      })
+    }
+
+    ensureInternalSocketRef.current = () => {
+      void ensureInternal()
+    }
+
+    void ensureInternal()
+    const onFocus = () => { void ensureInternal() }
+    window.addEventListener('focus', onFocus)
+
+    return () => {
+      cancelled = true
+      ensureInternalSocketRef.current = null
+      window.removeEventListener('focus', onFocus)
+      if (retryTimer) window.clearTimeout(retryTimer)
+      try { internalSocketRef.current?.disconnect() } catch {}
+      internalSocketRef.current = null
+    }
+  }, [bindCallSocket])
+
   const startCall = useCallback(
     async (calleeEmpId: number, calleeName: string, type: CallType = 'audio') => {
       setCallError('')
@@ -330,8 +459,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       setCallType(type)
       try {
         const stream = await ensureMediaStream(type)
+        configureTrackHints(stream)
         const pc = ensurePeerConnection(calleeEmpId)
-        for (const t of stream.getTracks()) pc.addTrack(t, stream)
+        for (const t of stream.getTracks()) {
+          const sender = pc.addTrack(t, stream)
+          if (t.kind === 'video') void tuneRealtimeSender(sender)
+        }
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
@@ -368,7 +501,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const pc = ensurePeerConnection(incoming.callerId)
         await pc.setRemoteDescription(new RTCSessionDescription(incoming.offer))
         const stream = await ensureMediaStream(type)
-        for (const t of stream.getTracks()) pc.addTrack(t, stream)
+        configureTrackHints(stream)
+        for (const t of stream.getTracks()) {
+          const sender = pc.addTrack(t, stream)
+          if (t.kind === 'video') void tuneRealtimeSender(sender)
+        }
         const answer = await pc.createAnswer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
@@ -423,6 +560,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     })
     const newVideoTrack = fresh.getVideoTracks()[0]
     if (!newVideoTrack) return
+    try { (newVideoTrack as any).contentHint = 'motion' } catch {}
 
     if (existing) {
       for (const t of existing.getVideoTracks()) {
@@ -438,6 +576,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     await replaceVideoTrackOnPeerConnection(newVideoTrack)
+    const pc = peerConnectionRef.current
+    const sender = pc?.getSenders().find((s) => s.track?.kind === 'video')
+    if (sender) void tuneRealtimeSender(sender)
   }, [incomingCall, inferCallTypeFromOffer, replaceVideoTrackOnPeerConnection])
 
   const clearError = useCallback(() => setCallError(''), [])

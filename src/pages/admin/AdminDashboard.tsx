@@ -186,8 +186,8 @@ export default function AdminDashboard() {
 
         <div className="dashboard-graphs">
           <section className="dashboard-graph-card" aria-label="Activity over time">
-            <h2 className="dashboard-graph-title">Activity over time</h2>
-            <p className="dashboard-graph-desc">User and app additions by month (from portal activity log).</p>
+            <h2 className="dashboard-graph-title">ACTIVITY LOGS</h2>
+            <p className="dashboard-graph-desc">Graph of your online activities</p>
             <div className="dashboard-graph-wrap">
               {!hasActivitySeries ? (
                 <div className="dashboard-graph-empty">No activity trend data yet.</div>
@@ -212,9 +212,9 @@ export default function AdminDashboard() {
             </div>
           </section>
           <section className="dashboard-graph-card" aria-label="Portal applications by visibility">
-            <h2 className="dashboard-graph-title">Applications by visibility</h2>
+            <h2 className="dashboard-graph-title">ONLINE APPLICATIONS</h2>
             <p className="dashboard-graph-desc">
-              Portal apps by who can see them: one role, multiple roles, or none set (no lifecycle status from API).
+            Performance chart of leading applications.
             </p>
             <div className="dashboard-graph-wrap">
               {apps.length === 0 ? (

@@ -70,6 +70,15 @@ type StoryPreview = {
   date?: string
 }
 
+type SocketCallIncoming = {
+  callId: string
+  callerId: number
+  callerName?: string
+  offer: RTCSessionDescriptionInit
+}
+
+type CallPhase = 'idle' | 'calling' | 'ringing' | 'in_call'
+
 /** POST /webhook/conversation/:receiverEmpID success body (matches Express handler). */
 type ConversationWebhookPostData = {
   timestamp?: string
@@ -451,9 +460,78 @@ export default function ChatPage() {
   const newChatRef = useRef<HTMLDivElement>(null)
   const socketRef = useRef<Socket | null>(null)
   const [socketConnected, setSocketConnected] = useState(false)
+  const [callPhase, setCallPhase] = useState<CallPhase>('idle')
+  const [callError, setCallError] = useState('')
+  const [incomingCall, setIncomingCall] = useState<SocketCallIncoming | null>(null)
+  const [callPeerName, setCallPeerName] = useState('')
+  const currentCallIdRef = useRef<string | null>(null)
+  const currentCallPeerEmpIdRef = useRef<number | null>(null)
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
+  const localStreamRef = useRef<MediaStream | null>(null)
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
+  const pendingIceRef = useRef<RTCIceCandidateInit[]>([])
+  const callPhaseRef = useRef<CallPhase>('idle')
   const lastSubmitRef = useRef<{ signature: string; at: number } | null>(null)
   const conversationItemRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const previousConversationTopsRef = useRef<Map<string, number>>(new Map())
+
+  const teardownCall = (options?: { keepLocalStream?: boolean }) => {
+    const pc = peerConnectionRef.current
+    if (pc) {
+      pc.onicecandidate = null
+      pc.ontrack = null
+      pc.close()
+    }
+    peerConnectionRef.current = null
+    pendingIceRef.current = []
+    currentCallIdRef.current = null
+    currentCallPeerEmpIdRef.current = null
+    setCallPhase('idle')
+    setCallPeerName('')
+    setIncomingCall(null)
+    if (!options?.keepLocalStream && localStreamRef.current) {
+      for (const track of localStreamRef.current.getTracks()) track.stop()
+      localStreamRef.current = null
+    }
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null
+  }
+
+  useEffect(() => {
+    callPhaseRef.current = callPhase
+  }, [callPhase])
+
+  const ensureAudioStream = async (): Promise<MediaStream> => {
+    if (localStreamRef.current) return localStreamRef.current
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    localStreamRef.current = stream
+    return stream
+  }
+
+  const ensurePeerConnection = (targetEmpId: number): RTCPeerConnection => {
+    const existing = peerConnectionRef.current
+    if (existing) return existing
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    })
+    pc.onicecandidate = (event) => {
+      if (!event.candidate) return
+      socketRef.current?.emit('call:ice-candidate', {
+        targetId: targetEmpId,
+        candidate: event.candidate,
+      })
+    }
+    pc.ontrack = (event) => {
+      if (!remoteAudioRef.current) return
+      const [stream] = event.streams
+      if (!stream) return
+      remoteAudioRef.current.srcObject = stream
+      void remoteAudioRef.current.play().catch(() => {
+        // Browser autoplay policies may block until user interaction.
+      })
+    }
+    peerConnectionRef.current = pc
+    return pc
+  }
 
   const allChatUsers = useMemo<ChatUser[]>(() => {
     const fromEmployees = employees
@@ -1076,6 +1154,10 @@ export default function ChatPage() {
 
     socket.on('connect', () => {
       setSocketConnected(true)
+      const registerEmpId = meEmpIdForChat ?? signedEmployee?.id ?? null
+      if (registerEmpId && registerEmpId > 0) {
+        socket.emit('call:register', { employeeID: registerEmpId })
+      }
       for (const employeeId of targetEmployeeIds) {
         // Support multiple backend room-join conventions.
         socket.emit('join', { employeeID: employeeId })
@@ -1098,6 +1180,74 @@ export default function ChatPage() {
 
     socket.on('connect_error', () => {
       setSocketConnected(false)
+    })
+
+    socket.on('call:error', (payload: { message?: string }) => {
+      setCallError(String(payload?.message ?? 'Call failed.').trim() || 'Call failed.')
+      teardownCall()
+    })
+
+    socket.on('call:initiated', (payload: { callId?: string }) => {
+      if (payload?.callId) currentCallIdRef.current = payload.callId
+      setCallPhase('ringing')
+    })
+
+    socket.on('call:incoming', (payload: SocketCallIncoming) => {
+      if (callPhaseRef.current !== 'idle') {
+        socket.emit('call:reject', {
+          callId: payload.callId,
+          callerId: payload.callerId,
+        })
+        return
+      }
+      setIncomingCall(payload)
+      setCallPhase('ringing')
+      setCallPeerName(String(payload.callerName ?? `Employee ${payload.callerId}`))
+      currentCallIdRef.current = payload.callId
+      currentCallPeerEmpIdRef.current = Number(payload.callerId)
+    })
+
+    socket.on('call:answered', async (payload: { callId?: string; answer?: RTCSessionDescriptionInit }) => {
+      const pc = peerConnectionRef.current
+      if (!pc || !payload?.answer) return
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(payload.answer))
+        for (const c of pendingIceRef.current) {
+          await pc.addIceCandidate(new RTCIceCandidate(c))
+        }
+        pendingIceRef.current = []
+        setCallPhase('in_call')
+      } catch {
+        setCallError('Failed to establish call.')
+        teardownCall()
+      }
+    })
+
+    socket.on('call:rejected', () => {
+      setCallError('Call was rejected.')
+      teardownCall()
+    })
+
+    socket.on('call:ice-candidate', async (payload: { candidate?: RTCIceCandidateInit }) => {
+      if (!payload?.candidate) return
+      const pc = peerConnectionRef.current
+      if (!pc) {
+        pendingIceRef.current.push(payload.candidate)
+        return
+      }
+      try {
+        if (pc.remoteDescription) {
+          await pc.addIceCandidate(new RTCIceCandidate(payload.candidate))
+        } else {
+          pendingIceRef.current.push(payload.candidate)
+        }
+      } catch {
+        // Ignore invalid ICE candidate payloads.
+      }
+    })
+
+    socket.on('call:ended', () => {
+      teardownCall()
     })
 
     const onIncomingMessage = (evt: {
@@ -1282,6 +1432,14 @@ export default function ChatPage() {
       socket.off('receiveMessage', onIncomingMessage)
       socket.off('conversation_message', onIncomingMessage)
       socket.off('conversationMessage', onIncomingMessage)
+      socket.off('call:error')
+      socket.off('call:initiated')
+      socket.off('call:incoming')
+      socket.off('call:answered')
+      socket.off('call:rejected')
+      socket.off('call:ice-candidate')
+      socket.off('call:ended')
+      teardownCall()
       socket.disconnect()
       socketRef.current = null
     }
@@ -1296,6 +1454,101 @@ export default function ChatPage() {
     signedEmployee,
     markLatestOwnMessageSeen,
   ])
+
+  useEffect(() => {
+    return () => {
+      teardownCall()
+    }
+  }, [])
+
+  const handleStartVoiceCall = async () => {
+    setCallError('')
+    if (callPhase !== 'idle') return
+    const calleeId = selectedUser ? getEmployeeIdFromChatUserId(selectedUser) : null
+    const callerId = meEmpIdForChat ?? signedEmployee?.id ?? null
+    if (!(calleeId && calleeId > 0) || !(callerId && callerId > 0)) {
+      setCallError('Only employees can be called.')
+      return
+    }
+    const socket = socketRef.current
+    if (!socket || !socket.connected) {
+      setCallError('Socket is not connected.')
+      return
+    }
+    currentCallPeerEmpIdRef.current = calleeId
+    setCallPeerName(selectedUserObj?.name ?? `Employee ${calleeId}`)
+    try {
+      const stream = await ensureAudioStream()
+      const pc = ensurePeerConnection(calleeId)
+      for (const track of stream.getTracks()) pc.addTrack(track, stream)
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+      setCallPhase('calling')
+      socket.emit('call:offer', {
+        callerId,
+        calleeId,
+        callerName: currentDisplayName,
+        offer,
+      })
+    } catch {
+      setCallError('Microphone access denied or unavailable.')
+      teardownCall()
+    }
+  }
+
+  const handleAcceptCall = async () => {
+    const incoming = incomingCall
+    if (!incoming) return
+    const socket = socketRef.current
+    if (!socket || !socket.connected) {
+      setCallError('Socket is not connected.')
+      teardownCall()
+      return
+    }
+    try {
+      const stream = await ensureAudioStream()
+      const pc = ensurePeerConnection(incoming.callerId)
+      for (const track of stream.getTracks()) pc.addTrack(track, stream)
+      await pc.setRemoteDescription(new RTCSessionDescription(incoming.offer))
+      const answer = await pc.createAnswer()
+      await pc.setLocalDescription(answer)
+      for (const c of pendingIceRef.current) {
+        await pc.addIceCandidate(new RTCIceCandidate(c))
+      }
+      pendingIceRef.current = []
+      socket.emit('call:answer', {
+        callId: incoming.callId,
+        callerId: incoming.callerId,
+        answer,
+      })
+      setIncomingCall(null)
+      setCallPhase('in_call')
+    } catch {
+      setCallError('Failed to answer call.')
+      teardownCall()
+    }
+  }
+
+  const handleRejectCall = () => {
+    const incoming = incomingCall
+    if (!incoming) return
+    socketRef.current?.emit('call:reject', {
+      callId: incoming.callId,
+      callerId: incoming.callerId,
+    })
+    setIncomingCall(null)
+    setCallPhase('idle')
+    setCallPeerName('')
+  }
+
+  const handleEndCall = () => {
+    const targetId = currentCallPeerEmpIdRef.current
+    const callId = currentCallIdRef.current
+    if (targetId && callId) {
+      socketRef.current?.emit('call:end', { callId, targetId })
+    }
+    teardownCall()
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -1580,12 +1833,24 @@ export default function ChatPage() {
               <div className="messenger-thread-name-wrap">
                 <span className="messenger-thread-name">{selectedUserObj?.name ?? 'Unknown user'}</span>
                 <span className="messenger-thread-role">{selectedUserObj?.role ?? roleLabel}</span>
+                {callPhase !== 'idle' && (
+                  <span className="messenger-thread-role">
+                    {callPhase === 'calling' ? 'Calling...' : callPhase === 'ringing' ? 'Ringing...' : `On call${callPeerName ? ` with ${callPeerName}` : ''}`}
+                  </span>
+                )}
+                {callError && <span className="messenger-thread-role">{callError}</span>}
               </div>
               <div className="messenger-thread-actions">
                 <button type="button" className="messenger-icon-btn" aria-label="Video call">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
                 </button>
-                <button type="button" className="messenger-icon-btn" aria-label="Voice call">
+                <button
+                  type="button"
+                  className="messenger-icon-btn"
+                  aria-label={callPhase === 'idle' ? 'Voice call' : 'End call'}
+                  onClick={callPhase === 'idle' ? handleStartVoiceCall : handleEndCall}
+                  disabled={!selectedUserObj || !getEmployeeIdFromChatUserId(selectedUserObj.id)}
+                >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></svg>
                 </button>
                 <button type="button" className="messenger-icon-btn" aria-label="Chat info">
@@ -1594,6 +1859,19 @@ export default function ChatPage() {
               </div>
             </header>
             <div ref={listRef} className="messenger-messages">
+              {incomingCall && (
+                <div className="messenger-empty" style={{ marginBottom: '0.75rem' }}>
+                  Incoming call from {incomingCall.callerName || `Employee ${incomingCall.callerId}`}.
+                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                    <button type="button" className="messenger-icon-btn" onClick={handleAcceptCall} aria-label="Accept call">
+                      Accept
+                    </button>
+                    <button type="button" className="messenger-icon-btn" onClick={handleRejectCall} aria-label="Reject call">
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              )}
               {messages.length === 0 ? (
                 <p className="messenger-empty">No messages yet. Say hello!</p>
               ) : (
@@ -1678,6 +1956,7 @@ export default function ChatPage() {
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
               </button>
             </form>
+            <audio ref={remoteAudioRef} autoPlay style={{ display: 'none' }} />
           </>
         ) : (
           <div className="messenger-thread-placeholder">

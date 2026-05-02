@@ -5,6 +5,22 @@ import { SidebarProvider, useSidebar } from '../contexts/SidebarContext'
 import { fetchEmployees } from '../api/employees'
 import { getPortalAccountId, getPortalEmpId, getPortalUsername } from '../api/client'
 
+function getMobileDisplayName(fullName: string): string {
+  const trimmedName = fullName.trim()
+  if (!trimmedName) return ''
+  const parts = trimmedName.split(/\s+/).filter(Boolean)
+  if (parts.length <= 1) return trimmedName
+
+  const lastName = parts[parts.length - 1]
+  const givenNames = parts.slice(0, -1)
+  const initials = givenNames
+    .filter((part) => !part.endsWith('.'))
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('')
+
+  return initials ? `${initials} ${lastName}` : lastName
+}
+
 function DashboardMainWithScroll() {
   const { scrollContainerRef } = useSidebar()
   return (
@@ -25,6 +41,18 @@ function DashboardHeader() {
   const { isOpen, toggle } = useSidebar()
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | undefined>()
   const [accountDisplayName, setAccountDisplayName] = useState<string>('')
+  const [isMobileView, setIsMobileView] = useState(false)
+  const fallbackName = 'My profile'
+  const headerName = accountDisplayName || fallbackName
+  const mobileHeaderName = getMobileDisplayName(headerName) || fallbackName
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    setIsMobileView(mq.matches)
+    const handleChange = (event: MediaQueryListEvent) => setIsMobileView(event.matches)
+    mq.addEventListener('change', handleChange)
+    return () => mq.removeEventListener('change', handleChange)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -82,7 +110,7 @@ function DashboardHeader() {
           </svg>
         </button>
         <img src={logoImg} alt="AA2000" className="h-9 w-auto object-contain flex-shrink-0" />
-        <span className="font-semibold text-base tracking-tight text-slate-100 hidden sm:inline">Portal</span>
+        <span className="font-semibold text-base tracking-tight text-slate-100 hidden sm:inline">PORTAL</span>
       </div>
       <div className="flex items-center justify-end gap-2 flex-1 min-w-0 shrink-0">
         <Link
@@ -106,7 +134,9 @@ function DashboardHeader() {
               </svg>
             )}
           </span>
-          <span className="dashboard-app-header-profile-name">{accountDisplayName || 'My profile'}</span>
+          <span className="dashboard-app-header-profile-name">
+            {isMobileView ? mobileHeaderName : headerName}
+          </span>
         </Link>
       </div>
       </div>

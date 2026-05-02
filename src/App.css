@@ -36,6 +36,29 @@
   border-radius: 20px;
 }
 
+/* Fallback fullscreen (no Fullscreen API, or user prefers overlay). */
+.call-popup-card--video.call-popup-card--ui-fullscreen {
+  width: 100vw;
+  max-width: 100vw;
+  min-width: 0;
+  height: 100dvh;
+  border-radius: 0;
+}
+
+.call-popup-card--video.call-popup-card--ui-fullscreen .call-video-stage {
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.call-popup-card--video.call-popup-card--ui-fullscreen .call-controls {
+  margin-top: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
+}
+
 /* Phone: make video call fullscreen (edge-to-edge) */
 @media (max-width: 768px) {
   .call-popup-overlay {

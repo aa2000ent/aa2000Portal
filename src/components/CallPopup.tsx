@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useCall } from '../contexts/CallContext'
 
 function useCallTimer(active: boolean) {
@@ -63,23 +63,29 @@ export default function CallPopup() {
   const remoteVideoRef = useStreamRef(remoteStream) as (el: HTMLVideoElement | null) => void
   const remoteAudioRef = useStreamRef(remoteStream) as (el: HTMLAudioElement | null) => void
 
-  const isMobile = useMemo(() => (typeof window !== 'undefined' ? window.matchMedia('(max-width: 768px)').matches : false), [])
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [uiFullscreen, setUiFullscreen] = useState(false)
+  const videoCardRef = useRef<HTMLDivElement | null>(null)
 
   const toggleFullscreen = async () => {
+    const root = videoCardRef.current
+    if (!root) return
+
+    // Native fullscreen (if supported).
     try {
-      const root = document.querySelector('.call-popup-card--video') as HTMLElement | null
-      if (!root) return
-      if (!document.fullscreenElement) {
+      if (!document.fullscreenElement && typeof root.requestFullscreen === 'function') {
         await root.requestFullscreen()
-        setIsFullscreen(true)
-      } else {
+        return
+      }
+      if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
         await document.exitFullscreen()
-        setIsFullscreen(false)
+        return
       }
     } catch {
-      // ignore unsupported fullscreen
+      // Fall back to CSS fullscreen
     }
+
+    setUiFullscreen((v) => !v)
   }
 
   useEffect(() => {
@@ -140,9 +146,10 @@ export default function CallPopup() {
 
       {callPhase !== 'idle' && (
         <div
+          ref={wantsVideo && (isInCall || isCalling || isIncoming) ? videoCardRef : undefined}
           className={`call-popup-card ${
             wantsVideo && (isInCall || isCalling || isIncoming) ? 'call-popup-card--video' : ''
-          }`}
+          } ${uiFullscreen ? 'call-popup-card--ui-fullscreen' : ''}`}
         >
           {/* ── Video call: connected (both sides — remote main, local PiP) ── */}
           {isInCall && wantsVideo && (
@@ -318,7 +325,7 @@ export default function CallPopup() {
                   </button>
                 )}
 
-                {isVideoActive && isMobile && (
+                {isVideoActive && (
                   <button
                     type="button"
                     className={`call-btn call-btn--mute ${isFullscreen ? 'active' : ''}`}
@@ -340,7 +347,7 @@ export default function CallPopup() {
                         <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
                       </svg>
                     )}
-                    <span>{isFullscreen ? 'Exit' : 'Full'}</span>
+                    <span>{(isFullscreen || uiFullscreen) ? 'Exit' : 'Full'}</span>
                   </button>
                 )}
 

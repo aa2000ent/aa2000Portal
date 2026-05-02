@@ -72,6 +72,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const facingModeRef = useRef<CameraFacingMode>('user')
   const callerToneRef = useRef<HTMLAudioElement | null>(null)
   const receiverToneRef = useRef<HTMLAudioElement | null>(null)
+  const ensureInternalSocketRef = useRef<(() => void) | null>(null)
 
   const buildSocketBaseUrl = (): string => {
     const raw = String(import.meta.env.VITE_SOCKET_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? '').trim()
@@ -256,7 +257,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         myEmpIdRef.current = identity.empId
         myDisplayNameRef.current = String(identity.displayName ?? '').trim()
       }
-      if (!socket) return
+      if (!socket) {
+        // ChatPage unmounted — immediately re-establish the internal call socket
+        // so calls still ring on other pages without requiring a focus change.
+        queueMicrotask(() => ensureInternalSocketRef.current?.())
+        return
+      }
 
       const onError = (p: { message?: string }) => {
         setCallError(String(p?.message ?? 'Call failed.').trim() || 'Call failed.')
@@ -388,12 +394,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
       })
     }
 
+    ensureInternalSocketRef.current = () => {
+      void ensureInternal()
+    }
+
     void ensureInternal()
     const onFocus = () => { void ensureInternal() }
     window.addEventListener('focus', onFocus)
 
     return () => {
       cancelled = true
+      ensureInternalSocketRef.current = null
       window.removeEventListener('focus', onFocus)
       if (retryTimer) window.clearTimeout(retryTimer)
       try { internalSocketRef.current?.disconnect() } catch {}

@@ -11,6 +11,7 @@ export type Employee = {
   email: string
   role: string
   status: 'Active' | 'Inactive'
+  username?: string
   password?: string
   address?: string
   contact?: string

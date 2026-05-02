@@ -337,6 +337,28 @@ function resolveCurrentSenderEmployeeId(params: {
 }
 
 export default function ChatPage() {
+  const [isInitializing, setIsInitializing] = useState(true)
+  const [loadingPercent, setLoadingPercent] = useState(0)
+
+  useEffect(() => {
+    const duration = 1500
+    const start = Date.now()
+
+    const animate = () => {
+      const now = Date.now()
+      const elapsed = now - start
+      if (elapsed < duration) {
+        setLoadingPercent(Math.min(100, Math.floor((elapsed / duration) * 100)))
+        requestAnimationFrame(animate)
+      } else {
+        setLoadingPercent(100)
+        setIsInitializing(false)
+      }
+    }
+    const frameId = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(frameId)
+  }, [])
+
   const location = useLocation()
   const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
   const { employees: employeesRaw } = useEmployees()
@@ -1476,6 +1498,24 @@ export default function ChatPage() {
         forceSyncRef.current?.()
       }
     })()
+  }
+
+  if (isInitializing) {
+    return (
+      <div className="flex items-center justify-center h-full w-full bg-[var(--aa-content-bg)]">
+        <div className="flex flex-col items-center w-full max-w-xs px-6">
+          <p className="mb-3 text-[var(--aa-text-main)] font-medium text-sm animate-pulse">
+            Retrieving the chat... {loadingPercent}%
+          </p>
+          <div className="w-full h-1.5 bg-[var(--aa-content-border)] rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-[var(--aa-blue)] rounded-full"
+              style={{ width: `${loadingPercent}%` }}
+            />
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

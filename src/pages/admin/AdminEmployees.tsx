@@ -104,6 +104,7 @@ export default function AdminEmployees() {
     role: string
     status: 'Active' | 'Inactive'
     password: string
+    username: string
     address: string
     contact: string
     photoBase64?: string
@@ -117,6 +118,7 @@ export default function AdminEmployees() {
     role: roles[0] ?? 'Admin',
     status: 'Active',
     password: DEFAULT_PASSWORD,
+    username: '',
     address: '',
     contact: '',
     photoBase64: undefined,
@@ -403,7 +405,7 @@ export default function AdminEmployees() {
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault()
     if (pendingPhotoPromiseRef.current) await pendingPhotoPromiseRef.current
-    const { fname, mname, lname, email, role, status, password, address, contact, photoBase64: statePhotoBase64 } = newUser
+    const { fname, mname, lname, email, username, role, status, password, address, contact, photoBase64: statePhotoBase64 } = newUser
     const photoBase64 = pendingPhotoBase64ValueRef.current ?? statePhotoBase64
     const name = [fname, mname, lname].filter(Boolean).join(' ').trim()
     if (!name || !email.trim()) return
@@ -420,6 +422,7 @@ export default function AdminEmployees() {
           mname: mname.trim() || undefined,
           lname: lname.trim(),
           email: email.trim(),
+          username: username.trim() || undefined,
           roleName: role,
           roleId: matchedRole?.role_ID,
           contact: contact.trim() || undefined,
@@ -453,6 +456,7 @@ export default function AdminEmployees() {
           id,
           name,
           email: email.trim(),
+          username: username.trim() || undefined,
           role,
           status,
           password: password || DEFAULT_PASSWORD,
@@ -476,7 +480,7 @@ export default function AdminEmployees() {
       return [...prev, nextEmp]
     })
     addEntry({ action: 'user_added', actor: 'Admin', target: nextEmp.name, details: `Role: ${role}` })
-    setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
+    setNewUser({ fname: '', mname: '', lname: '', email: '', username: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
     setLocation(DEFAULT_LOCATION)
     setAddressParts(null)
     setPinAdjusted(false)
@@ -500,7 +504,7 @@ export default function AdminEmployees() {
     e.preventDefault()
     if (!editingEmployee) return
     if (pendingPhotoPromiseRef.current) await pendingPhotoPromiseRef.current
-    const { fname, mname, lname, email, role, status, password, address, contact, photoBase64: statePhotoBase64 } = newUser
+    const { fname, mname, lname, email, username, role, status, password, address, contact, photoBase64: statePhotoBase64 } = newUser
     const photoBase64 = pendingPhotoBase64ValueRef.current ?? statePhotoBase64
     const photoRemoved = pendingPhotoRemovedValueRef.current
     const name = [fname, mname, lname].filter(Boolean).join(' ').trim()
@@ -524,6 +528,7 @@ export default function AdminEmployees() {
           mname: mname.trim() || undefined,
           lname: lname.trim(),
           email: email.trim(),
+          username: username.trim() || undefined,
           roleName: role,
           roleId: matchedRole?.role_ID,
           contact: contact.trim() || undefined,
@@ -563,6 +568,7 @@ export default function AdminEmployees() {
           ...editingEmployee,
           name,
           email: email.trim(),
+          username: username.trim() || undefined,
           role,
           status,
           password: pwd,
@@ -588,6 +594,7 @@ export default function AdminEmployees() {
       mname: '',
       lname: '',
       email: '',
+      username: '',
       role: roles[0] ?? 'Admin',
       status: 'Active',
       password: DEFAULT_PASSWORD,
@@ -636,6 +643,7 @@ export default function AdminEmployees() {
       mname,
       lname,
       email: emp.email,
+      username: emp.username ?? '',
       role: emp.role,
       status: emp.status,
       password: emp.password ?? DEFAULT_PASSWORD,
@@ -744,7 +752,7 @@ export default function AdminEmployees() {
                 type="button"
                 className="employees-btn employees-btn-primary"
                 onClick={() => {
-                  setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
+                  setNewUser({ fname: '', mname: '', lname: '', email: '', username: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
                   setShowAddPassword(false)
                   setLocation(DEFAULT_LOCATION)
                   setAddressParts(null)
@@ -1104,6 +1112,17 @@ export default function AdminEmployees() {
                 />
               </div>
               <div className="modal-field">
+                <label htmlFor="user-username" className="modal-label">Username</label>
+                <input
+                  id="user-username"
+                  type="text"
+                  className="modal-input"
+                  placeholder="Username"
+                  value={newUser.username}
+                  onChange={(e) => setNewUser((u) => ({ ...u, username: e.target.value }))}
+                />
+              </div>
+              <div className="modal-field">
                 <label htmlFor="user-password" className="modal-label">Password</label>
                 <div className="modal-password-wrap">
                   <input
@@ -1280,7 +1299,7 @@ export default function AdminEmployees() {
           onClick={() => {
             setEditingEmployee(null)
             setPinAdjusted(false)
-            setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
+            setNewUser({ fname: '', mname: '', lname: '', email: '', username: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
           }}
           role="dialog"
           aria-modal="true"
@@ -1295,7 +1314,7 @@ export default function AdminEmployees() {
                 onClick={() => {
                   setEditingEmployee(null)
                   setPinAdjusted(false)
-                  setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
+                  setNewUser({ fname: '', mname: '', lname: '', email: '', username: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
                 }}
                 aria-label="Close"
               >
@@ -1434,6 +1453,17 @@ export default function AdminEmployees() {
                   value={newUser.email}
                   onChange={(e) => setNewUser((u) => ({ ...u, email: e.target.value }))}
                   required
+                />
+              </div>
+              <div className="modal-field">
+                <label htmlFor="edit-user-username" className="modal-label">Username</label>
+                <input
+                  id="edit-user-username"
+                  type="text"
+                  className="modal-input"
+                  placeholder="Username"
+                  value={newUser.username}
+                  onChange={(e) => setNewUser((u) => ({ ...u, username: e.target.value }))}
                 />
               </div>
               <div className="modal-field">
@@ -1605,7 +1635,7 @@ export default function AdminEmployees() {
                   onClick={() => {
                     setEditingEmployee(null)
                     setPinAdjusted(false)
-                    setNewUser({ fname: '', mname: '', lname: '', email: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
+                    setNewUser({ fname: '', mname: '', lname: '', email: '', username: '', role: roles[0] ?? 'Admin', status: 'Active', password: DEFAULT_PASSWORD, address: '', contact: '', photoBase64: undefined, photoRemoved: false })
                   }}
                 >
                   Cancel

@@ -12,6 +12,7 @@ type EmployeeDto = {
   email: string
   role: string
   status?: 'Active' | 'Inactive'
+  username?: string
   password?: string
 }
 
@@ -283,6 +284,19 @@ function mapBackendEmployee(row: Record<string, unknown>, roleOptions?: RoleOpti
     (roleId ? `Role ${roleId}` : (row.role as string) ?? '')
   const addressId = row.Emp_AddressID != null ? Number(row.Emp_AddressID) : undefined
   const addressFromJoin = getAddressLineFromEmployeeRow(row)
+
+  let username: string | undefined = undefined
+  if (typeof row.acc_username === 'string') username = row.acc_username
+  else if (typeof row.username === 'string') username = row.username
+  else if (typeof row.Username === 'string') username = row.Username
+  else {
+    const accObj = row.Account ?? row.account ?? row.userAccount
+    if (accObj && typeof accObj === 'object' && !Array.isArray(accObj)) {
+      const a = accObj as Record<string, unknown>
+      username = (a.username ?? a.acc_username ?? a.Username) as string | undefined
+    }
+  }
+
   return {
     id: empId > 0 ? empId : 0,
     accId: accIdNum > 0 ? accIdNum : undefined,
@@ -290,6 +304,7 @@ function mapBackendEmployee(row: Record<string, unknown>, roleOptions?: RoleOpti
     email: (row.Emp_email ?? row.emp_email ?? row.email ?? '') as string,
     role,
     status: 'Active',
+    username,
     password: (row.password as string) ?? undefined,
     address:
       addressFromJoin ||
@@ -308,6 +323,7 @@ function toEmployee(d: EmployeeDto & { address?: string; contact?: string; photo
     email: d.email,
     role: d.role,
     status: d.status ?? 'Active',
+    username: d.username,
     password: d.password,
     address: d.address,
     contact: d.contact,
@@ -337,6 +353,7 @@ function normalizeRow(row: unknown, roleOptions?: RoleOption[]): Employee {
       email: String(r.email ?? ''),
       role: String(r.role ?? ''),
       status: (r.status as 'Active' | 'Inactive') ?? 'Active',
+      username: r.username != null ? String(r.username) : undefined,
       password: r.password != null ? String(r.password) : undefined,
       address: r.address != null ? String(r.address) : undefined,
       contact: r.contact != null ? String(r.contact) : undefined,
@@ -603,6 +620,7 @@ type EmployeeCreateInput = {
   roleId?: number
   contact?: string
   address?: string
+  username?: string
   password?: string
   /**
    * Stored in Sequelize column `Emp_imageBase64`.
@@ -725,9 +743,20 @@ function employeeToExpressPayload(
     Emp_email: input.email,
     Emp_role: roleValue,
   }
+  if (typeof input.roleId === 'number' && input.roleId > 0) {
+    out.role_ID = input.roleId
+  }
   if (empAddressId != null && empAddressId > 0) out.Emp_AddressID = empAddressId
   if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
   if (input.contact) out.Emp_cnum = input.contact
+  if (input.username) {
+    out.username = input.username
+    out.acc_username = input.username
+  }
+  if (input.password) {
+    out.password = input.password
+    out.acc_password = input.password
+  }
   if (input.empImageBase64 !== undefined) {
     out.Emp_imageBase64 = input.empImageBase64
     out.empImageBase64 = input.empImageBase64
@@ -755,9 +784,20 @@ function employeeUpdateToExpressPayload(
     Emp_email: input.email,
     Emp_role: roleValue,
   }
+  if (typeof input.roleId === 'number' && input.roleId > 0) {
+    out.role_ID = input.roleId
+  }
   if (empAddressId != null && empAddressId > 0) out.Emp_AddressID = empAddressId
   if (input.mname != null && String(input.mname).trim()) out.Emp_mname = input.mname
   if (input.contact !== undefined) out.Emp_cnum = input.contact
+  if (input.username) {
+    out.username = input.username
+    out.acc_username = input.username
+  }
+  if (input.password) {
+    out.password = input.password
+    out.acc_password = input.password
+  }
   if (input.status) {
     out.Emp_status = input.status
     out.status = input.status
@@ -990,6 +1030,7 @@ export async function createEmployee(
     role: input.roleName,
     contact: input.contact,
     address: input.address,
+    username: input.username,
     password: input.password,
     Emp_fname: input.fname,
     Emp_lname: input.lname,

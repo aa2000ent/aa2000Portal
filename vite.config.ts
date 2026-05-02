@@ -63,5 +63,8 @@ export default defineConfig(({ mode }) => {
       },
       chunkSizeWarningLimit: 600,
     },
+    optimizeDeps: {
+      include: ['read-excel-file/browser']
+    }
   }
 })

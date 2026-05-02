@@ -4,7 +4,7 @@ export default function PortalMeetingMinutes() {
   return (
     <AnnouncementCrudPage
       type="MEETING_MINUTES"
-      title="Meeting minutes"
+      title="Minutes of Meeting"
       subtitle="Create, update, and manage meeting minutes."
     />
   )

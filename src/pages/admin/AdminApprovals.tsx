@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { readSheet } from 'read-excel-file/browser'
+import { readSheet } from 'read-excel-file/browser' // Vite should now resolve this since we ran npm install
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useApprovals, type ApprovalRequest, type ApprovalStatus } from '../../contexts/ApprovalsContext'
 import { useEmployees, DEFAULT_PASSWORD } from '../../contexts/EmployeesContext'

@@ -36,6 +36,49 @@
   border-radius: 20px;
 }
 
+/* Phone: make video call fullscreen (edge-to-edge) */
+@media (max-width: 768px) {
+  .call-popup-overlay {
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .call-popup-card--video {
+    width: 100vw;
+    max-width: 100vw;
+    min-width: 0;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  .call-video-stage {
+    height: 100%;
+    aspect-ratio: auto;
+  }
+
+  .call-video-local {
+    width: min(34vw, 140px);
+    bottom: 16px;
+    right: 16px;
+    border-radius: 14px;
+  }
+
+  .call-video-label--pip {
+    width: min(34vw, 140px);
+    right: 16px;
+    bottom: calc(16px + 90px + 8px);
+  }
+
+  .call-popup-card--video .call-controls {
+    margin-top: 0;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
+  }
+}
+
 @keyframes call-card-in {
   from { opacity: 0; transform: scale(0.88) translateY(12px); }
   to   { opacity: 1; transform: scale(1)   translateY(0); }
@@ -131,6 +174,40 @@
   border-radius: 12px;
   border: 2px solid rgba(255,255,255,0.2);
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  z-index: 3;
+}
+
+.call-video-label--pip {
+  position: absolute;
+  right: 12px;
+  bottom: calc(12px + 90px + 6px);
+  width: 120px;
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.9);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.call-video-remote--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(30, 41, 59, 1) 0%, #0f172a 100%);
+}
+
+.call-video-placeholder-msg {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(148, 163, 184, 0.95);
+  padding: 2rem;
+  text-align: center;
+}
+
+.call-video-stage--dialing .call-video-placeholder-msg {
+  max-width: 16rem;
 }
 
 .call-video-header {

@@ -93,7 +93,10 @@ export default function CallPopup() {
   if (callPhase === 'idle' && !callError) return null
 
   const peerName = callPeerName || (incomingCall ? String(incomingCall.callerName ?? `Employee ${incomingCall.callerId}`) : 'Unknown')
-  const isVideo = callType === 'video'
+  const wantsVideo =
+    callType === 'video' ||
+    (!!incomingCall && (incomingCall.callType ?? 'audio') === 'video')
+  const isVideoActive = wantsVideo
   const isInCall = callPhase === 'in_call'
   const isIncoming = callPhase === 'ringing' && !!incomingCall
   const isCalling = callPhase === 'calling' || (callPhase === 'ringing' && !incomingCall)
@@ -110,17 +113,15 @@ export default function CallPopup() {
       )}
 
       {callPhase !== 'idle' && (
-        <div className={`call-popup-card ${isInCall && isVideo ? 'call-popup-card--video' : ''}`}>
-
-          {/* ── Video call (in-call) ──────────────────── */}
-          {isInCall && isVideo && (
+        <div
+          className={`call-popup-card ${
+            wantsVideo && (isInCall || isCalling || isIncoming) ? 'call-popup-card--video' : ''
+          }`}
+        >
+          {/* ── Video call: connected (both sides — remote main, local PiP) ── */}
+          {isInCall && wantsVideo && (
             <div className="call-video-stage">
-              <video
-                ref={remoteVideoRef}
-                className="call-video-remote"
-                autoPlay
-                playsInline
-              />
+              <video ref={remoteVideoRef} className="call-video-remote" autoPlay playsInline />
               <video
                 ref={localVideoRef}
                 className="call-video-local"
@@ -128,6 +129,9 @@ export default function CallPopup() {
                 playsInline
                 muted
               />
+              <div className="call-video-label call-video-label--pip" aria-hidden>
+                You
+              </div>
               <div className="call-video-header">
                 <span className="call-peer-name call-peer-name--video">{peerName}</span>
                 <span className="call-status-label call-status-label--video">{timer}</span>
@@ -135,11 +139,34 @@ export default function CallPopup() {
             </div>
           )}
 
-          {/* Hidden remote audio for audio calls */}
-          {!isVideo && <audio ref={remoteAudioRef} autoPlay style={{ display: 'none' }} />}
+          {/* ── Video: outgoing ring — caller already has camera on (shows self + waiting) ── */}
+          {!isInCall && isCalling && wantsVideo && (
+            <div className="call-video-stage call-video-stage--dialing">
+              <div className="call-video-remote call-video-remote--placeholder">
+                <span className="call-video-placeholder-msg">Waiting for answer…</span>
+              </div>
+              <video
+                ref={localVideoRef}
+                className="call-video-local"
+                autoPlay
+                playsInline
+                muted
+              />
+              <div className="call-video-label call-video-label--pip" aria-hidden>
+                You
+              </div>
+              <div className="call-video-header">
+                <span className="call-peer-name call-peer-name--video">{peerName}</span>
+                <span className="call-status-label call-status-label--video">Calling…</span>
+              </div>
+            </div>
+          )}
 
-          {/* ── Avatar + status (audio call / incoming / calling) ── */}
-          {(!isInCall || !isVideo) && (
+          {/* Hidden remote audio for pure audio calls */}
+          {!wantsVideo && <audio ref={remoteAudioRef} autoPlay style={{ display: 'none' }} />}
+
+          {/* ── Avatar + status (audio-only, or ringing video until accepted) ── */}
+          {!((isInCall && wantsVideo) || (isCalling && wantsVideo)) && (
             <div className="call-popup-info">
               <div className={`call-avatar-wrap ${isIncoming ? 'call-avatar-wrap--ring' : ''}`}>
                 <div className="call-avatar">{getInitials(peerName)}</div>
@@ -154,11 +181,11 @@ export default function CallPopup() {
               <p className="call-peer-name">{peerName}</p>
               <p className="call-status-label">
                 {isIncoming
-                  ? `Incoming ${isVideo ? 'video' : 'voice'} call`
+                  ? `Incoming ${isVideoActive ? 'video' : 'voice'} call`
                   : isCalling
                     ? 'Calling...'
                     : isInCall
-                      ? `${isVideo ? 'Video' : 'Voice'} call · ${timer}`
+                      ? `${isVideoActive ? 'Video' : 'Voice'} call · ${timer}`
                       : ''}
               </p>
             </div>
@@ -223,7 +250,7 @@ export default function CallPopup() {
                   <span>{muted ? 'Unmute' : 'Mute'}</span>
                 </button>
 
-                {isVideo && (
+                {isVideoActive && (
                   <button
                     type="button"
                     className={`call-btn call-btn--mute ${camOff ? 'active' : ''}`}

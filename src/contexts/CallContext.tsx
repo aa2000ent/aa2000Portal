@@ -52,6 +52,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const currentCallPeerEmpIdRef = useRef<number | null>(null)
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
+  /** Accumulates remote MediaStreamTracks (Unified Plan often omits `streams[0]` on ontrack). */
+  const remoteMergedStreamRef = useRef<MediaStream | null>(null)
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([])
   const myEmpIdRef = useRef<number | null>(null)
   const myDisplayNameRef = useRef<string>('')
@@ -73,6 +75,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     peerConnectionRef.current = null
     pendingIceRef.current = []
+    remoteMergedStreamRef.current = null
     currentCallIdRef.current = null
     currentCallPeerEmpIdRef.current = null
     if (localStreamRef.current) {
@@ -88,7 +91,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const ensureMediaStream = useCallback(async (type: CallType): Promise<MediaStream> => {
-    if (localStreamRef.current) return localStreamRef.current
+    const existing = localStreamRef.current
+    if (existing) {
+      const hasAudio = existing.getAudioTracks().length > 0
+      const hasVideo = existing.getVideoTracks().length > 0
+      if (type === 'audio' && hasAudio) return existing
+      if (type === 'video' && hasAudio && hasVideo) return existing
+      for (const t of existing.getTracks()) t.stop()
+      localStreamRef.current = null
+      setLocalStream(null)
+    }
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
       video:
@@ -109,8 +121,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
       socketRef.current?.emit('call:ice-candidate', { targetId: targetEmpId, candidate: e.candidate })
     }
     pc.ontrack = (e) => {
-      const [stream] = e.streams
-      if (stream) setRemoteStream(stream)
+      const track = e.track
+      if (!remoteMergedStreamRef.current) remoteMergedStreamRef.current = new MediaStream()
+      const ms = remoteMergedStreamRef.current
+      if (!ms.getTracks().some((t) => t.id === track.id)) ms.addTrack(track)
+      track.addEventListener('ended', () => {
+        try {
+          ms.removeTrack(track)
+        } catch {
+          /* ignore */
+        }
+        const tracks = ms.getTracks()
+        setRemoteStream(tracks.length > 0 ? new MediaStream(tracks) : null)
+      })
+      setRemoteStream(new MediaStream(ms.getTracks()))
     }
     peerConnectionRef.current = pc
     return pc
@@ -223,7 +247,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const stream = await ensureMediaStream(type)
         const pc = ensurePeerConnection(calleeEmpId)
         for (const t of stream.getTracks()) pc.addTrack(t, stream)
-        const offer = await pc.createOffer()
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: type === 'video',
+        })
         await pc.setLocalDescription(offer)
         setCallPhase('calling')
         socket.emit('call:offer', {
@@ -253,12 +280,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const type = incoming.callType ?? 'audio'
     setCallType(type)
     try {
-      const stream = await ensureMediaStream(type)
-      const pc = ensurePeerConnection(incoming.callerId)
-      for (const t of stream.getTracks()) pc.addTrack(t, stream)
-      await pc.setRemoteDescription(new RTCSessionDescription(incoming.offer))
-      const answer = await pc.createAnswer()
-      await pc.setLocalDescription(answer)
+        const pc = ensurePeerConnection(incoming.callerId)
+        await pc.setRemoteDescription(new RTCSessionDescription(incoming.offer))
+        const stream = await ensureMediaStream(type)
+        for (const t of stream.getTracks()) pc.addTrack(t, stream)
+        const answer = await pc.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: type === 'video',
+        })
+        await pc.setLocalDescription(answer)
       for (const c of pendingIceRef.current) await pc.addIceCandidate(new RTCIceCandidate(c))
       pendingIceRef.current = []
       socket.emit('call:answer', {

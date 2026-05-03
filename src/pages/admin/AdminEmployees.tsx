@@ -1338,13 +1338,13 @@ export default function AdminEmployees() {
                 }
               }}
             >
-              <div className="modal-field employee-photo-field">
-                <div className="employee-photo-uploader-wrap">
+              <div className="modal-field employee-photo-field md:col-span-2 flex flex-col items-center justify-center pb-4">
+                <div className="employee-photo-uploader-wrap relative group" style={{ width: '140px', height: '140px', margin: '0 auto' }}>
                   <input
                     id="edit-user-photo"
                     type="file"
                     accept="image/*"
-                    className="employee-photo-input"
+                    className="employee-photo-input hidden"
                     onChange={async (ev) => {
                       const file = ev.currentTarget.files?.[0]
                       if (!file) {
@@ -1379,20 +1379,20 @@ export default function AdminEmployees() {
                   />
                   <label
                     htmlFor="edit-user-photo"
-                    className="employees-avatar employee-photo-uploader"
+                    className="flex items-center justify-center w-full h-full rounded-full overflow-hidden border-4 border-slate-200 bg-slate-100 cursor-pointer hover:border-[var(--aa-blue)] transition-colors shadow-lg"
                     aria-label="Upload profile picture"
                     title="Upload profile picture"
                   >
                     {editActivePhotoUrl ? (
-                      <img className="employees-avatar-img" src={editActivePhotoUrl} alt="Profile preview" />
+                      <img className="w-full h-full object-cover" src={editActivePhotoUrl} alt="Profile preview" />
                     ) : (
-                      <Plus size={20} className="employee-photo-plus-icon" aria-hidden />
+                      <Plus size={40} className="employee-photo-plus-icon text-slate-400 group-hover:text-[var(--aa-blue)] transition-colors" aria-hidden />
                     )}
                   </label>
                   {editActivePhotoUrl && (
                     <button
                       type="button"
-                      className="employee-photo-remove"
+                      className="employee-photo-remove absolute top-1 right-1 bg-white text-red-500 rounded-full p-1.5 shadow border border-slate-200 hover:bg-red-50 hover:text-red-600 transition-colors z-10"
                       aria-label="Remove uploaded picture"
                       disabled={photoBusy}
                       onClick={(ev) => {
@@ -1403,7 +1403,7 @@ export default function AdminEmployees() {
                         setNewUser((u) => ({ ...u, photoBase64: undefined, photoRemoved: true }))
                       }}
                     >
-                      <X size={14} aria-hidden />
+                      <X size={18} aria-hidden />
                     </button>
                   )}
                 </div>

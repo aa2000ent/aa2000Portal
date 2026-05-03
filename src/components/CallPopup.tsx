@@ -70,6 +70,40 @@ export default function CallPopup() {
   const [controlsHidden, setControlsHidden] = useState(false)
   const hideTimerRef = useRef<number | null>(null)
 
+  // --- PiP Dragging State ---
+  const [pipOffset, setPipOffset] = useState({ x: 0, y: 0 })
+  const pipDragRef = useRef<{ startX: number, startY: number, startOffsetX: number, startOffsetY: number } | null>(null)
+
+  const handlePipPointerDown = (e: React.PointerEvent<HTMLVideoElement>) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    pipDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startOffsetX: pipOffset.x,
+      startOffsetY: pipOffset.y,
+    }
+  }
+
+  const handlePipPointerMove = (e: React.PointerEvent<HTMLVideoElement>) => {
+    if (!pipDragRef.current) return
+    e.stopPropagation()
+    const dx = e.clientX - pipDragRef.current.startX
+    const dy = e.clientY - pipDragRef.current.startY
+    setPipOffset({
+      x: pipDragRef.current.startOffsetX + dx,
+      y: pipDragRef.current.startOffsetY + dy,
+    })
+  }
+
+  const handlePipPointerUp = (e: React.PointerEvent<HTMLVideoElement>) => {
+    if (!pipDragRef.current) return
+    e.stopPropagation()
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    pipDragRef.current = null
+  }
+
   const clearHideTimer = () => {
     if (hideTimerRef.current) {
       window.clearTimeout(hideTimerRef.current)
@@ -229,8 +263,21 @@ export default function CallPopup() {
                 autoPlay
                 playsInline
                 muted
+                onPointerDown={handlePipPointerDown}
+                onPointerMove={handlePipPointerMove}
+                onPointerUp={handlePipPointerUp}
+                onPointerCancel={handlePipPointerUp}
+                style={{
+                  transform: `translate(${pipOffset.x}px, ${pipOffset.y}px) ${cameraFacingMode === 'user' ? 'scaleX(-1)' : ''}`,
+                  cursor: 'grab',
+                  touchAction: 'none'
+                }}
               />
-              <div className="call-video-label call-video-label--pip" aria-hidden>
+              <div
+                className="call-video-label call-video-label--pip"
+                aria-hidden
+                style={{ transform: `translate(${pipOffset.x}px, ${pipOffset.y}px)` }}
+              >
                 You
               </div>
               <div className="call-video-header">
@@ -252,8 +299,21 @@ export default function CallPopup() {
                 autoPlay
                 playsInline
                 muted
+                onPointerDown={handlePipPointerDown}
+                onPointerMove={handlePipPointerMove}
+                onPointerUp={handlePipPointerUp}
+                onPointerCancel={handlePipPointerUp}
+                style={{
+                  transform: `translate(${pipOffset.x}px, ${pipOffset.y}px) ${cameraFacingMode === 'user' ? 'scaleX(-1)' : ''}`,
+                  cursor: 'grab',
+                  touchAction: 'none'
+                }}
               />
-              <div className="call-video-label call-video-label--pip" aria-hidden>
+              <div
+                className="call-video-label call-video-label--pip"
+                aria-hidden
+                style={{ transform: `translate(${pipOffset.x}px, ${pipOffset.y}px)` }}
+              >
                 You
               </div>
               <div className="call-video-header">

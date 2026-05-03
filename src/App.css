@@ -181,16 +181,16 @@
   }
 
   .call-video-local {
-    width: min(34vw, 140px);
+    width: min(45vw, 180px);
     bottom: 16px;
     right: 16px;
     border-radius: 14px;
   }
 
   .call-video-label--pip {
-    width: min(34vw, 140px);
+    width: min(45vw, 180px);
     right: 16px;
-    bottom: calc(16px + 90px + 8px);
+    bottom: calc(16px + 135px + 8px);
   }
 
   .call-popup-card--video .call-controls {
@@ -294,7 +294,7 @@
   position: absolute;
   bottom: 12px;
   right: 12px;
-  width: 120px;
+  width: 180px;
   aspect-ratio: 4/3;
   /* Show full self camera frame (no crop), especially on portrait mobile cameras. */
   object-fit: contain;
@@ -312,8 +312,8 @@
 .call-video-label--pip {
   position: absolute;
   right: 12px;
-  bottom: calc(12px + 90px + 6px);
-  width: 120px;
+  bottom: calc(12px + 135px + 6px);
+  width: 180px;
   text-align: center;
   font-size: 0.65rem;
   font-weight: 700;
@@ -326,14 +326,14 @@
 /* Desktop: make the local “You” preview bigger */
 @media (min-width: 769px) {
   .call-video-local {
-    width: 200px;
+    width: 280px;
     border-radius: 14px;
   }
 
   .call-video-label--pip {
-    width: 200px;
-    bottom: calc(12px + 150px + 8px);
-    font-size: 0.7rem;
+    width: 280px;
+    bottom: calc(12px + 210px + 8px);
+    font-size: 0.75rem;
   }
 }
 

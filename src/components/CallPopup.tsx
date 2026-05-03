@@ -213,7 +213,7 @@ export default function CallPopup() {
             wantsVideo && (isInCall || isCalling || isIncoming) ? 'call-popup-card--video' : ''
           } ${uiFullscreen ? 'call-popup-card--ui-fullscreen' : ''} ${
             wantsVideo && (isCalling || isIncoming) && !isInCall ? 'call-popup-card--video-shell' : ''
-          }`}
+          } ${isIncoming && wantsVideo ? 'call-popup-card--incoming-video' : ''}`}
           onMouseMove={isInCall && wantsVideo ? bumpControls : undefined}
           onMouseDown={isInCall && wantsVideo ? bumpControls : undefined}
           onTouchStart={isInCall && wantsVideo ? bumpControls : undefined}

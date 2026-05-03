@@ -88,14 +88,47 @@
   padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
 }
 
-/* Incoming/ringing shell: controls must stay at bottom consistently. */
-.call-popup-card--video.call-popup-card--video-shell .call-controls {
+/* Dialing/outgoing video: controls overlay bottom of the video stage. */
+.call-popup-card--video.call-popup-card--video-shell:not(.call-popup-card--incoming-video) .call-controls {
   margin-top: 0;
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
+}
+
+/*
+ * Incoming video (avatar + text only): keep controls in normal flow so Accept/Decline
+ * never overlap the caller name (desktop had padding:0 + absolute controls → overlap).
+ */
+.call-popup-card--video.call-popup-card--incoming-video {
+  padding: 1.75rem 1.5rem max(1rem, env(safe-area-inset-bottom, 12px));
+  justify-content: center;
+  gap: 1.25rem;
+  min-height: min(420px, 92dvh);
+}
+
+.call-popup-card--video.call-popup-card--incoming-video .call-controls {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  margin-top: 0.25rem;
+  padding: 1rem 1rem max(0.5rem, env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.45), transparent);
+}
+
+.call-popup-card--video.call-popup-card--incoming-video .call-peer-name {
+  max-width: 100%;
+  padding: 0 0.25rem;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.call-popup-card--video.call-popup-card--incoming-video .call-status-label {
+  max-width: 100%;
+  padding: 0 0.25rem;
 }
 
 /* Phone: make video call fullscreen (edge-to-edge) and audio responsive */
@@ -121,11 +154,22 @@
     padding: 0;
   }
 
-  /* Incoming video call (no remote video yet): center avatar + buttons, avoid blank bottom. */
-  .call-popup-card--video.call-popup-card--video-shell {
-    padding: 2.25rem 1.5rem 6.5rem; /* leave room for absolute controls */
+  /* Outgoing video dial: overlay controls; reserve bottom space for absolute bar. */
+  .call-popup-card--video.call-popup-card--video-shell:not(.call-popup-card--incoming-video) {
+    padding: 2.25rem 1.5rem 6.5rem;
     justify-content: center;
     gap: 1.5rem;
+    background:
+      radial-gradient(1200px 800px at 50% -10%, rgba(59, 130, 246, 0.25), transparent 60%),
+      rgba(15, 23, 42, 0.98);
+  }
+
+  .call-popup-card--video.call-popup-card--incoming-video {
+    padding: 2rem 1.5rem max(1.25rem, env(safe-area-inset-bottom, 16px));
+    justify-content: center;
+    gap: 1.75rem;
+    min-height: 100dvh;
+    height: 100dvh;
     background:
       radial-gradient(1200px 800px at 50% -10%, rgba(59, 130, 246, 0.25), transparent 60%),
       rgba(15, 23, 42, 0.98);

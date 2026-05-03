@@ -4333,6 +4333,10 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   flex-shrink: 0;
 }
 
+.messenger-msg-avatar.is-hidden {
+  background: transparent;
+}
+
 .messenger-msg-bubble {
   padding: 0.625rem 0.875rem;
   border-radius: 1rem 1rem 1rem 0.25rem;

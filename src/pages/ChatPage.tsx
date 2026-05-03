@@ -38,6 +38,11 @@ const ROLE_LABELS: Record<string, string> = {
 
 /** All org chat identities (stable order for member list). */
 const ALL_USERS = [
+  'Group Meeting',
+  'ATO MARKETING',
+  'ATO TECHNICAL',
+  'ATO SALES',
+  'ATO ACCOUNTING',
   'Admin',
   'General Manager',
   'CEO',
@@ -339,6 +344,8 @@ function resolveCurrentSenderEmployeeId(params: {
 export default function ChatPage() {
   const [isInitializing, setIsInitializing] = useState(true)
   const [loadingPercent, setLoadingPercent] = useState(0)
+  const [showGroupCallModal, setShowGroupCallModal] = useState(false)
+  const [selectedGroupEmployees, setSelectedGroupEmployees] = useState<number[]>([])
 
   useEffect(() => {
     const duration = 1500
@@ -1441,14 +1448,20 @@ export default function ChatPage() {
       }
     }
 
+    const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
+    const AI_BOT_NAMES = ['ATO MARKETING', 'ATO TECHNICAL', 'ATO SALES', 'ATO ACCOUNTING']
+    const isAiBot = AI_BOT_NAMES.includes(selectedMeta.name)
+
     // If IDs still can't be resolved, at least mark as sent locally so UI isn't stuck.
-    if (!(selectedEmployeeId && selectedEmployeeId > 0) || !(senderEmployeeId && senderEmployeeId > 0)) {
+    // Skip checking selectedEmployeeId if we're chatting with an AI bot.
+    if ((!isAiBot && !(selectedEmployeeId && selectedEmployeeId > 0)) || !(senderEmployeeId && senderEmployeeId > 0)) {
       if (optimisticId) setMessageStatus(optimisticId, 'sent')
       return
     }
 
-    const selectedMeta = selectedUserObj ?? AI_SERVICE_USER
-    const endpoint = `/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`
+    const endpoint = isAiBot
+      ? `/ai-services-conversation-chat/ai-chat-conversation/${encodeURIComponent(selectedMeta.name)}`
+      : `/ai-services-conversation-chat/webhook/conversation/${selectedEmployeeId}`
     // Abort any pending poll so the connection is free for the POST.
     if (pollAbortRef.current) { pollAbortRef.current.abort(); pollAbortRef.current = null }
     sendInFlightRef.current = true
@@ -1459,34 +1472,73 @@ export default function ChatPage() {
 
     void (async () => {
       try {
-        const res = await apiRequest<{ success?: boolean; data?: ConversationWebhookPostData }>(endpoint, {
-          method: 'POST',
-          signal: sendAbort.signal,
-          body: JSON.stringify({
-            senderEmpID: senderEmployeeId,
-            senderName: currentDisplayName,
-            receiverName: selectedMeta.name,
-            message: text,
-          }),
-          portal: { suppressFailureLog: true },
-        })
-        const payload = res && typeof res === 'object' ? res.data : undefined
-        const serverTs = payload?.timestamp ? String(payload.timestamp).trim() : ''
-        const serverText = String(payload?.message ?? text).trim()
-        const serverSender = String(payload?.senderName ?? currentDisplayName).trim() || currentDisplayName
-        if (serverTs && selectedUser && conversationId) {
-          upsertMessages([
-            {
-              id: buildMessageId(currentParticipantId, selectedUser, serverTs, serverText),
-              conversationId,
-              sender: serverSender,
-              text: serverText,
-              timestamp: serverTs,
-              status: 'delivered',
-            },
-          ])
-        } else if (optimisticId) {
-          setMessageStatus(optimisticId, 'delivered')
+        if (isAiBot) {
+          const chatHistory = messages.map((m) => ({
+            role: m.sender === currentDisplayName || m.sender === currentSender ? 'user' : 'assistant',
+            content: m.text,
+          }))
+          const res = await apiRequest<{ success?: boolean; data?: string; roleDetected?: string }>(endpoint, {
+            method: 'POST',
+            signal: sendAbort.signal,
+            body: JSON.stringify({
+              employeeID: senderEmployeeId,
+              message: text,
+              chatHistory,
+            }),
+            portal: { suppressFailureLog: true },
+          })
+          if (res?.success && res.data) {
+             const serverTs = new Date().toISOString()
+             const serverText = res.data
+             const serverSender = selectedMeta.name
+             if (selectedUser && conversationId) {
+                upsertMessages([
+                  {
+                    id: buildMessageId(selectedUser, currentParticipantId, serverTs, serverText),
+                    conversationId,
+                    sender: serverSender,
+                    text: serverText,
+                    timestamp: serverTs,
+                    status: 'delivered',
+                  },
+                ])
+             }
+             if (optimisticId) {
+               setMessageStatus(optimisticId, 'delivered')
+             }
+          } else {
+             throw new Error('AI Bot request failed')
+          }
+        } else {
+          const res = await apiRequest<{ success?: boolean; data?: ConversationWebhookPostData }>(endpoint, {
+            method: 'POST',
+            signal: sendAbort.signal,
+            body: JSON.stringify({
+              senderEmpID: senderEmployeeId,
+              senderName: currentDisplayName,
+              receiverName: selectedMeta.name,
+              message: text,
+            }),
+            portal: { suppressFailureLog: true },
+          })
+          const payload = res && typeof res === 'object' ? res.data : undefined
+          const serverTs = payload?.timestamp ? String(payload.timestamp).trim() : ''
+          const serverText = String(payload?.message ?? text).trim()
+          const serverSender = String(payload?.senderName ?? currentDisplayName).trim() || currentDisplayName
+          if (serverTs && selectedUser && conversationId) {
+            upsertMessages([
+              {
+                id: buildMessageId(currentParticipantId, selectedUser, serverTs, serverText),
+                conversationId,
+                sender: serverSender,
+                text: serverText,
+                timestamp: serverTs,
+                status: 'delivered',
+              },
+            ])
+          } else if (optimisticId) {
+            setMessageStatus(optimisticId, 'delivered')
+          }
         }
       } catch {
         // Keep message visible in UI even if server fails or times out.
@@ -1748,8 +1800,14 @@ export default function ChatPage() {
                   type="button"
                   className="messenger-icon-btn"
                   aria-label="Video call"
-                  onClick={callPhase === 'idle' ? () => void handleStartVideoCall() : endCallAction}
-                  disabled={!selectedUserObj || !getEmployeeIdFromChatUserId(selectedUserObj.id)}
+                  onClick={callPhase === 'idle' ? () => {
+                    if (selectedUserObj?.name === 'Group Meeting') {
+                      setShowGroupCallModal(true)
+                    } else {
+                      void handleStartVideoCall()
+                    }
+                  } : endCallAction}
+                  disabled={!selectedUserObj || (!getEmployeeIdFromChatUserId(selectedUserObj.id) && selectedUserObj?.name !== 'Group Meeting')}
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
                 </button>
@@ -1973,6 +2031,86 @@ export default function ChatPage() {
                   </div>
                 </footer>
               </article>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showGroupCallModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-[var(--aa-content-bg)] border border-[var(--aa-content-border)] rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-[var(--aa-content-border)] flex items-center justify-between">
+              <h2 className="text-lg font-bold text-[var(--aa-text-main)] tracking-tight">Select Employees to Ring</h2>
+              <button 
+                onClick={() => setShowGroupCallModal(false)}
+                className="p-1 rounded-full hover:bg-[var(--aa-content-hover)] text-[var(--aa-text-muted)] transition-colors"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
+            
+            <div className="p-2 overflow-y-auto max-h-[300px]">
+              {employees.filter(e => e.id !== currentParticipantId).map(emp => (
+                <label key={emp.id} className="flex items-center gap-3 p-3 hover:bg-[var(--aa-content-hover)] rounded-xl cursor-pointer transition-colors">
+                  <input 
+                    type="checkbox" 
+                    className="w-5 h-5 rounded border-[var(--aa-content-border)] text-[var(--aa-blue)] focus:ring-[var(--aa-blue)]"
+                    checked={selectedGroupEmployees.includes(Number(emp.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedGroupEmployees(prev => [...prev, Number(emp.id)])
+                      } else {
+                        setSelectedGroupEmployees(prev => prev.filter(id => id !== Number(emp.id)))
+                      }
+                    }}
+                  />
+                  <div className="flex-1 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-[var(--aa-blue)] text-white flex items-center justify-center font-semibold text-sm">
+                      {getInitials(emp.name ?? '')}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-[var(--aa-text-main)] text-sm">{emp.name}</div>
+                      <div className="text-xs text-[var(--aa-text-muted)]">{emp.role}</div>
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <div className="p-4 border-t border-[var(--aa-content-border)] bg-[var(--aa-content-hover)] flex justify-end gap-3">
+              <button 
+                className="px-4 py-2 rounded-lg font-medium text-sm text-[var(--aa-text-muted)] hover:bg-[var(--aa-content-bg)] transition-colors"
+                onClick={() => setShowGroupCallModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="px-6 py-2 rounded-lg font-medium text-sm bg-[var(--aa-blue)] hover:bg-blue-600 text-white shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={selectedGroupEmployees.length === 0}
+                onClick={() => {
+                  const socket = socketRef?.current;
+                  if (!socket) {
+                     alert("Socket not connected!");
+                     return;
+                  }
+                  const roomId = `group-${Date.now()}`;
+                  
+                  // Ask backend to ring others (requires backend support)
+                  socket.emit('group:invite', { 
+                    roomId, 
+                    targetEmployeeIds: selectedGroupEmployees,
+                    callerName: currentDisplayName
+                  });
+                  
+                  // Join yourself
+                  socket.emit('group:join', { roomId, employeeID: meEmpIdForChat });
+                  
+                  setShowGroupCallModal(false);
+                  setSelectedGroupEmployees([]);
+                }}
+              >
+                Start Meeting ({selectedGroupEmployees.length})
+              </button>
             </div>
           </div>
         </div>

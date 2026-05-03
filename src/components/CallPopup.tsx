@@ -240,6 +240,7 @@ export default function CallPopup() {
         </div>
       )}
 
+      {/* Incoming video: `call-popup-card--incoming-video` keeps Accept/Decline in normal flow below the caller name (see App.css). */}
       {callPhase !== 'idle' && (
         <div
           ref={wantsVideo && (isInCall || isCalling || isIncoming) ? videoCardRef : undefined}

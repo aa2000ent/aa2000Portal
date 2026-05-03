@@ -2050,7 +2050,9 @@ export default function ChatPage() {
             </div>
             
             <div className="p-2 overflow-y-auto max-h-[300px]">
-              {employees.filter(e => e.id !== currentParticipantId).map(emp => (
+              {employees
+                .filter((e) => meEmpIdForChat == null || Number(e.id) !== meEmpIdForChat)
+                .map((emp) => (
                 <label key={emp.id} className="flex items-center gap-3 p-3 hover:bg-[var(--aa-content-hover)] rounded-xl cursor-pointer transition-colors">
                   <input 
                     type="checkbox" 

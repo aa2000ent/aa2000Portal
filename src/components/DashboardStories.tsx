@@ -656,7 +656,16 @@ export default function DashboardStories() {
           <span className="dashboard-stories__hint">Latest stories</span>
         </div>
         {loading ? (
-          <div className="dashboard-stories__empty">Loading stories...</div>
+          <div className="dashboard-stories__rail">
+            {[...Array(6)].map((_, i) => (
+              <div key={`story-skeleton-${i}`} className="dashboard-story animate-pulse" style={{ pointerEvents: 'none', cursor: 'default' }}>
+                <span className="dashboard-story__avatar-wrap" style={{ background: 'var(--aa-content-border)', border: 'none' }} />
+                <span className="dashboard-story__label">
+                  <div style={{ height: '12px', background: 'var(--aa-content-border)', borderRadius: '4px', width: '60%', margin: '0 auto' }} />
+                </span>
+              </div>
+            ))}
+          </div>
         ) : error ? (
           <div className="dashboard-stories__empty">{error}</div>
         ) : !hasItems ? (

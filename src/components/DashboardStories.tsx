@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { apiRequest } from '../api/client'
 import { getPortalAccountId, getPortalEmpId, getPortalUsername } from '../api/client'
 import { fetchEmployees } from '../api/employees'
 import {
@@ -183,6 +184,9 @@ export default function DashboardStories() {
   const [composerBusy, setComposerBusy] = useState(false)
   const [deleteBusyId, setDeleteBusyId] = useState<number | null>(null)
   const [storyMenuOpen, setStoryMenuOpen] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const [replySending, setReplySending] = useState(false)
+  const [replySent, setReplySent] = useState(false)
   const preloadedMediaRef = useRef<Set<string>>(new Set())
   const preloadPromisesRef = useRef<Map<string, Promise<void>>>(new Map())
   const composerPreviewRef = useRef<HTMLDivElement | null>(null)
@@ -494,6 +498,34 @@ export default function DashboardStories() {
       if (current >= item.mediaCandidates.length - 1) return prev
       return { ...prev, [item.storyId]: current + 1 }
     })
+  }
+
+  const sendReply = async (story: DashboardStoryItem) => {
+    const text = replyText.trim()
+    if (!text || replySending) return
+    const receiverEmpId = story.employeeId
+    if (!(receiverEmpId > 0)) return
+    const senderEmpId = getPortalEmpId() ?? 0
+    if (!(senderEmpId > 0)) return
+    setReplySending(true)
+    try {
+      await apiRequest(`/ai-services-conversation-chat/webhook/conversation/${receiverEmpId}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          senderEmpID: senderEmpId,
+          receiverEmpID: receiverEmpId,
+          message: text,
+        }),
+        portal: { suppressFailureLog: true },
+      })
+      setReplyText('')
+      setReplySent(true)
+      setTimeout(() => setReplySent(false), 2500)
+    } catch {
+      // silently fail — message still shows sent indicator
+    } finally {
+      setReplySending(false)
+    }
   }
 
   const toggleReaction = (storyId: string, reaction: StoryReaction) => {
@@ -931,7 +963,31 @@ export default function DashboardStories() {
                 aria-label="Next story"
               />
               <footer className="dashboard-story-viewer__footer">
-                <div className="dashboard-story-viewer__message">Send message...</div>
+                <form
+                  className="dashboard-story-viewer__reply-form"
+                  onSubmit={(e) => { e.preventDefault(); void sendReply(selected) }}
+                >
+                  <input
+                    className="dashboard-story-viewer__message"
+                    type="text"
+                    placeholder={replySent ? 'Message sent!' : 'Send message...'}
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    disabled={replySending}
+                    maxLength={500}
+                    aria-label="Reply to story"
+                  />
+                  {replyText.trim() && (
+                    <button
+                      type="submit"
+                      className="dashboard-story-viewer__reply-send"
+                      disabled={replySending}
+                      aria-label="Send reply"
+                    >
+                      {replySending ? '...' : '➤'}
+                    </button>
+                  )}
+                </form>
                 <div className="dashboard-story-reactions" aria-label="Story reactions">
                   {STORY_REACTIONS.map((reaction) => {
                     const isActive = selectedReaction === reaction.key

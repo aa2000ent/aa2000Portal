@@ -1473,14 +1473,44 @@
   gap: 0.55rem;
 }
 
+.dashboard-story-viewer__reply-form {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
 .dashboard-story-viewer__message {
   flex: 1;
   min-height: 40px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.28);
-  color: #94a3b8;
-  padding: 0.55rem 0.95rem;
+  background: transparent;
+  color: #fff;
+  padding: 0.55rem 2.5rem 0.55rem 0.95rem;
   font-size: 0.85rem;
+  outline: none;
+  width: 100%;
+}
+
+.dashboard-story-viewer__message::placeholder {
+  color: #94a3b8;
+}
+
+.dashboard-story-viewer__message:focus {
+  border-color: rgba(148, 163, 184, 0.55);
+}
+
+.dashboard-story-viewer__reply-send {
+  position: absolute;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  color: #38bdf8;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
 }
 
 .dashboard-announcement-showcase__title {

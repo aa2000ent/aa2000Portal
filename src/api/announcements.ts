@@ -103,12 +103,23 @@ export async function fetchAnnouncementsByType(
   type: AnnouncementType,
   recipientAccId?: number,
 ): Promise<AnnouncementItem[]> {
-  const path =
-    type === 'MEMO' && recipientAccId && recipientAccId > 0
-      ? `/announcements/get/announcements/${type}?accId=${recipientAccId}`
-      : `/announcements/get/announcements/${type}`
-  const data = await apiRequest<unknown>(path)
-  return extractList(data).map(mapAnnouncement)
+  const accSuffix = type === 'MEMO' && recipientAccId && recipientAccId > 0 ? `?accId=${recipientAccId}` : ''
+  const paths = [
+    `/announcements/get/announcements/${type}${accSuffix}`,
+    `/announcements/announcements/get/${type}${accSuffix}`,
+    `/announcements/list/${type}${accSuffix}`,
+    `/announcements/all/${type}${accSuffix}`,
+  ]
+  for (const path of paths) {
+    try {
+      const data = await apiRequest<unknown>(path, { portal: { suppressFailureLog: true } })
+      const list = extractList(data)
+      if (list.length > 0 || data !== null) return list.map(mapAnnouncement)
+    } catch {
+      // try next path
+    }
+  }
+  return []
 }
 
 export interface MemoEmployee {

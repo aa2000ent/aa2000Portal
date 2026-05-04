@@ -507,13 +507,17 @@ export default function DashboardStories() {
     if (!(receiverEmpId > 0)) return
     const senderEmpId = getPortalEmpId() ?? 0
     if (!(senderEmpId > 0)) return
+    const senderName = String(getPortalUsername() ?? '').trim() || `Employee ${senderEmpId}`
+    const receiverName = String(story.title ?? '').trim() || `Employee ${receiverEmpId}`
     setReplySending(true)
     try {
       await apiRequest(`/ai-services-conversation-chat/webhook/conversation/${receiverEmpId}`, {
         method: 'POST',
         body: JSON.stringify({
           senderEmpID: senderEmpId,
+          senderName,
           receiverEmpID: receiverEmpId,
+          receiverName,
           message: text,
         }),
         portal: { suppressFailureLog: true },

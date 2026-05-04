@@ -4,6 +4,7 @@ import logoImg from '../assets/logo/logo.avif'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { accountDisplayUsername, loginVerification, resolvePortalRouteFromAccount } from '../api/auth'
 import { getPortalHomeSegment, hasApiBase, isPortalSessionActive, setPortalHomeSegment } from '../api/client'
+import { setupPushNotifications } from '../utils/pushNotifications'
 import AuthThemeToggle from '../components/AuthThemeToggle'
 
 export default function Login() {
@@ -69,6 +70,7 @@ export default function Login() {
       const roleLabel = accountDisplayUsername(res.account) || username.trim()
       setPortalHomeSegment(route)
       addEntry({ action: 'sign_in', actor: roleLabel, target: 'Portal', details: `${roleLabel} dashboard` })
+      void setupPushNotifications()
       navigate(`/${route}`, { replace: true })
     } catch (err) {
       console.error('[Login] Sign in failed:', err)

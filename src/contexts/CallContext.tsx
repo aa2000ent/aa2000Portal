@@ -5,6 +5,7 @@ import receiverRingtoneSrc from '../assets/ringtone/reciever.mp3'
 import { getPortalAccountId, getPortalEmpId, getPortalUsername, isPortalSessionActive } from '../api/client'
 import { fetchEmployees } from '../api/employees'
 import { getBaseUrl } from '../api/config'
+import { cancelCallNotification } from '../utils/pushNotifications'
 
 export type CallPhase = 'idle' | 'calling' | 'ringing' | 'in_call'
 export type CallType = 'audio' | 'video'
@@ -154,6 +155,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [callPhase, incomingCall, playRingtone, stopRingtone])
 
   const teardownCall = useCallback(() => {
+    cancelCallNotification()
     const pc = peerConnectionRef.current
     if (pc) {
       pc.onicecandidate = null

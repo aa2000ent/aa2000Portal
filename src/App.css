@@ -4307,6 +4307,7 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   width: 40px;
   height: 40px;
   border-radius: 50%;
+  overflow: hidden;
   background: var(--dash-primary);
   color: #fff;
   font-size: 0.875rem;
@@ -4375,6 +4376,7 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   width: 28px;
   height: 28px;
   border-radius: 50%;
+  overflow: hidden;
   background: var(--msg-bg-tertiary);
   color: var(--msg-text-muted);
   font-size: 0.625rem;

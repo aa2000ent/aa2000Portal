@@ -21,8 +21,45 @@ function getInitials(name: string) {
 }
 
 /** Attach stream to a video/audio element via callback ref — works even when element mounts after stream is ready. */
-function useStreamRef(stream: MediaStream | null) {
+function useStreamRef(stream: MediaStream | null, boost = false) {
   const elRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const gainNodeRef = useRef<GainNode | null>(null)
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+
+  const setupAudioBoost = (ms: MediaStream, el: HTMLVideoElement | HTMLAudioElement) => {
+    if (!boost) return
+    try {
+      // Initialize AudioContext on first stream
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+      }
+      const ctx = audioCtxRef.current
+      if (ctx.state === 'suspended') void ctx.resume()
+
+      // Create nodes if they don't exist
+      if (!gainNodeRef.current) {
+        gainNodeRef.current = ctx.createGain()
+        // Boost volume by 2.5x
+        gainNodeRef.current.gain.value = 2.5
+        gainNodeRef.current.connect(ctx.destination)
+      }
+
+      // Reconnect source
+      if (sourceRef.current) {
+        sourceRef.current.disconnect()
+      }
+      sourceRef.current = ctx.createMediaStreamSource(ms)
+      sourceRef.current.connect(gainNodeRef.current)
+      
+      // Mute the element itself to avoid double audio, 
+      // but the AudioContext will play it through the destination (speakers)
+      el.muted = true
+    } catch (err) {
+      console.warn('Audio boost failed:', err)
+      el.muted = false // Fallback to normal volume
+    }
+  }
 
   const callbackRef = useCallback((el: HTMLVideoElement | HTMLAudioElement | null) => {
     elRef.current = el
@@ -30,20 +67,25 @@ function useStreamRef(stream: MediaStream | null) {
     if (stream && el.srcObject !== stream) {
       el.srcObject = stream
       void (el as HTMLVideoElement).play().catch(() => {})
+      if (boost) setupAudioBoost(stream, el)
     }
-  }, [stream])
+  }, [stream, boost])
 
-  // If stream changes after element is already mounted, update srcObject
   useEffect(() => {
     const el = elRef.current
     if (!el) return
     if (stream && el.srcObject !== stream) {
       el.srcObject = stream
       void (el as HTMLVideoElement).play().catch(() => {})
+      if (boost) setupAudioBoost(stream, el)
     } else if (!stream) {
       el.srcObject = null
+      if (sourceRef.current) {
+        sourceRef.current.disconnect()
+        sourceRef.current = null
+      }
     }
-  }, [stream])
+  }, [stream, boost])
 
   return callbackRef
 }
@@ -61,8 +103,8 @@ export default function CallPopup() {
   const [camOff, setCamOff] = useState(false)
 
   const localVideoRef = useStreamRef(localStream) as (el: HTMLVideoElement | null) => void
-  const remoteVideoRef = useStreamRef(remoteStream) as (el: HTMLVideoElement | null) => void
-  const remoteAudioRef = useStreamRef(remoteStream) as (el: HTMLAudioElement | null) => void
+  const remoteVideoRef = useStreamRef(remoteStream, true) as (el: HTMLVideoElement | null) => void
+  const remoteAudioRef = useStreamRef(remoteStream, true) as (el: HTMLAudioElement | null) => void
 
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [uiFullscreen, setUiFullscreen] = useState(false)

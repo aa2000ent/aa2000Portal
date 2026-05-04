@@ -579,10 +579,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
           voiceActivityDetection: false,
-        })
+        } as any)
         
         if (offer.sdp) {
-          offer = { ...offer, sdp: mungeSdpForHighQuality(offer.sdp) }
+          offer = { ...offer, sdp: mungeSdpForHighQuality(offer.sdp) } as any
         }
 
         await pc.setLocalDescription(offer)
@@ -626,10 +626,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
           voiceActivityDetection: false,
-        })
+        } as any)
 
         if (answer.sdp) {
-          answer = { ...answer, sdp: mungeSdpForHighQuality(answer.sdp) }
+          answer = { ...answer, sdp: mungeSdpForHighQuality(answer.sdp) } as any
         }
 
         await pc.setLocalDescription(answer)

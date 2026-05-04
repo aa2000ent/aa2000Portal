@@ -372,13 +372,16 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                 <div className="flex flex-col divide-y" style={{ borderColor: 'var(--aa-content-border)' }}>
                   {files.map((file: ProjectFile, idx: number) => {
                     const fileUrl = resolveProjectFileUrl(file.FilePath)
-                    const isOpenable = Boolean(fileUrl)
+                    // Use existsOnDisk from backend if available, otherwise fall back to URL resolution
+                    const isOpenable = file.existsOnDisk !== undefined ? file.existsOnDisk : Boolean(fileUrl)
+                    const displayName = file.customDownloadName || file.FileName
+                    const isDir = file.isDirectory ?? false
 
                     return isOpenable ? (
                       <button
                         key={`${file.FileName}-${idx}`}
                         type="button"
-                        onClick={() => openFile(fileUrl!, file.FileName, file.FilePath)}
+                        onClick={() => openFile(fileUrl!, displayName, file.FilePath ?? '')}
                         className="flex items-center gap-4 px-5 py-3.5 text-left w-full border-0 cursor-pointer"
                         style={{ background: 'transparent', transition: 'background 0.15s ease' }}
                         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.06)' }}
@@ -386,15 +389,20 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                       >
                         <div
                           className="flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0"
-                          style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa' }}
+                          style={{ background: isDir ? 'rgba(234,179,8,0.1)' : 'rgba(59,130,246,0.1)', color: isDir ? '#eab308' : '#60a5fa' }}
                         >
-                          <FileText size={15} />
+                          {isDir ? <Folder size={15} /> : <FileText size={15} />}
                         </div>
-                        <p className="text-sm font-medium flex-1 min-w-0 truncate" style={{ color: 'var(--aa-content-text)' }}>
-                          {file.FileName}
-                        </p>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" style={{ color: 'var(--aa-content-text)' }}>
+                            {displayName}
+                          </p>
+                          {isDir && (
+                            <p className="text-[10px] mt-0.5" style={{ color: 'var(--aa-content-text-muted)' }}>Folder · downloads as ZIP</p>
+                          )}
+                        </div>
                         <span className="text-[11px] uppercase tracking-[0.16em] flex-shrink-0" style={{ color: '#60a5fa' }}>
-                          Open
+                          {isDir ? 'Download' : 'Open'}
                         </span>
                       </button>
                     ) : (
@@ -409,7 +417,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                           <FileText size={15} />
                         </div>
                         <p className="text-sm font-medium flex-1 min-w-0 truncate" style={{ color: 'var(--aa-content-text-muted)' }}>
-                          {file.FileName}
+                          {file.customDownloadName || file.FileName}
                         </p>
                         <span className="text-[11px] uppercase tracking-[0.16em] flex-shrink-0" style={{ color: 'var(--aa-content-text-muted)' }}>
                           Unavailable

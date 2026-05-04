@@ -1,6 +1,10 @@
 export type ProjectFile = {
   FileName: string
   FilePath: string
+  actualPath?: string
+  existsOnDisk?: boolean
+  isDirectory?: boolean
+  customDownloadName?: string
 }
 
 export type ProjectFileCategory = {

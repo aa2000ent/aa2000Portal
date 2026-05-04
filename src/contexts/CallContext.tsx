@@ -570,6 +570,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         let offer = await pc.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
+          voiceActivityDetection: false,
         })
         
         if (offer.sdp) {
@@ -616,6 +617,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         let answer = await pc.createAnswer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
+          voiceActivityDetection: false,
         })
 
         if (answer.sdp) {

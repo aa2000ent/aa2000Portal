@@ -275,6 +275,22 @@ export default function CallPopup() {
   return (
     <div className="call-popup-overlay" role="dialog" aria-modal="true" aria-label="Call">
 
+      {/* Beauty Filter SVG Definition */}
+      <svg style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }} aria-hidden="true">
+        <filter id="aa2000-beauty-filter" colorInterpolationFilters="sRGB">
+          {/* Subtle brightness and warmth boost */}
+          <feColorMatrix type="matrix" values="
+            1.05 0    0    0    0.02
+            0    1.02 0    0    0.02
+            0    0    1.02 0    0.01
+            0    0    0    1    0" 
+          />
+          {/* Soft skin smoothing via a very slight blur mixed back with original */}
+          <feGaussianBlur stdDeviation="0.6" result="softBlur" />
+          <feComposite in="SourceGraphic" in2="softBlur" operator="arithmetic" k1="0" k2="0.85" k3="0.15" k4="0" />
+        </filter>
+      </svg>
+
       {/* Error toast */}
       {callError && (
         <div className="call-error-toast" role="alert">

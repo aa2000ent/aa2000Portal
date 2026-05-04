@@ -1074,6 +1074,7 @@
   background: color-mix(in srgb, var(--aa-content-bg) 82%, transparent);
 }
 
+
 .dashboard-story-composer__preview {
   position: relative;
   width: 100%;

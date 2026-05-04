@@ -1208,9 +1208,9 @@ export default function ChatPage() {
       // Backend contract: POST echo + io.emit use senderEmpID, receiverEmpID, message, timestamp (no legacy "sender" string).
       const receiverEmpId = Number(evt.receiverEmpID ?? evt.receiverEmpId ?? evt.employeeID ?? evt.employeeId)
       const senderEmpId = Number(evt.senderEmpID)
-      const timestamp = String(evt.timestamp ?? evt.createdAt ?? evt.date ?? '').trim()
+      const timestamp = String(evt.timestamp ?? evt.createdAt ?? evt.date ?? '').trim() || new Date().toISOString()
       const text = String(evt.message ?? evt.text ?? evt.content ?? '').trim()
-      if (!timestamp || !text) return
+      if (!text) return
       if (!(Number.isFinite(senderEmpId) && senderEmpId > 0) && !(Number.isFinite(receiverEmpId) && receiverEmpId > 0)) return
 
       const rawSender = String(evt.sender ?? '').trim() || (

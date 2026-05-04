@@ -192,9 +192,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
-        noiseSuppression: true,
+        noiseSuppression: false, // Software noise suppression can often clip voices on mobile
         autoGainControl: true,
         channelCount: 1,
+        // Chrome-specific flags for better voice
+        googEchoCancellation: true,
+        googAutoGainControl: true,
+        googNoiseSuppression: false,
+        googHighpassFilter: true,
+        googTypingNoiseDetection: true,
       },
       video:
         type === 'video'

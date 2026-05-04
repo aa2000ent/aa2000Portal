@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import { Folder, FolderOpen, FileText, Loader2, AlertCircle, ExternalLink, Building2, X, Download, ChevronRight, ArrowLeft } from 'lucide-react'
 import { readSheet } from 'read-excel-file/browser'
 import { fetchProjectFiles } from '../api/projects'
-import { getBaseUrl } from '../api/config'
 import type { ProjectFileData, ProjectFile } from '../api/projectTypes'
 
 interface FileManagerProps {
@@ -29,13 +28,10 @@ type DrillLevel = 'companies' | 'days' | 'files'
 function resolveProjectFileUrl(rawPath: string | null | undefined): string | null {
   const filePath = String(rawPath ?? '').trim()
   if (!filePath) return null
-  try {
-    const base = String(getBaseUrl() ?? '').replace(/\/$/, '')
-    const endpoint = `${base}/project/file/download`
-    return `${endpoint}?path=${encodeURIComponent(filePath)}`
-  } catch {
-    return null
-  }
+  // Always use the actual remote base URL, not the Vite dev proxy (/__portal_api)
+  const base = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+  if (!base) return null
+  return `${base}/project/file/download?path=${encodeURIComponent(filePath)}`
 }
 
 export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCODE' }) => {

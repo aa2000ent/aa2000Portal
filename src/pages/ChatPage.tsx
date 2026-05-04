@@ -1448,32 +1448,6 @@ export default function ChatPage() {
     await startCall(calleeId, selectedUserObj?.name ?? `Employee ${calleeId}`, 'video')
   }
 
-  const handleClearMessages = async () => {
-    if (!selectedUser || !window.confirm('Are you sure you want to clear all messages? This cannot be undone.')) return
-    
-    // In this app, selectedUser is usually like 'emp-id:123'
-    // But we want to clear the logged-in user's file or the peer's file?
-    // The provided API takes employeeID and unlinks their log file.
-    // Usually we clear the peer's conversation for the current user.
-    // However, the provided API seems to clear the log file for the specified ID.
-    const peerEmpId = Number(selectedUser.replace(/^emp-id:/i, ''))
-    if (!peerEmpId) return
-
-    try {
-      const res = await apiRequest<{ success: boolean; message: string }>(
-        `/ai-services-conversation-chat/webhook/conversation/${peerEmpId}`,
-        { method: 'DELETE' }
-      )
-      if (res.success) {
-        // Refresh or clear local state
-        window.location.reload()
-      }
-    } catch (err) {
-      console.error('Failed to clear messages:', err)
-      alert('Failed to clear messages')
-    }
-  }
-
   const handleMessageAction = async (action: 'me' | 'everyone') => {
     if (!selectedMessage || !selectedUser) return
     

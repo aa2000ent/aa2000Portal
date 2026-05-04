@@ -111,6 +111,39 @@ export async function fetchAnnouncementsByType(
   return extractList(data).map(mapAnnouncement)
 }
 
+export interface MemoEmployee {
+  id: number
+  EmployeeID: number
+  annoucementID: number
+}
+
+export interface AnnouncementWithEmployees extends AnnouncementItem {
+  involvedEmployees?: MemoEmployee[]
+}
+
+/** Fetch a single announcement/memo by type + id. For MEMOs, includes involvedEmployees. */
+export async function fetchAnnouncementByTypeAndId(
+  type: AnnouncementType,
+  id: number,
+): Promise<AnnouncementWithEmployees | null> {
+  try {
+    const data = await apiRequest<unknown>(`/announcements/announcements/${type}/${id}`, { cache: 'no-store' })
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+    const row = data as Record<string, unknown>
+    const base = mapAnnouncement(row)
+    const involvedEmployees = Array.isArray(row.involvedEmployees)
+      ? (row.involvedEmployees as Record<string, unknown>[]).map((e) => ({
+          id: Number(e.id ?? 0),
+          EmployeeID: Number(e.EmployeeID ?? e.employeeID ?? e.employeeId ?? 0),
+          annoucementID: Number(e.annoucementID ?? e.announcementID ?? id),
+        }))
+      : undefined
+    return { ...base, involvedEmployees }
+  } catch {
+    return null
+  }
+}
+
 export async function fetchAnnouncementById(id: number): Promise<AnnouncementItem | null> {
   try {
     const data = await apiRequest<unknown>(`/announcements/announcements/${id}`)

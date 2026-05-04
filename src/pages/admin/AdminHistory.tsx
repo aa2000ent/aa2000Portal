@@ -18,6 +18,7 @@ const ACTION_LABELS: Record<ActionType, string> = {
   sign_out: 'Sign out',
   page_visited: 'Page visited',
   profile_updated: 'Profile updated',
+  profile_photo_updated: 'Profile photo updated',
   password_changed: 'Password changed',
   '2fa_enabled': '2FA enabled',
   '2fa_disabled': '2FA disabled',

@@ -9,12 +9,6 @@ import { getConversationId, useChat } from '../contexts/ChatContext'
 import { useSidebar } from '../contexts/SidebarContext'
 import {
   apiRequest,
-  clearAuthToken,
-  clearPortalAccountId,
-  clearPortalEmpId,
-  clearPortalHomeSegment,
-  clearPortalUsername,
-  clearSessionId,
   getPortalAccountId,
   getPortalUsername,
 } from '../api/client'

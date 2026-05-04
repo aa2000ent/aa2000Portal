@@ -1106,7 +1106,7 @@ export default function ChatPage() {
     runSync()
 
     // Poll every 1500ms — fast enough for near-realtime, avoids flooding with large responses.
-    const pollMs = 1000
+    const pollMs = 1500
     timer = window.setInterval(runSync, pollMs)
 
     // Sync immediately when tab becomes visible or window regains focus.
@@ -1208,9 +1208,9 @@ export default function ChatPage() {
       // Backend contract: POST echo + io.emit use senderEmpID, receiverEmpID, message, timestamp (no legacy "sender" string).
       const receiverEmpId = Number(evt.receiverEmpID ?? evt.receiverEmpId ?? evt.employeeID ?? evt.employeeId)
       const senderEmpId = Number(evt.senderEmpID)
-      const timestamp = String(evt.timestamp ?? evt.createdAt ?? evt.date ?? '').trim() || new Date().toISOString()
+      const timestamp = String(evt.timestamp ?? evt.createdAt ?? evt.date ?? '').trim()
       const text = String(evt.message ?? evt.text ?? evt.content ?? '').trim()
-      if (!text) return
+      if (!timestamp || !text) return
       if (!(Number.isFinite(senderEmpId) && senderEmpId > 0) && !(Number.isFinite(receiverEmpId) && receiverEmpId > 0)) return
 
       const rawSender = String(evt.sender ?? '').trim() || (

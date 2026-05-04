@@ -32,7 +32,7 @@ function resolveProjectFileUrl(rawPath: string | null | undefined, application: 
   if (!filename) return null
   const base = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
   if (!base) return null
-  return `${base}/project/file/${encodeURIComponent(application)}/${encodeURIComponent(filename)}`
+  return `${base}/project-file/${encodeURIComponent(application)}/${encodeURIComponent(filename)}`
 }
 
 export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCODE' }) => {

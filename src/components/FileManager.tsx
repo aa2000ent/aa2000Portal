@@ -25,13 +25,14 @@ interface FileViewer {
 
 type DrillLevel = 'companies' | 'days' | 'files'
 
-function resolveProjectFileUrl(rawPath: string | null | undefined): string | null {
+function resolveProjectFileUrl(rawPath: string | null | undefined, application: string): string | null {
   const filePath = String(rawPath ?? '').trim()
   if (!filePath) return null
-  // Always use the actual remote base URL, not the Vite dev proxy (/__portal_api)
+  const filename = filePath.replace(/\\/g, '/').split('/').pop()
+  if (!filename) return null
   const base = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
   if (!base) return null
-  return `${base}/project/file/download?path=${encodeURIComponent(filePath)}`
+  return `${base}/project/file/${encodeURIComponent(application)}/${encodeURIComponent(filename)}`
 }
 
 export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCODE' }) => {
@@ -347,7 +348,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                 {/* File list */}
                 <div className="flex flex-col divide-y" style={{ borderColor: 'var(--aa-content-border)' }}>
                   {files.map((file: ProjectFile, idx: number) => {
-                    const fileUrl = resolveProjectFileUrl(file.FilePath)
+                    const fileUrl = resolveProjectFileUrl(file.FilePath, application)
                     // Use existsOnDisk from backend if available, otherwise fall back to URL resolution
                     const isOpenable = file.existsOnDisk !== undefined ? file.existsOnDisk : Boolean(fileUrl)
                     const displayName = file.customDownloadName || file.FileName

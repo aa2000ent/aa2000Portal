@@ -284,6 +284,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       iceTransportPolicy: 'all',
       bundlePolicy: 'max-bundle',
       rtcpMuxPolicy: 'require',
+      iceCandidatePoolSize: 10,
     })
     pc.onicecandidate = (e) => {
       if (!e.candidate) return
@@ -534,6 +535,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const mungeSdpForHighQuality = (sdp: string): string => {
     // 1. Force the bitrate to 10Mbps (10000kbps) via x-google fmtp
+    // We set start-bitrate to 5000 so it's clear IMMEDIATELY without ramp-up
     let newSdp = sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt, params) => {
       if (params.indexOf('x-google-max-bitrate') === -1) {
         return `a=fmtp:${pt} ${params};x-google-max-bitrate=10000;x-google-min-bitrate=2000;x-google-start-bitrate=5000`

@@ -5355,6 +5355,42 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   border-radius: 50%;
 }
 
+.profile-hero-avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  color: white;
+  z-index: 2;
+}
+
+.profile-hero-avatar:hover .profile-hero-avatar-overlay {
+  opacity: 1;
+}
+
+.profile-hero-avatar--uploading {
+  pointer-events: none;
+}
+
+.profile-hero-avatar--uploading .profile-hero-avatar-overlay {
+  opacity: 1;
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.profile-hero-avatar--uploading .profile-hero-avatar-overlay svg {
+  animation: profile-spin 1s linear infinite;
+}
+
+@keyframes profile-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .profile-hero-initial {
   font-size: 1.5rem;
   font-weight: 600;

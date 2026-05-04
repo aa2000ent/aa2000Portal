@@ -6,7 +6,9 @@ import { fetchSessionByToken } from '../api/session'
 import { mapSessionLookupToProfile } from '../utils/sessionProfileMap'
 import { getCurrentSession, type ActiveSession } from '../utils/sessionUtils'
 import ProfileThemeToggle from '../components/ProfileThemeToggle'
-import { fetchEmployees } from '../api/employees'
+import { fetchEmployees, updateEmployee } from '../api/employees'
+import { getPortalEmpId } from '../api/client'
+import { useRef } from 'react'
 
 const ROLE_LABELS: Record<string, string> = {
   marketing: 'Marketing',
@@ -76,6 +78,8 @@ export default function PortalProfile() {
   const [showNewPw, setShowNewPw] = useState(false)
   const [showConfirmPw, setShowConfirmPw] = useState(false)
   const [sessions, setSessions] = useState<ActiveSession[]>([])
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const displayRole = (apiRoleName || roleLabel).trim()
   const heroName = name.trim() || creds.username || 'Profile'
@@ -197,6 +201,62 @@ export default function PortalProfile() {
     }
   }
 
+  const handlePhotoClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Photo is too large. Please select an image under 5MB.')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const base64 = reader.result as string
+      setPhotoUploading(true)
+      try {
+        const empId = getPortalEmpId()
+        const storedAccId = getPortalAccountId()
+        const accIdNum = Number(storedAccId ?? 0)
+
+        const emps = await fetchEmployees()
+        const me = emps.find((x) => (empId && x.id === empId) || (accIdNum && x.accId === accIdNum))
+
+        if (me) {
+          const names = me.name.split(' ')
+          const fname = names[0] || 'Employee'
+          const lname = names.length > 1 ? names[names.length - 1] : 'User'
+          const mname = names.length > 2 ? names.slice(1, -1).join(' ') : ''
+
+          const result = await updateEmployee({
+            id: me.id,
+            fname,
+            mname,
+            lname,
+            email: me.email || email,
+            roleName: me.role,
+            empImageBase64: base64,
+            accId: me.accId,
+          })
+
+          if (result) {
+            setProfilePhoto(base64)
+            addEntry({ action: 'profile_photo_updated', actor: roleLabel, target: name, details: 'Profile photo updated' })
+          }
+        }
+      } catch (err) {
+        console.error('Failed to update profile photo:', err)
+      } finally {
+        setPhotoUploading(false)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
   const pwMismatch = confirmPw.length > 0 && newPw !== confirmPw
   const pwTooShort = newPw.length > 0 && newPw.length < 8
 
@@ -209,7 +269,12 @@ export default function PortalProfile() {
       <div className="dashboard-page-content profile-content">
         <div className="profile-grid-left">
           <section className="profile-hero dashboard-card">
-            <div className="profile-hero-avatar" aria-hidden>
+            <div 
+              className={`profile-hero-avatar ${photoUploading ? 'profile-hero-avatar--uploading' : ''}`} 
+              aria-label="Change profile photo"
+              onClick={handlePhotoClick}
+              style={{ cursor: 'pointer', position: 'relative' }}
+            >
               <span className="profile-hero-initial">{heroInitial}</span>
               {profilePhoto && (
                 <img
@@ -219,6 +284,19 @@ export default function PortalProfile() {
                   onError={() => setProfilePhoto(undefined)}
                 />
               )}
+              <div className="profile-hero-avatar-overlay">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+              </div>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                style={{ display: 'none' }} 
+                accept="image/*" 
+                onChange={handlePhotoChange} 
+              />
             </div>
             <div className="profile-hero-info">
               <h2 className="profile-hero-name">{heroName}</h2>

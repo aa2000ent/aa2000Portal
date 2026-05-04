@@ -15,7 +15,7 @@ const INFLIGHT_GET_REQUESTS = new Map<string, Promise<unknown>>()
 
 function readSessionValue(key: string): string | null {
   try {
-    return sessionStorage.getItem(key)
+    return localStorage.getItem(key) ?? sessionStorage.getItem(key)
   } catch {
     return null
   }
@@ -23,7 +23,7 @@ function readSessionValue(key: string): string | null {
 
 function writeSessionValue(key: string, value: string): void {
   try {
-    sessionStorage.setItem(key, value)
+    localStorage.setItem(key, value)
   } catch {
     // ignore
   }
@@ -31,6 +31,7 @@ function writeSessionValue(key: string, value: string): void {
 
 function removeSessionValue(key: string): void {
   try {
+    localStorage.removeItem(key)
     sessionStorage.removeItem(key)
   } catch {
     // ignore

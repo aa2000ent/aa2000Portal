@@ -1105,7 +1105,7 @@ export default function ChatPage() {
     // Immediate sync on mount.
     runSync()
 
-    // Poll every 1500ms as fallback for missed socket events.
+    // Poll every 1500ms — fast enough for near-realtime, avoids flooding with large responses.
     const pollMs = 1500
     timer = window.setInterval(runSync, pollMs)
 
@@ -1147,7 +1147,7 @@ export default function ChatPage() {
 
     const socketBase = buildSocketBaseUrl()
     const socket = io(socketBase, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
       withCredentials: true,
       timeout: 4000,
       reconnection: true,
@@ -1208,9 +1208,9 @@ export default function ChatPage() {
       // Backend contract: POST echo + io.emit use senderEmpID, receiverEmpID, message, timestamp (no legacy "sender" string).
       const receiverEmpId = Number(evt.receiverEmpID ?? evt.receiverEmpId ?? evt.employeeID ?? evt.employeeId)
       const senderEmpId = Number(evt.senderEmpID)
-      const timestamp = String(evt.timestamp ?? evt.createdAt ?? evt.date ?? '').trim() || new Date().toISOString()
+      const timestamp = String(evt.timestamp ?? evt.createdAt ?? evt.date ?? '').trim()
       const text = String(evt.message ?? evt.text ?? evt.content ?? '').trim()
-      if (!text) return
+      if (!timestamp || !text) return
       if (!(Number.isFinite(senderEmpId) && senderEmpId > 0) && !(Number.isFinite(receiverEmpId) && receiverEmpId > 0)) return
 
       const rawSender = String(evt.sender ?? '').trim() || (
@@ -1522,10 +1522,10 @@ export default function ChatPage() {
             portal: { suppressFailureLog: true },
           })
           const payload = res && typeof res === 'object' ? res.data : undefined
-          const serverTs = payload?.timestamp ? String(payload.timestamp).trim() : new Date().toISOString()
+          const serverTs = payload?.timestamp ? String(payload.timestamp).trim() : ''
           const serverText = String(payload?.message ?? text).trim()
           const serverSender = String(payload?.senderName ?? currentDisplayName).trim() || currentDisplayName
-          if (selectedUser && conversationId) {
+          if (serverTs && selectedUser && conversationId) {
             upsertMessages([
               {
                 id: buildMessageId(currentParticipantId, selectedUser, serverTs, serverText),
@@ -1538,21 +1538,6 @@ export default function ChatPage() {
             ])
           } else if (optimisticId) {
             setMessageStatus(optimisticId, 'delivered')
-          }
-          // Emit via socket so receiver gets the message immediately without waiting for their poll.
-          const sock = socketRef.current
-          if (sock?.connected && selectedEmployeeId) {
-            const msgPayload = {
-              senderEmpID: senderEmployeeId,
-              senderName: currentDisplayName,
-              receiverEmpID: selectedEmployeeId,
-              receiverName: selectedMeta.name,
-              message: serverText,
-              timestamp: serverTs,
-            }
-            sock.emit('send_message', msgPayload)
-            sock.emit('sendMessage', msgPayload)
-            sock.emit('new_message', msgPayload)
           }
         }
       } catch {

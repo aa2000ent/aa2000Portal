@@ -1831,8 +1831,11 @@ export default function ChatPage() {
               ) : (
                 messages.map((m, idx) => {
                   const isOwn = m.sender === currentSender || m.sender === currentDisplayName
+                  const prev = messages[idx - 1]
                   const next = messages[idx + 1]
                   const nextIsOwn = next ? (next.sender === currentSender || next.sender === currentDisplayName) : false
+                  const sameAsPrev = Boolean(prev) &&
+                    String(prev.sender ?? '').trim().toLowerCase() === String(m.sender ?? '').trim().toLowerCase()
                   const sameIncomingSenderAsNext =
                     Boolean(next) &&
                     !isOwn &&
@@ -1849,7 +1852,7 @@ export default function ChatPage() {
                   const deliveryLabel = isOwn ? formatDeliveryStatus(m.status) : ''
                   const showMeta = activeMetaMessageId === m.id
                   return (
-                    <div key={m.id} className={`messenger-msg ${isOwn ? 'messenger-msg-own' : ''}`}>
+                    <div key={m.id} className={`messenger-msg ${isOwn ? 'messenger-msg-own' : ''} ${sameAsPrev ? 'is-consecutive' : 'is-new-group'}`}>
                       {!isOwn && (showAvatar ? (
                         <span className="messenger-msg-avatar" aria-hidden>
                           {senderPhotoForBubble ? (

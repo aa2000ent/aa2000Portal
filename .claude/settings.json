@@ -6,7 +6,15 @@
       "Bash(git stash *)",
       "Bash(git add *)",
       "Bash(xargs grep *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git reset *)",
+      "Bash(git commit *)",
+      "Bash(grep -r \"AA2000\" \"c:\\\\\\\\Users\\\\\\\\portu\\\\\\\\aa2000portal\\\\\\\\src\\\\\\\\\" --include=\"*.tsx\" --include=\"*.ts\" -n)",
+      "Bash(copy \"c:\\\\Users\\\\portu\\\\aa2000portal\\\\src\\\\assets\\\\logo\\\\logo.avif\" \"c:\\\\Users\\\\portu\\\\aa2000portal\\\\public\\\\logo.avif\")",
+      "Bash(git rm *)"
     ],
     "additionalDirectories": [
       "\\tmp"

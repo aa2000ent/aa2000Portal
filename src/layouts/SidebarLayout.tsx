@@ -221,13 +221,9 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
     setSignOutConfirmOpen(false)
     void (async () => {
       const username = getPortalUsername()
+      // logoutSecurity now handles API call + localStorage.clear() + sessionStorage.clear()
       await logoutSecurity(username)
-      clearAuthToken()
-      clearSessionId()
-      clearPortalAccountId()
-      clearPortalEmpId()
-      clearPortalUsername()
-      clearPortalHomeSegment()
+
       const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
       const roleLabel = ROLE_LABELS[path] ?? path
       addEntry({
@@ -236,7 +232,7 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
         target: 'Portal',
         details: 'Session ended',
       })
-      // Hard redirect so Edge and all browsers fully reset React state and session.
+      // Hard redirect to root/login
       window.location.replace('/')
     })()
   }

@@ -87,7 +87,12 @@ function isAbortError(e: unknown): boolean {
  */
 export async function logoutSecurity(username: string | null | undefined): Promise<void> {
   const u = (username ?? '').trim()
-  if (!u) return
+  if (!u) {
+    // Even if no username, clear local storage
+    localStorage.clear()
+    sessionStorage.clear()
+    return
+  }
   const paths = getLogoutCandidatePaths()
   const body = JSON.stringify({ username: u })
   let lastErr: unknown
@@ -100,7 +105,7 @@ export async function logoutSecurity(username: string | null | undefined): Promi
         portal: { suppressFailureLog: true },
         signal: logoutAbortSignal(LOGOUT_FETCH_TIMEOUT_MS),
       })
-      return
+      break // success
     } catch (e) {
       lastErr = e
     }
@@ -110,14 +115,23 @@ export async function logoutSecurity(username: string | null | undefined): Promi
     console.info('[Portal] Logout API timed out (slow/offline backend); cleared local session anyway.')
   }
 
+  // Clear all local data as part of "Full Logout"
+  localStorage.clear()
+  sessionStorage.clear()
+
+  // Optional: Clear cookies
+  try {
+    document.cookie.split(";").forEach((c) => {
+      document.cookie = c
+        .replace(/^ +/, "")
+        .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+    });
+  } catch { /* ignore */ }
+
   const msg = lastErr instanceof Error ? lastErr.message : String(lastErr ?? '')
-  if (msg.includes('404') || msg.includes('not found')) {
-    console.info(
-      '[Portal] Server has no logout route (404). Local session cleared. Deploy POST /security/logout on your API or set VITE_LOGOUT_PATH to match your Express route.'
-    )
-    return
+  if (msg && !msg.includes('404') && !msg.includes('not found')) {
+    console.warn('[Portal] Logout API failed (continuing with local sign-out):', lastErr)
   }
-  console.warn('[Portal] Logout API failed (continuing with local sign-out):', lastErr)
 }
 
 const PORTAL_ROUTE_KEYS = new Set([

@@ -233,22 +233,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
       
       for (const enc of params.encodings) {
         if (isVideo) {
-          // Increase bitrate for high-definition video (approx 2.5 Mbps)
-          if (typeof enc.maxBitrate !== 'number' || enc.maxBitrate < 2500000) {
-            enc.maxBitrate = 2500000
-          }
+          // Allow up to 10 Mbps for truly "raw" camera quality if the network allows
+          enc.maxBitrate = 10_000_000 
+          enc.maxFramerate = 60
+          ;(enc as any).networkPriority = 'high'
+          ;(enc as any).priority = 'high'
         } else {
-          // Audio bitrate
-          if (typeof enc.maxBitrate !== 'number' || enc.maxBitrate < 128000) {
-            enc.maxBitrate = 128000
-          }
+          // High fidelity audio (Opus)
+          enc.maxBitrate = 256_000
         }
-        ;(enc as any).networkPriority = 'high'
-        ;(enc as any).priority = 'high'
       }
       
-      // 'maintain-framerate' helps keep video smooth during bandwidth drops
-      ;(params as any).degradationPreference = 'maintain-framerate'
+      // 'maintain-resolution' ensures the recipient gets the full pixels even if framerate drops slightly
+      ;(params as any).degradationPreference = 'maintain-resolution'
       await sender.setParameters(params)
     } catch {
       // Ignore if unsupported by browser.
@@ -527,6 +524,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, [bindCallSocket])
 
+  const mungeSdpForHighQuality = (sdp: string): string => {
+    // Force the bitrate to 10Mbps (10000kbps) at the SDP level
+    return sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt, params) => {
+      if (params.indexOf('x-google-max-bitrate') === -1) {
+        return `a=fmtp:${pt} ${params};x-google-max-bitrate=10000;x-google-min-bitrate=2000;x-google-start-bitrate=5000`
+      }
+      return match
+    })
+  }
+
   const startCall = useCallback(
     async (calleeEmpId: number, calleeName: string, type: CallType = 'audio') => {
       setCallError('')
@@ -552,10 +559,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
           const sender = pc.addTrack(t, stream)
           if (t.kind === 'video') void tuneRealtimeSender(sender)
         }
-        const offer = await pc.createOffer({
+        let offer = await pc.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
         })
+        
+        if (offer.sdp) {
+          offer = { ...offer, sdp: mungeSdpForHighQuality(offer.sdp) }
+        }
+
         await pc.setLocalDescription(offer)
         setCallPhase('calling')
         socket.emit('call:offer', {
@@ -593,10 +605,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
           const sender = pc.addTrack(t, stream)
           if (t.kind === 'video') void tuneRealtimeSender(sender)
         }
-        const answer = await pc.createAnswer({
+        let answer = await pc.createAnswer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
         })
+
+        if (answer.sdp) {
+          answer = { ...answer, sdp: mungeSdpForHighQuality(answer.sdp) }
+        }
+
         await pc.setLocalDescription(answer)
       for (const c of pendingIceRef.current) await pc.addIceCandidate(new RTCIceCandidate(c))
       pendingIceRef.current = []

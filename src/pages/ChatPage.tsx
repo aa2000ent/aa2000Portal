@@ -1105,7 +1105,7 @@ export default function ChatPage() {
     // Immediate sync on mount.
     runSync()
 
-    // Poll every 1500ms — fast enough for near-realtime, avoids flooding with large responses.
+    // Poll every 1500ms as fallback for missed socket events.
     const pollMs = 1500
     timer = window.setInterval(runSync, pollMs)
 

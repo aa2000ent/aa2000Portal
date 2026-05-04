@@ -177,7 +177,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
     <div className="flex items-center gap-1.5 mb-5 flex-wrap">
       <button
         onClick={goToCompanies}
-        className="text-xs font-semibold uppercase tracking-wider transition-colors"
+        className="text-xs font-semibold uppercase tracking-wider transition-colors bg-transparent border-0 p-0 cursor-pointer"
         style={{ color: level === 'companies' ? 'var(--aa-content-text)' : '#60a5fa' }}
       >
         Companies
@@ -187,7 +187,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
           <ChevronRight size={13} style={{ color: 'var(--aa-content-text-muted)' }} />
           <button
             onClick={() => { setLevel('days'); setSelectedDay(null) }}
-            className="text-xs font-semibold uppercase tracking-wider transition-colors truncate max-w-[200px]"
+            className="text-xs font-semibold uppercase tracking-wider transition-colors truncate max-w-[200px] bg-transparent border-0 p-0 cursor-pointer"
             style={{ color: level === 'days' ? 'var(--aa-content-text)' : '#60a5fa' }}
           >
             {selectedCompany}

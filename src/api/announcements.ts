@@ -103,38 +103,23 @@ export async function fetchAnnouncementsByType(
   type: AnnouncementType,
   recipientAccId?: number,
 ): Promise<AnnouncementItem[]> {
-  try {
-    if (type === 'ANNOUNCEMENT') {
-      const data = await apiRequest<unknown>('/announcements/all/announcements')
-      return extractList(data).map(mapAnnouncement)
+  const accSuffix = type === 'MEMO' && recipientAccId && recipientAccId > 0 ? `?accId=${recipientAccId}` : ''
+  const paths = [
+    `/announcements/get/announcements/${type}${accSuffix}`,
+    `/announcements/announcements/get/${type}${accSuffix}`,
+    `/announcements/list/${type}${accSuffix}`,
+    `/announcements/all/${type}${accSuffix}`,
+  ]
+  for (const path of paths) {
+    try {
+      const data = await apiRequest<unknown>(path, { portal: { suppressFailureLog: true } })
+      const list = extractList(data)
+      if (list.length > 0 || data !== null) return list.map(mapAnnouncement)
+    } catch {
+      // try next path
     }
-
-    if (type === 'MEMO') {
-      if (recipientAccId && recipientAccId > 0) {
-        // Non-manager: fetch only memos assigned to them (EmployeeID = acc_ID)
-        const data = await apiRequest<unknown>(`/announcements/memos/employee/${recipientAccId}`)
-        return extractList(data).map(mapAnnouncement)
-      }
-      // Admin/manager: fetch all memos via /memos/all
-      const data = await apiRequest<unknown>('/announcements/memos/all')
-      return extractList(data).map(mapAnnouncement)
-    }
-
-    // MEETING_MINUTES — try known paths
-    for (const path of [
-      `/announcements/get/announcements/${type}`,
-      `/announcements/all/${type}`,
-    ]) {
-      try {
-        const data = await apiRequest<unknown>(path, { portal: { suppressFailureLog: true } })
-        const list = extractList(data)
-        if (list.length > 0 || data !== null) return list.map(mapAnnouncement)
-      } catch { /* try next */ }
-    }
-    return []
-  } catch {
-    return []
   }
+  return []
 }
 
 export interface MemoEmployee {
@@ -145,16 +130,6 @@ export interface MemoEmployee {
 
 export interface AnnouncementWithEmployees extends AnnouncementItem {
   involvedEmployees?: MemoEmployee[]
-}
-
-/** Fetch all memos assigned to a specific employee (by their acc_ID / EmployeeID). */
-export async function fetchMemosByEmployee(employeeId: number): Promise<AnnouncementItem[]> {
-  try {
-    const data = await apiRequest<unknown>(`/announcements/memos/employee/${employeeId}`)
-    return extractList(data).map(mapAnnouncement)
-  } catch {
-    return []
-  }
 }
 
 /** Fetch a single announcement/memo by type + id. For MEMOs, includes involvedEmployees. */

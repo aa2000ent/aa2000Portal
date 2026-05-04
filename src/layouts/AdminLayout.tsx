@@ -31,6 +31,7 @@ const adminNavItems: NavItem[] = [
     ],
   },
   { to: '/admin/history', label: 'Activity logs', end: false, icon: 'history' },
+  { to: '/admin/project-files', label: 'Project Files', end: false, icon: 'files' },
   { to: '/admin/chat', label: 'Chat', end: false, icon: 'chat' },
 ]
 

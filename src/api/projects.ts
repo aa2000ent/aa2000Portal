@@ -1,4 +1,5 @@
 import { apiRequest } from './client'
+import type { ProjectFileData, ProjectFileResponse } from './projectTypes'
 
 export interface ProjectItem {
   id: number
@@ -94,5 +95,16 @@ function resolveDbApplications(segment: string): DbApplication[] {
     admin: ['QUOTATION', 'BOQ', 'ESTIMATION', 'TECHNCODE', 'RDIS'],
   }
   return map[key] ?? [...DB_APPLICATIONS]
+}
+
+
+export async function fetchProjectFiles(application: string): Promise<ProjectFileData> {
+  const data = await apiRequest<ProjectFileResponse>(
+    `/project/get/project-file/${encodeURIComponent(application)}`
+  )
+  if (!data.success) {
+    throw new Error('Failed to fetch project files')
+  }
+  return data.data
 }
 

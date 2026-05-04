@@ -45,6 +45,8 @@ const ChatPage = lazy(() => import('./pages/ChatPage'))
 const GeneralManagerDashboard = lazy(() => import('./pages/general-manager/GeneralManagerDashboard'))
 const DepartmentLeave = lazy(() => import('./pages/_shared/DepartmentLeave'))
 const DepartmentLeaveStatus = lazy(() => import('./pages/_shared/DepartmentLeaveStatus'))
+const ProjectFilesPage = lazy(() => import('./pages/ProjectFilesPage'))
+
 
 function RootErrorFallback() {
   return (
@@ -106,6 +108,7 @@ function App() {
                     <Route path="approvals/leave-requests" element={<AdminApprovals />} />
                     <Route path="history" element={<AdminHistory />} />
                     <Route path="chat" element={<ChatPage />} />
+                    <Route path="project-files" element={<ProjectFilesPage />} />
                   </Route>
                   <Route element={<PortalLayout />}>
                     <Route path="marketing" element={<Marketing />} />
@@ -168,6 +171,8 @@ function App() {
                     <Route path=":segment/announcement/public-announcement" element={<PortalPublicAnnouncement />} />
                     <Route path=":segment/announcement/memo" element={<PortalMemo />} />
                     <Route path=":segment/announcement/meeting-minutes" element={<PortalMeetingMinutes />} />
+                    <Route path=":segment/project-files" element={<ProjectFilesPage />} />
+
                   </Route>
                   <Route path="general-manager" element={<GeneralManagerLayout />}>
                     <Route index element={<GeneralManagerDashboard />} />
@@ -177,6 +182,7 @@ function App() {
                     <Route path="announcement/meeting-minutes" element={<PortalMeetingMinutes />} />
                     <Route path="profile" element={<PortalProfile />} />
                     <Route path="chat" element={<ChatPage />} />
+                    <Route path="project-files" element={<ProjectFilesPage />} />
                     <Route path="history" element={<AdminHistory variant="general-manager" />} />
                   </Route>
                 </Route>

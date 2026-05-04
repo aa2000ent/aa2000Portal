@@ -19,6 +19,7 @@ const gmNavItems: NavItem[] = [
     ],
   },
   { to: '/general-manager/history', label: 'Activity logs', end: false, icon: 'history' },
+  { to: '/general-manager/project-files', label: 'Project Files', end: false, icon: 'files' },
   { to: '/general-manager/chat', label: 'Chat', end: false, icon: 'chat' },
 ]
 

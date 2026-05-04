@@ -30,6 +30,7 @@ function navForSegment(segment: string): NavItem[] {
         { to: `/${segment}/announcement/meeting-minutes`, label: 'MEETING MINUTES', end: true },
       ],
     },
+    { to: `/${segment}/project-files`, label: 'Project Files', end: false, icon: 'files' },
     { to: `/${segment}/chat`, label: 'Chat', end: false, icon: 'chat' },
   ]
   return navItems

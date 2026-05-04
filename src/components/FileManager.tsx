@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Folder, FolderOpen, FileText, ChevronDown, Loader2, AlertCircle, ExternalLink, Building2 } from 'lucide-react'
+import { Folder, FolderOpen, FileText, ChevronDown, Loader2, AlertCircle, ExternalLink, Building2, X, Download } from 'lucide-react'
 import { readSheet } from 'read-excel-file/browser'
 import { fetchProjectFiles } from '../api/projects'
 import { getBaseUrl } from '../api/config'
@@ -12,16 +12,39 @@ interface FileManagerProps {
 interface SpreadsheetPreview {
   open: boolean
   fileName: string
+  fileUrl: string
   sheet: { headers: string[]; rows: string[][] } | null
   loading: boolean
   error: string | null
+}
+
+interface FileViewer {
+  open: boolean
+  fileName: string
+  fileUrl: string
 }
 
 function resolveProjectFileUrl(rawPath: string | null | undefined): string | null {
   const path = String(rawPath ?? '').trim()
   if (!path) return null
   if (/^https?:\/\//i.test(path) || path.startsWith('blob:') || path.startsWith('data:')) return path
-  if (/^[A-Za-z]:\\/.test(path)) return null
+
+  // Windows absolute path — extract relative path from FileStorage\ onwards
+  if (/^[A-Za-z]:\\/.test(path)) {
+    const normalized = path.replace(/\\/g, '/')
+    const marker = 'FileStorage/'
+    const idx = normalized.indexOf(marker)
+    const relative = idx !== -1
+      ? normalized.slice(idx)                       // e.g. FileStorage/TechNCode/WORK-ORDER/file.xlsx
+      : (normalized.split('/').pop() ?? '')         // fallback: just the filename
+    if (!relative) return null
+    try {
+      const base = String(getBaseUrl() ?? '').replace(/\/$/, '')
+      return base ? `${base}/${relative}` : `/${relative}`
+    } catch {
+      return `/${relative}`
+    }
+  }
 
   const normalized = path.replace(/\\/g, '/')
   const relative = normalized.startsWith('/') ? normalized : `/${normalized}`
@@ -45,44 +68,44 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
   const [spreadsheetPreview, setSpreadsheetPreview] = useState<SpreadsheetPreview>({
     open: false,
     fileName: '',
+    fileUrl: '',
     sheet: null,
     loading: false,
     error: null,
   })
+  const [fileViewer, setFileViewer] = useState<FileViewer>({ open: false, fileName: '', fileUrl: '' })
 
-  function isSpreadsheetFile(fileName: string) {
-    return /\.(xlsx|xls|csv)$/i.test(fileName)
+  function isSpreadsheetFile(fileName: string, filePath?: string) {
+    return /\.(xlsx|xls|csv)$/i.test(fileName) || /\.(xlsx|xls|csv)$/i.test(filePath ?? '')
   }
 
-  async function previewSpreadsheet(fileUrl: string, fileName: string) {
-    setSpreadsheetPreview({ open: true, fileName, sheet: null, loading: true, error: null })
-    try {
-      const response = await fetch(fileUrl, { credentials: 'include' })
-      if (!response.ok) {
-        throw new Error(`Unable to load spreadsheet: ${response.status} ${response.statusText}`)
+  async function openFile(fileUrl: string, fileName: string, filePath: string) {
+    if (isSpreadsheetFile(fileName, filePath)) {
+      setSpreadsheetPreview({ open: true, fileName, fileUrl, sheet: null, loading: true, error: null })
+      try {
+        const response = await fetch(fileUrl, { credentials: 'include' })
+        if (!response.ok) throw new Error(`Unable to load file: ${response.status} ${response.statusText}`)
+        const buffer = await response.arrayBuffer()
+        const matrix = await readSheet(buffer)
+        if (!Array.isArray(matrix) || matrix.length === 0) throw new Error('Spreadsheet contains no rows')
+        const rowsAsStrings = matrix.map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? '')) : []))
+        const headers = rowsAsStrings[0] ?? []
+        const rows = rowsAsStrings.slice(1, 201)
+        setSpreadsheetPreview({ open: true, fileName, fileUrl, sheet: { headers, rows }, loading: false, error: null })
+      } catch (err) {
+        setSpreadsheetPreview({ open: true, fileName, fileUrl, sheet: null, loading: false, error: err instanceof Error ? err.message : 'Failed to load file' })
       }
-      const buffer = await response.arrayBuffer()
-      const matrix = await readSheet(buffer)
-      if (!Array.isArray(matrix) || matrix.length === 0) {
-        throw new Error('Spreadsheet contains no rows')
-      }
-      const rowsAsStrings = matrix.map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? '')) : []))
-      const headers = rowsAsStrings[0] ?? []
-      const rows = rowsAsStrings.slice(1, 101)
-      setSpreadsheetPreview({ open: true, fileName, sheet: { headers, rows }, loading: false, error: null })
-    } catch (err) {
-      setSpreadsheetPreview({
-        open: true,
-        fileName,
-        sheet: null,
-        loading: false,
-        error: err instanceof Error ? err.message : 'Failed to preview spreadsheet',
-      })
+    } else {
+      setFileViewer({ open: true, fileName, fileUrl })
     }
   }
 
   function closeSpreadsheetPreview() {
-    setSpreadsheetPreview({ open: false, fileName: '', sheet: null, loading: false, error: null })
+    setSpreadsheetPreview({ open: false, fileName: '', fileUrl: '', sheet: null, loading: false, error: null })
+  }
+
+  function closeFileViewer() {
+    setFileViewer({ open: false, fileName: '', fileUrl: '' })
   }
 
   useEffect(() => {
@@ -301,96 +324,49 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                                     {files.map((file: ProjectFile, idx: number) => {
                                       const fileUrl = resolveProjectFileUrl(file.FilePath)
                                       const isOpenable = Boolean(fileUrl)
-                                      const isSpreadsheet = isOpenable && isSpreadsheetFile(file.FileName)
 
                                       return isOpenable ? (
-                                        isSpreadsheet ? (
-                                          <button
-                                            key={`${file.FileName}-${idx}`}
-                                            type="button"
-                                            onClick={() => previewSpreadsheet(fileUrl!, file.FileName)}
-                                            className="flex items-center gap-3 p-2.5 rounded-lg group/file"
-                                            style={{
-                                              width: '100%',
-                                              background: 'var(--aa-content-bg)',
-                                              border: '1px solid var(--aa-content-border)',
-                                              transition: 'all 0.2s ease',
-                                              textDecoration: 'none',
-                                              cursor: 'pointer',
-                                            }}
-                                            onMouseEnter={e => {
-                                              const el = e.currentTarget
-                                              el.style.borderColor = 'rgba(59,130,246,0.4)'
-                                              el.style.background = 'rgba(59,130,246,0.06)'
-                                              el.style.transform = 'translateX(2px)'
-                                            }}
-                                            onMouseLeave={e => {
-                                              const el = e.currentTarget
-                                              el.style.borderColor = 'var(--aa-content-border)'
-                                              el.style.background = 'var(--aa-content-bg)'
-                                              el.style.transform = 'translateX(0)'
-                                            }}
+                                        <button
+                                          key={`${file.FileName}-${idx}`}
+                                          type="button"
+                                          onClick={() => openFile(fileUrl!, file.FileName, file.FilePath)}
+                                          className="flex items-center gap-3 p-2.5 rounded-lg"
+                                          style={{
+                                            width: '100%',
+                                            background: 'var(--aa-content-bg)',
+                                            border: '1px solid var(--aa-content-border)',
+                                            transition: 'all 0.2s ease',
+                                            cursor: 'pointer',
+                                          }}
+                                          onMouseEnter={e => {
+                                            const el = e.currentTarget
+                                            el.style.borderColor = 'rgba(59,130,246,0.4)'
+                                            el.style.background = 'rgba(59,130,246,0.06)'
+                                            el.style.transform = 'translateX(2px)'
+                                          }}
+                                          onMouseLeave={e => {
+                                            const el = e.currentTarget
+                                            el.style.borderColor = 'var(--aa-content-border)'
+                                            el.style.background = 'var(--aa-content-bg)'
+                                            el.style.transform = 'translateX(0)'
+                                          }}
+                                        >
+                                          <div
+                                            className="flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0"
+                                            style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa' }}
                                           >
-                                            <div
-                                              className="flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0"
-                                              style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa' }}
-                                            >
-                                              <FileText size={14} />
-                                            </div>
-                                            <p
-                                              className="text-xs font-medium flex-1 min-w-0 truncate"
-                                              style={{ color: 'var(--aa-content-text)' }}
-                                            >
-                                              {file.FileName}
-                                            </p>
-                                            <span className="text-[11px] uppercase tracking-[0.16em]" style={{ color: 'var(--aa-content-text-muted)' }}>
-                                              Preview
-                                            </span>
-                                          </button>
-                                        ) : (
-                                          <a
-                                            key={`${file.FileName}-${idx}`}
-                                            href={fileUrl!}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="flex items-center gap-3 p-2.5 rounded-lg group/file"
-                                            style={{
-                                              background: 'var(--aa-content-bg)',
-                                              border: '1px solid var(--aa-content-border)',
-                                              transition: 'all 0.2s ease',
-                                              textDecoration: 'none',
-                                            }}
-                                            onMouseEnter={e => {
-                                              const el = e.currentTarget
-                                              el.style.borderColor = 'rgba(59,130,246,0.4)'
-                                              el.style.background = 'rgba(59,130,246,0.06)'
-                                              el.style.transform = 'translateX(2px)'
-                                            }}
-                                            onMouseLeave={e => {
-                                              const el = e.currentTarget
-                                              el.style.borderColor = 'var(--aa-content-border)'
-                                              el.style.background = 'var(--aa-content-bg)'
-                                              el.style.transform = 'translateX(0)'
-                                            }}
+                                            <FileText size={14} />
+                                          </div>
+                                          <p
+                                            className="text-xs font-medium flex-1 min-w-0 truncate text-left"
+                                            style={{ color: 'var(--aa-content-text)' }}
                                           >
-                                            <div
-                                              className="flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0"
-                                              style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa' }}
-                                            >
-                                              <FileText size={14} />
-                                            </div>
-                                            <p
-                                              className="text-xs font-medium flex-1 min-w-0 truncate"
-                                              style={{ color: 'var(--aa-content-text)' }}
-                                            >
-                                              {file.FileName}
-                                            </p>
-                                            <ExternalLink
-                                              size={12}
-                                              style={{ color: 'var(--aa-content-text-muted)', flexShrink: 0 }}
-                                            />
-                                          </a>
-                                        )
+                                            {file.FileName}
+                                          </p>
+                                          <span className="text-[11px] uppercase tracking-[0.16em]" style={{ color: 'var(--aa-content-text-muted)' }}>
+                                            Open
+                                          </span>
+                                        </button>
                                       ) : (
                                         <div
                                           key={`${file.FileName}-${idx}`}
@@ -432,70 +408,172 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
         })}
       </div>
 
+      {/* Excel / CSV viewer modal */}
       {spreadsheetPreview.open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
           role="dialog"
           aria-modal="true"
-          aria-label={`Preview ${spreadsheetPreview.fileName}`}
+          onClick={e => { if (e.target === e.currentTarget) closeSpreadsheetPreview() }}
         >
           <div
-            className="w-full max-w-4xl rounded-2xl bg-[var(--aa-content-bg)] shadow-2xl overflow-hidden"
-            style={{ border: '1px solid var(--aa-content-border)' }}
+            className="w-full max-w-5xl flex flex-col rounded-2xl shadow-2xl overflow-hidden"
+            style={{ background: 'var(--aa-content-bg)', border: '1px solid var(--aa-content-border)', maxHeight: '90vh' }}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--aa-content-border)]">
-              <div>
-                <div className="text-sm font-semibold text-[var(--aa-content-text)]">{spreadsheetPreview.fileName}</div>
-                <div className="text-[11px] text-[var(--aa-content-text-muted)]">Spreadsheet preview</div>
+            {/* Header */}
+            <div className="flex items-center gap-3 px-5 py-4 border-b flex-shrink-0" style={{ borderColor: 'var(--aa-content-border)' }}>
+              <div className="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0" style={{ background: 'rgba(34,197,94,0.12)', color: '#4ade80' }}>
+                <FileText size={18} />
               </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate" style={{ color: 'var(--aa-content-text)' }}>{spreadsheetPreview.fileName}</p>
+                <p className="text-[11px]" style={{ color: 'var(--aa-content-text-muted)' }}>
+                  {spreadsheetPreview.sheet ? `${spreadsheetPreview.sheet.rows.length} rows · ${spreadsheetPreview.sheet.headers.length} columns` : 'Spreadsheet viewer'}
+                </p>
+              </div>
+              <a
+                href={spreadsheetPreview.fileUrl}
+                download
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium mr-2"
+                style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)' }}
+              >
+                <Download size={13} />
+                Download
+              </a>
               <button
                 type="button"
                 onClick={closeSpreadsheetPreview}
-                className="text-xs uppercase tracking-[0.22em] text-[var(--aa-content-text-muted)] hover:text-[var(--aa-content-text)]"
+                className="flex items-center justify-center w-8 h-8 rounded-lg transition-colors"
+                style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--aa-content-text)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--aa-content-text-muted)' }}
               >
-                Close
+                <X size={16} />
               </button>
             </div>
-            <div className="p-4 max-h-[80vh] overflow-auto">
+
+            {/* Body */}
+            <div className="flex-1 overflow-auto p-4" style={{ minHeight: 0 }}>
               {spreadsheetPreview.loading ? (
-                <div className="text-sm text-[var(--aa-content-text-muted)]">Loading spreadsheet preview…</div>
+                <div className="flex flex-col items-center justify-center h-48 gap-3">
+                  <Loader2 className="w-7 h-7 animate-spin text-blue-400" />
+                  <p className="text-sm" style={{ color: 'var(--aa-content-text-muted)' }}>Loading spreadsheet…</p>
+                </div>
               ) : spreadsheetPreview.error ? (
-                <div className="text-sm text-[var(--aa-content-text-muted)]">{spreadsheetPreview.error}</div>
+                <div className="flex flex-col items-center justify-center h-48 gap-3">
+                  <AlertCircle className="w-7 h-7 text-red-400" />
+                  <p className="text-sm text-red-400">{spreadsheetPreview.error}</p>
+                </div>
               ) : spreadsheetPreview.sheet ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full border-collapse" style={{ borderSpacing: 0 }}>
-                    <thead>
-                      <tr>
-                        {spreadsheetPreview.sheet.headers.map((header, idx) => (
-                          <th
-                            key={`h-${idx}`}
-                            className="whitespace-nowrap border border-[var(--aa-content-border)] bg-[var(--aa-content-bg-elevated)] px-3 py-2 text-left text-[11px] uppercase text-[var(--aa-content-text-muted)]"
+                <table className="min-w-full border-collapse text-[12px]" style={{ borderSpacing: 0 }}>
+                  <thead>
+                    <tr>
+                      <th
+                        className="sticky top-0 px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest select-none"
+                        style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)', minWidth: 40 }}
+                      >
+                        #
+                      </th>
+                      {spreadsheetPreview.sheet.headers.map((header, idx) => (
+                        <th
+                          key={`h-${idx}`}
+                          className="sticky top-0 whitespace-nowrap px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider"
+                          style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)', minWidth: 100 }}
+                        >
+                          {header || `Col ${idx + 1}`}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {spreadsheetPreview.sheet.rows.map((row, rowIndex) => (
+                      <tr
+                        key={`r-${rowIndex}`}
+                        style={{ background: rowIndex % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.06)' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = rowIndex % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}
+                      >
+                        <td
+                          className="px-3 py-1.5 text-center text-[10px] select-none"
+                          style={{ color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)' }}
+                        >
+                          {rowIndex + 1}
+                        </td>
+                        {spreadsheetPreview.sheet.headers.map((_, cellIndex) => (
+                          <td
+                            key={`c-${rowIndex}-${cellIndex}`}
+                            className="px-3 py-1.5 whitespace-nowrap"
+                            style={{ color: 'var(--aa-content-text)', border: '1px solid var(--aa-content-border)' }}
                           >
-                            {header || `Column ${idx + 1}`}
-                          </th>
+                            {row[cellIndex] ?? ''}
+                          </td>
                         ))}
                       </tr>
-                    </thead>
-                    <tbody>
-                      {spreadsheetPreview.sheet.rows.map((row, rowIndex) => (
-                        <tr key={`r-${rowIndex}`}>
-                          {row.map((cell, cellIndex) => (
-                            <td
-                              key={`c-${rowIndex}-${cellIndex}`}
-                              className="border border-[var(--aa-content-border)] px-3 py-2 text-[12px] text-[var(--aa-content-text)]"
-                            >
-                              {cell}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               ) : (
-                <div className="text-sm text-[var(--aa-content-text-muted)]">Spreadsheet preview not available.</div>
+                <div className="flex items-center justify-center h-48 text-sm" style={{ color: 'var(--aa-content-text-muted)' }}>No data found.</div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generic file viewer modal (PDF, Word, etc.) */}
+      {fileViewer.open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={e => { if (e.target === e.currentTarget) closeFileViewer() }}
+        >
+          <div
+            className="w-full max-w-5xl flex flex-col rounded-2xl shadow-2xl overflow-hidden"
+            style={{ background: 'var(--aa-content-bg)', border: '1px solid var(--aa-content-border)', height: '90vh' }}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3 px-5 py-4 border-b flex-shrink-0" style={{ borderColor: 'var(--aa-content-border)' }}>
+              <div className="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0" style={{ background: 'rgba(59,130,246,0.12)', color: '#60a5fa' }}>
+                <FileText size={18} />
+              </div>
+              <p className="text-sm font-semibold flex-1 min-w-0 truncate" style={{ color: 'var(--aa-content-text)' }}>{fileViewer.fileName}</p>
+              <a
+                href={fileViewer.fileUrl}
+                download
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium mr-2"
+                style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)' }}
+              >
+                <Download size={13} />
+                Download
+              </a>
+              <a
+                href={fileViewer.fileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium mr-2"
+                style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)' }}
+              >
+                <ExternalLink size={13} />
+                New tab
+              </a>
+              <button
+                type="button"
+                onClick={closeFileViewer}
+                className="flex items-center justify-center w-8 h-8 rounded-lg"
+                style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--aa-content-text)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--aa-content-text-muted)' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {/* iframe viewer */}
+            <iframe
+              src={fileViewer.fileUrl}
+              className="flex-1 w-full border-0"
+              title={fileViewer.fileName}
+            />
           </div>
         </div>
       )}

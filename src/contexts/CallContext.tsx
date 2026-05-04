@@ -190,25 +190,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     const facingMode = facingModeRef.current
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: false,
-        autoGainControl: true,
-        channelCount: 1,
-        googEchoCancellation: true,
-        googAutoGainControl: true,
-        googNoiseSuppression: false,
-        googHighpassFilter: true,
-        googTypingNoiseDetection: true,
-      } as any,
+      audio: true,
       video:
         type === 'video'
-          ? {
-              width: { ideal: 1280, max: 1280 },
-              height: { ideal: 720, max: 720 },
-              frameRate: { ideal: 30, max: 30 },
-              facingMode,
-            }
+          ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode }
           : false,
     })
     localStreamRef.current = stream
@@ -233,21 +218,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
     try {
       const params = sender.getParameters()
       if (!params.encodings || params.encodings.length === 0) params.encodings = [{}]
-      
-      const isVideo = sender.track?.kind === 'video'
-      
+      // Favor low latency over quality. Keep bitrate modest so congested links don't buffer.
       for (const enc of params.encodings) {
-        if (isVideo) {
-          enc.maxBitrate = 4_000_000
-          enc.maxFramerate = 30
-        } else {
-          enc.maxBitrate = 256_000
-        }
-        ;(enc as any).networkPriority = 'high'
-        ;(enc as any).priority = 'high'
+        if (typeof enc.maxBitrate !== 'number') enc.maxBitrate = 900_000 // ~0.9 Mbps
+        ;(enc as any).networkPriority ??= 'high'
+        ;(enc as any).priority ??= 'high'
       }
-      // 'balanced' lets the browser reduce resolution when bandwidth is low instead of freezing frames
-      ;(params as any).degradationPreference = 'balanced'
+      ;(params as any).degradationPreference ??= 'maintain-framerate'
       await sender.setParameters(params)
     } catch {
       // Ignore if unsupported by browser.
@@ -267,19 +244,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const ensurePeerConnection = useCallback((targetEmpId: number): RTCPeerConnection => {
     if (peerConnectionRef.current) return peerConnectionRef.current
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' },
-      ],
-      iceTransportPolicy: 'all',
-      bundlePolicy: 'max-bundle',
-      rtcpMuxPolicy: 'require',
-      iceCandidatePoolSize: 10,
-    })
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
     pc.onicecandidate = (e) => {
       if (!e.candidate) return
       socketRef.current?.emit('call:ice-candidate', { targetId: targetEmpId, candidate: e.candidate })
@@ -482,7 +447,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       myDisplayNameRef.current = displayName
 
       const socket = io(buildSocketBaseUrl(), {
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'],
         withCredentials: true,
         timeout: 4000,
         reconnection: true,
@@ -527,27 +492,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, [bindCallSocket])
 
-  const mungeSdpForHighQuality = (sdp: string): string => {
-    // 1. Force the bitrate to 10Mbps (10000kbps) via x-google fmtp
-    // We set start-bitrate to 5000 so it's clear IMMEDIATELY without ramp-up
-    let newSdp = sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt, params) => {
-      if (params.indexOf('x-google-max-bitrate') === -1) {
-        return `a=fmtp:${pt} ${params};x-google-max-bitrate=4000;x-google-min-bitrate=500;x-google-start-bitrate=1000`
-      }
-      return match
-    })
-
-    // 2. Add b=AS to video and audio sections to advertise max receive bitrate.
-    if (newSdp.indexOf('m=video') !== -1) {
-      newSdp = newSdp.replace(/(m=video.*\r?\n)/g, '$1b=AS:4000\r\n')
-    }
-    if (newSdp.indexOf('m=audio') !== -1) {
-      newSdp = newSdp.replace(/(m=audio.*\r?\n)/g, '$1b=AS:256\r\n')
-    }
-
-    return newSdp
-  }
-
   const startCall = useCallback(
     async (calleeEmpId: number, calleeName: string, type: CallType = 'audio') => {
       setCallError('')
@@ -571,18 +515,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const pc = ensurePeerConnection(calleeEmpId)
         for (const t of stream.getTracks()) {
           const sender = pc.addTrack(t, stream)
-          void tuneRealtimeSender(sender)
+          if (t.kind === 'video') void tuneRealtimeSender(sender)
         }
-        let offer = await pc.createOffer({
+        const offer = await pc.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
-          voiceActivityDetection: false,
-        } as any)
-        
-        if (offer.sdp) {
-          offer = { ...offer, sdp: mungeSdpForHighQuality(offer.sdp) } as any
-        }
-
+        })
         await pc.setLocalDescription(offer)
         setCallPhase('calling')
         socket.emit('call:offer', {
@@ -618,18 +556,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         configureTrackHints(stream)
         for (const t of stream.getTracks()) {
           const sender = pc.addTrack(t, stream)
-          void tuneRealtimeSender(sender)
+          if (t.kind === 'video') void tuneRealtimeSender(sender)
         }
-        let answer = await pc.createAnswer({
+        const answer = await pc.createAnswer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: type === 'video',
-          voiceActivityDetection: false,
-        } as any)
-
-        if (answer.sdp) {
-          answer = { ...answer, sdp: mungeSdpForHighQuality(answer.sdp) } as any
-        }
-
+        })
         await pc.setLocalDescription(answer)
       for (const c of pendingIceRef.current) await pc.addIceCandidate(new RTCIceCandidate(c))
       pendingIceRef.current = []

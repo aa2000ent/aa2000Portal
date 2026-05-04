@@ -21,46 +21,8 @@ function getInitials(name: string) {
 }
 
 /** Attach stream to a video/audio element via callback ref — works even when element mounts after stream is ready. */
-function useStreamRef(stream: MediaStream | null, boost = false) {
+function useStreamRef(stream: MediaStream | null) {
   const elRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const gainNodeRef = useRef<GainNode | null>(null)
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
-
-  const setupAudioBoost = (ms: MediaStream, el: HTMLVideoElement | HTMLAudioElement) => {
-    if (!boost) return
-    try {
-      const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext)
-      if (!AudioCtx) throw new Error('No AudioContext')
-
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioCtx()
-      }
-      const ctx = audioCtxRef.current
-      
-      // Mute the element only if AudioContext is actually running or can be resumed
-      const startBoost = async () => {
-        if (ctx.state === 'suspended') await ctx.resume().catch(() => {})
-        if (ctx.state === 'running') {
-          if (!gainNodeRef.current) {
-            gainNodeRef.current = ctx.createGain()
-            gainNodeRef.current.gain.value = 2.5
-            gainNodeRef.current.connect(ctx.destination)
-          }
-          if (sourceRef.current) sourceRef.current.disconnect()
-          sourceRef.current = ctx.createMediaStreamSource(ms)
-          sourceRef.current.connect(gainNodeRef.current)
-          el.muted = true // Now safe to mute the element
-        } else {
-          el.muted = false // Fallback
-        }
-      }
-      void startBoost()
-    } catch (err) {
-      console.warn('Audio boost fallback:', err)
-      el.muted = false
-    }
-  }
 
   const callbackRef = useCallback((el: HTMLVideoElement | HTMLAudioElement | null) => {
     elRef.current = el
@@ -68,25 +30,20 @@ function useStreamRef(stream: MediaStream | null, boost = false) {
     if (stream && el.srcObject !== stream) {
       el.srcObject = stream
       void (el as HTMLVideoElement).play().catch(() => {})
-      if (boost) setupAudioBoost(stream, el)
     }
-  }, [stream, boost])
+  }, [stream])
 
+  // If stream changes after element is already mounted, update srcObject
   useEffect(() => {
     const el = elRef.current
     if (!el) return
     if (stream && el.srcObject !== stream) {
       el.srcObject = stream
       void (el as HTMLVideoElement).play().catch(() => {})
-      if (boost) setupAudioBoost(stream, el)
     } else if (!stream) {
       el.srcObject = null
-      if (sourceRef.current) {
-        sourceRef.current.disconnect()
-        sourceRef.current = null
-      }
     }
-  }, [stream, boost])
+  }, [stream])
 
   return callbackRef
 }
@@ -104,8 +61,8 @@ export default function CallPopup() {
   const [camOff, setCamOff] = useState(false)
 
   const localVideoRef = useStreamRef(localStream) as (el: HTMLVideoElement | null) => void
-  const remoteVideoRef = useStreamRef(remoteStream, true) as (el: HTMLVideoElement | null) => void
-  const remoteAudioRef = useStreamRef(remoteStream, true) as (el: HTMLAudioElement | null) => void
+  const remoteVideoRef = useStreamRef(remoteStream) as (el: HTMLVideoElement | null) => void
+  const remoteAudioRef = useStreamRef(remoteStream) as (el: HTMLAudioElement | null) => void
 
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [uiFullscreen, setUiFullscreen] = useState(false)
@@ -274,8 +231,6 @@ export default function CallPopup() {
 
   return (
     <div className="call-popup-overlay" role="dialog" aria-modal="true" aria-label="Call">
-
-
 
       {/* Error toast */}
       {callError && (
@@ -534,8 +489,6 @@ export default function CallPopup() {
                     <span>{(isFullscreen || uiFullscreen) ? 'Exit' : 'Full'}</span>
                   </button>
                 )}
-
-
 
                 <button type="button" className="call-btn call-btn--end" onClick={endCall} aria-label="End call">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">

@@ -499,7 +499,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                         >
                           {rowIndex + 1}
                         </td>
-                        {spreadsheetPreview.sheet.headers.map((_, cellIndex) => (
+                        {spreadsheetPreview.sheet?.headers.map((_, cellIndex) => (
                           <td
                             key={`c-${rowIndex}-${cellIndex}`}
                             className="px-3 py-1.5 whitespace-nowrap"

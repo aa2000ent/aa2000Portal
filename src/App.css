@@ -4714,12 +4714,17 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   .messenger-list-header,
   .messenger-search-wrap,
   .messenger-tabs {
-    padding-left: max(1rem, env(safe-area-inset-left));
-    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .messenger-list-header {
+    padding-top: 0.75rem;
+    padding-bottom: 0.5rem;
   }
 
   .messenger-conv-item {
-    padding: 0.875rem max(1rem, env(safe-area-inset-left)) 0.875rem 1rem;
+    padding: 0.75rem;
     min-height: 56px;
   }
 

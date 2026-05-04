@@ -533,13 +533,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [bindCallSocket])
 
   const mungeSdpForHighQuality = (sdp: string): string => {
-    // Force the bitrate to 10Mbps (10000kbps) at the SDP level
-    return sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt, params) => {
+    // 1. Force the bitrate to 10Mbps (10000kbps) via x-google fmtp
+    let newSdp = sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt, params) => {
       if (params.indexOf('x-google-max-bitrate') === -1) {
         return `a=fmtp:${pt} ${params};x-google-max-bitrate=10000;x-google-min-bitrate=2000;x-google-start-bitrate=5000`
       }
       return match
     })
+
+    // 2. Add b=AS:10000 (Application Specific bitrate) to tell the sender we can RECEIVE 10Mbps
+    // This is the standard way to request higher quality from the other side.
+    if (newSdp.indexOf('m=video') !== -1) {
+      newSdp = newSdp.replace(/(m=video.*\r?\n)/g, '$1b=AS:10000\r\n')
+    }
+
+    return newSdp
   }
 
   const startCall = useCallback(

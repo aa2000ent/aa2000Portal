@@ -1,6 +1,7 @@
 export type ProjectFile = {
   FileName: string
   FilePath: string
+  Proj_ID?: number | string
   actualPath?: string
   existsOnDisk?: boolean
   isDirectory?: boolean

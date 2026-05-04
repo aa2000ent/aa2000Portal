@@ -238,15 +238,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
       
       for (const enc of params.encodings) {
         if (isVideo) {
-          // Allow up to 10 Mbps for truly "raw" camera quality if the network allows
-          enc.maxBitrate = 10_000_000 
+          enc.maxBitrate = 10_000_000
           enc.maxFramerate = 60
-          ;(enc as any).networkPriority = 'high'
-          ;(enc as any).priority = 'high'
         } else {
-          // High fidelity audio (Opus)
           enc.maxBitrate = 256_000
         }
+        ;(enc as any).networkPriority = 'high'
+        ;(enc as any).priority = 'high'
       }
       
       // 'maintain-resolution' ensures the recipient gets the full pixels even if framerate drops slightly
@@ -485,7 +483,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       myDisplayNameRef.current = displayName
 
       const socket = io(buildSocketBaseUrl(), {
-        transports: ['polling', 'websocket'],
+        transports: ['websocket', 'polling'],
         withCredentials: true,
         timeout: 4000,
         reconnection: true,
@@ -540,10 +538,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       return match
     })
 
-    // 2. Add b=AS:10000 (Application Specific bitrate) to tell the sender we can RECEIVE 10Mbps
-    // This is the standard way to request higher quality from the other side.
+    // 2. Add b=AS to video and audio sections to advertise max receive bitrate.
     if (newSdp.indexOf('m=video') !== -1) {
       newSdp = newSdp.replace(/(m=video.*\r?\n)/g, '$1b=AS:10000\r\n')
+    }
+    if (newSdp.indexOf('m=audio') !== -1) {
+      newSdp = newSdp.replace(/(m=audio.*\r?\n)/g, '$1b=AS:256\r\n')
     }
 
     return newSdp
@@ -572,7 +572,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const pc = ensurePeerConnection(calleeEmpId)
         for (const t of stream.getTracks()) {
           const sender = pc.addTrack(t, stream)
-          if (t.kind === 'video') void tuneRealtimeSender(sender)
+          void tuneRealtimeSender(sender)
         }
         let offer = await pc.createOffer({
           offerToReceiveAudio: true,
@@ -619,7 +619,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         configureTrackHints(stream)
         for (const t of stream.getTracks()) {
           const sender = pc.addTrack(t, stream)
-          if (t.kind === 'video') void tuneRealtimeSender(sender)
+          void tuneRealtimeSender(sender)
         }
         let answer = await pc.createAnswer({
           offerToReceiveAudio: true,

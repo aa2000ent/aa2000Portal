@@ -1147,7 +1147,7 @@ export default function ChatPage() {
 
     const socketBase = buildSocketBaseUrl()
     const socket = io(socketBase, {
-      transports: ['polling', 'websocket'],
+      transports: ['websocket', 'polling'],
       withCredentials: true,
       timeout: 4000,
       reconnection: true,

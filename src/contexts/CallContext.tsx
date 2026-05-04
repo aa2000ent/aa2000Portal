@@ -204,9 +204,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       video:
         type === 'video'
           ? {
-              width: { ideal: 1920, max: 1920 },
-              height: { ideal: 1080, max: 1080 },
-              frameRate: { ideal: 30, max: 60 },
+              width: { ideal: 1280, max: 1280 },
+              height: { ideal: 720, max: 720 },
+              frameRate: { ideal: 30, max: 30 },
               facingMode,
             }
           : false,
@@ -238,17 +238,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
       
       for (const enc of params.encodings) {
         if (isVideo) {
-          enc.maxBitrate = 10_000_000
-          enc.maxFramerate = 60
+          enc.maxBitrate = 4_000_000
+          enc.maxFramerate = 30
         } else {
           enc.maxBitrate = 256_000
         }
         ;(enc as any).networkPriority = 'high'
         ;(enc as any).priority = 'high'
       }
-      
-      // 'maintain-resolution' ensures the recipient gets the full pixels even if framerate drops slightly
-      ;(params as any).degradationPreference = 'maintain-resolution'
+      // 'balanced' lets the browser reduce resolution when bandwidth is low instead of freezing frames
+      ;(params as any).degradationPreference = 'balanced'
       await sender.setParameters(params)
     } catch {
       // Ignore if unsupported by browser.
@@ -533,14 +532,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
     // We set start-bitrate to 5000 so it's clear IMMEDIATELY without ramp-up
     let newSdp = sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt, params) => {
       if (params.indexOf('x-google-max-bitrate') === -1) {
-        return `a=fmtp:${pt} ${params};x-google-max-bitrate=10000;x-google-min-bitrate=2000;x-google-start-bitrate=5000`
+        return `a=fmtp:${pt} ${params};x-google-max-bitrate=4000;x-google-min-bitrate=500;x-google-start-bitrate=1000`
       }
       return match
     })
 
     // 2. Add b=AS to video and audio sections to advertise max receive bitrate.
     if (newSdp.indexOf('m=video') !== -1) {
-      newSdp = newSdp.replace(/(m=video.*\r?\n)/g, '$1b=AS:10000\r\n')
+      newSdp = newSdp.replace(/(m=video.*\r?\n)/g, '$1b=AS:4000\r\n')
     }
     if (newSdp.indexOf('m=audio') !== -1) {
       newSdp = newSdp.replace(/(m=audio.*\r?\n)/g, '$1b=AS:256\r\n')

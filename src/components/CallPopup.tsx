@@ -109,6 +109,8 @@ export default function CallPopup() {
 
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [uiFullscreen, setUiFullscreen] = useState(false)
+  const [beautyIntensity, setBeautyIntensity] = useState(0.6)
+  const [showBeautyControls, setShowBeautyControls] = useState(false)
   const videoCardRef = useRef<HTMLDivElement | null>(null)
   const [controlsHidden, setControlsHidden] = useState(false)
   const hideTimerRef = useRef<number | null>(null)
@@ -278,16 +280,16 @@ export default function CallPopup() {
       {/* Beauty Filter SVG Definition */}
       <svg style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }} aria-hidden="true">
         <filter id="aa2000-beauty-filter" colorInterpolationFilters="sRGB">
-          {/* Subtle brightness and warmth boost */}
-          <feColorMatrix type="matrix" values="
-            1.05 0    0    0    0.02
-            0    1.02 0    0    0.02
-            0    0    1.02 0    0.01
-            0    0    0    1    0" 
+          {/* Subtle brightness and warmth boost — scales slightly with intensity */}
+          <feColorMatrix type="matrix" values={`
+            ${1 + beautyIntensity * 0.08} 0    0    0    ${0.01 + beautyIntensity * 0.02}
+            0    ${1 + beautyIntensity * 0.03} 0    0    ${0.01 + beautyIntensity * 0.02}
+            0    0    ${1 + beautyIntensity * 0.03} 0    0.01
+            0    0    0    1    0`} 
           />
-          {/* Soft skin smoothing via a very slight blur mixed back with original */}
-          <feGaussianBlur stdDeviation="0.6" result="softBlur" />
-          <feComposite in="SourceGraphic" in2="softBlur" operator="arithmetic" k1="0" k2="0.85" k3="0.15" k4="0" />
+          {/* Soft skin smoothing via dynamic blur */}
+          <feGaussianBlur stdDeviation={beautyIntensity} result="softBlur" />
+          <feComposite in="SourceGraphic" in2="softBlur" operator="arithmetic" k1="0" k2={0.8 + (beautyIntensity * 0.1)} k3={0.2 - (beautyIntensity * 0.1)} k4="0" />
         </filter>
       </svg>
 
@@ -547,6 +549,63 @@ export default function CallPopup() {
                     )}
                     <span>{(isFullscreen || uiFullscreen) ? 'Exit' : 'Full'}</span>
                   </button>
+                )}
+
+                {isVideoActive && (
+                  <div className="call-beauty-controls-wrap" style={{ position: 'relative' }}>
+                    <button
+                      type="button"
+                      className={`call-btn call-btn--mute ${showBeautyControls ? 'active' : ''}`}
+                      onClick={() => setShowBeautyControls((prev) => !prev)}
+                      aria-label="Adjust beauty filter"
+                    >
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                      </svg>
+                      <span>Filter</span>
+                    </button>
+                    
+                    {showBeautyControls && (
+                      <div 
+                        className="call-beauty-slider-popover" 
+                        style={{
+                          position: 'absolute',
+                          bottom: '100%',
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          marginBottom: '12px',
+                          background: 'rgba(15, 23, 42, 0.95)',
+                          padding: '12px',
+                          borderRadius: '12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          minWidth: '140px',
+                          backdropFilter: 'blur(8px)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          zIndex: 10,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#cbd5e1' }}>
+                          <span>Smoothing</span>
+                          <span>{Math.round(beautyIntensity * 50)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          value={beautyIntensity}
+                          onChange={(e) => setBeautyIntensity(parseFloat(e.target.value))}
+                          style={{
+                            width: '100%',
+                            accentColor: '#3b82f6',
+                            cursor: 'pointer'
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 <button type="button" className="call-btn call-btn--end" onClick={endCall} aria-label="End call">

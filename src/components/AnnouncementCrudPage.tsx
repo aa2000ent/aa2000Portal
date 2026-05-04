@@ -228,11 +228,13 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
   }, [canManage, isMemoPage])
 
   const memoSelectableEmployees = useMemo(() => {
+    const myAccId = Number(getPortalAccountId() ?? 0)
     const seen = new Set<number>()
     const result: Array<{ accId: number; label: string }> = []
     for (const emp of employees) {
       const accId = Number(emp.accId ?? 0)
       if (!Number.isFinite(accId) || accId <= 0 || seen.has(accId)) continue
+      if (myAccId > 0 && accId === myAccId) continue
       seen.add(accId)
       const role = String(emp.role ?? '').trim()
       result.push({

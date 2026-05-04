@@ -274,7 +274,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
         <button
           type="button"
           onClick={goToCompanies}
-          className="flex items-center gap-1.5 mb-5 text-xs font-semibold uppercase tracking-wider transition-colors"
+          className="flex items-center gap-1.5 mb-5 text-xs font-semibold uppercase tracking-wider transition-colors bg-transparent border-0 p-0 cursor-pointer"
           style={{ color: '#60a5fa' }}
         >
           <ArrowLeft size={13} /> Back
@@ -343,7 +343,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
         <button
           type="button"
           onClick={() => { setLevel('days'); setSelectedDay(null) }}
-          className="flex items-center gap-1.5 mb-5 text-xs font-semibold uppercase tracking-wider"
+          className="flex items-center gap-1.5 mb-5 text-xs font-semibold uppercase tracking-wider bg-transparent border-0 p-0 cursor-pointer"
           style={{ color: '#60a5fa' }}
         >
           <ArrowLeft size={13} /> Back

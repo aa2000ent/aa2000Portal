@@ -23,10 +23,13 @@ function getMobileDisplayName(fullName: string): string {
 
 function DashboardMainWithScroll() {
   const { scrollContainerRef } = useSidebar()
+  const location = useLocation()
+  const isChatPage = location.pathname.endsWith('/chat')
+
   return (
     <main
       ref={scrollContainerRef as React.RefObject<HTMLElement>}
-      className="dashboard-main flex-1 min-h-0 flex flex-col overflow-y-auto overflow-x-hidden"
+      className={`dashboard-main flex-1 min-h-0 flex flex-col overflow-x-hidden ${isChatPage ? 'overflow-y-hidden' : 'overflow-y-auto'}`}
     >
       <Outlet />
     </main>

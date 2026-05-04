@@ -461,6 +461,8 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
     })
   }, [location.pathname, navItems])
 
+  const isChatPage = location.pathname.endsWith('/chat')
+
   return (
     <div
       className={`dashboard-with-sidebar relative w-full min-h-full flex ${isSidebarOpen ? 'sidebar-open' : ''} ${showCollapsed ? 'sidebar-collapsed' : ''} ${isTransitioning ? 'overflow-x-hidden' : ''}`}
@@ -646,7 +648,9 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
       <CallPopup />
       <div
         ref={mainContentScrollRef}
-        className="flex-1 min-w-0 pt-4 pb-10 px-8 max-md:pt-4 max-md:pb-8 max-md:px-5 max-md:block md:transition-[margin-left] md:duration-300 md:ease-[cubic-bezier(0.4,0,0.2,1)] overflow-y-auto overflow-x-hidden"
+        className={`flex-1 min-w-0 md:transition-[margin-left] md:duration-300 md:ease-[cubic-bezier(0.4,0,0.2,1)] 
+          ${isChatPage ? 'p-0 overflow-hidden' : 'pt-4 pb-10 px-8 max-md:pt-4 max-md:pb-8 max-md:px-5 max-md:block overflow-y-auto overflow-x-hidden'}
+        `}
         style={!isMobile ? { marginLeft: isSidebarOpen ? (showCollapsed ? 76 : 240) : 0 } : undefined}
       >
         <ErrorBoundary>

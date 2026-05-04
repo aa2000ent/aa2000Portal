@@ -4664,11 +4664,11 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
 /* Mobile: show list OR thread (toggle via .messenger-mobile-thread) */
 @media (max-width: 768px) {
   .messenger {
-    min-height: calc(100vh - 4rem);
-    min-height: calc(100dvh - 4rem);
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    border: none;
     border-radius: 0;
-    border-left: none;
-    border-right: none;
   }
 
   .messenger-list {

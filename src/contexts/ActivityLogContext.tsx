@@ -16,6 +16,7 @@ export type ActionType =
   | 'sign_out'
   | 'page_visited'
   | 'profile_updated'
+  | 'profile_photo_updated'
   | 'password_changed'
   | '2fa_enabled'
   | '2fa_disabled'

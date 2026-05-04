@@ -1,13 +1,6 @@
 import { getAuthToken, getSessionId } from '../api/client'
 import { getBaseUrl } from '../api/config'
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const rawData = window.atob(base64)
-  return new Uint8Array(Array.from(rawData, (char) => char.charCodeAt(0)))
-}
-
 async function getSwRegistration(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null
   try {
@@ -44,7 +37,7 @@ export async function subscribeToPushNotifications(): Promise<void> {
     const existing = await reg.pushManager.getSubscription()
     const sub = existing ?? await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      applicationServerKey: vapidKey,
     })
 
     const baseUrl = (() => {

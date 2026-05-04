@@ -30,34 +30,35 @@ function useStreamRef(stream: MediaStream | null, boost = false) {
   const setupAudioBoost = (ms: MediaStream, el: HTMLVideoElement | HTMLAudioElement) => {
     if (!boost) return
     try {
-      // Initialize AudioContext on first stream
+      const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext)
+      if (!AudioCtx) throw new Error('No AudioContext')
+
       if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+        audioCtxRef.current = new AudioCtx()
       }
       const ctx = audioCtxRef.current
-      if (ctx.state === 'suspended') void ctx.resume()
-
-      // Create nodes if they don't exist
-      if (!gainNodeRef.current) {
-        gainNodeRef.current = ctx.createGain()
-        // Boost volume by 2.5x
-        gainNodeRef.current.gain.value = 2.5
-        gainNodeRef.current.connect(ctx.destination)
-      }
-
-      // Reconnect source
-      if (sourceRef.current) {
-        sourceRef.current.disconnect()
-      }
-      sourceRef.current = ctx.createMediaStreamSource(ms)
-      sourceRef.current.connect(gainNodeRef.current)
       
-      // Mute the element itself to avoid double audio, 
-      // but the AudioContext will play it through the destination (speakers)
-      el.muted = true
+      // Mute the element only if AudioContext is actually running or can be resumed
+      const startBoost = async () => {
+        if (ctx.state === 'suspended') await ctx.resume().catch(() => {})
+        if (ctx.state === 'running') {
+          if (!gainNodeRef.current) {
+            gainNodeRef.current = ctx.createGain()
+            gainNodeRef.current.gain.value = 2.5
+            gainNodeRef.current.connect(ctx.destination)
+          }
+          if (sourceRef.current) sourceRef.current.disconnect()
+          sourceRef.current = ctx.createMediaStreamSource(ms)
+          sourceRef.current.connect(gainNodeRef.current)
+          el.muted = true // Now safe to mute the element
+        } else {
+          el.muted = false // Fallback
+        }
+      }
+      void startBoost()
     } catch (err) {
-      console.warn('Audio boost failed:', err)
-      el.muted = false // Fallback to normal volume
+      console.warn('Audio boost fallback:', err)
+      el.muted = false
     }
   }
 

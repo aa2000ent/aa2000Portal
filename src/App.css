@@ -139,6 +139,11 @@
     padding: 1rem;
   }
 
+  /* Remove overlay padding when video call is active so the card can be truly edge-to-edge */
+  .call-popup-overlay:has(.call-popup-card--video) {
+    padding: 0;
+  }
+
   .call-popup-card {
     padding: 1.75rem 1.25rem 1.5rem;
     width: 100%;
@@ -152,11 +157,13 @@
     height: 100dvh;
     border-radius: 0;
     padding: 0;
+    border: none;
+    box-sizing: border-box;
   }
 
   /* Outgoing video dial: overlay controls; reserve bottom space for absolute bar. */
   .call-popup-card--video.call-popup-card--video-shell:not(.call-popup-card--incoming-video) {
-    padding: 2.25rem 1.5rem 6.5rem;
+    padding: 2.25rem 0 6.5rem;
     justify-content: center;
     gap: 1.5rem;
     background:
@@ -165,7 +172,7 @@
   }
 
   .call-popup-card--video.call-popup-card--incoming-video {
-    padding: 2rem 1.5rem max(1.25rem, env(safe-area-inset-bottom, 16px));
+    padding: 2rem 0 max(1.25rem, env(safe-area-inset-bottom, 16px));
     justify-content: center;
     gap: 1.75rem;
     min-height: 100dvh;

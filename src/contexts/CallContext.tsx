@@ -195,15 +195,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         noiseSuppression: false,
         autoGainControl: true,
         channelCount: 1,
-        // Cast to any to allow non-standard Chrome-specific flags that improve voice
-        ...({
-          googEchoCancellation: true,
-          googAutoGainControl: true,
-          googNoiseSuppression: false,
-          googHighpassFilter: true,
-          googTypingNoiseDetection: true,
-        } as any),
-      },
+        googEchoCancellation: true,
+        googAutoGainControl: true,
+        googNoiseSuppression: false,
+        googHighpassFilter: true,
+        googTypingNoiseDetection: true,
+      } as any,
       video:
         type === 'video'
           ? {

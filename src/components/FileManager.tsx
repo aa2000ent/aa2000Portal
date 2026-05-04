@@ -379,8 +379,8 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                         key={`${file.FileName}-${idx}`}
                         type="button"
                         onClick={() => openFile(fileUrl!, file.FileName, file.FilePath)}
-                        className="flex items-center gap-4 px-5 py-3.5 text-left w-full"
-                        style={{ transition: 'background 0.15s ease' }}
+                        className="flex items-center gap-4 px-5 py-3.5 text-left w-full border-0 cursor-pointer"
+                        style={{ background: 'transparent', transition: 'background 0.15s ease' }}
                         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.06)' }}
                         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                       >

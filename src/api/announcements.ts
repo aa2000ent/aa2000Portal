@@ -111,14 +111,12 @@ export async function fetchAnnouncementsByType(
 
     if (type === 'MEMO') {
       if (recipientAccId && recipientAccId > 0) {
-        // Non-manager: fetch only their own memos by acc_ID (stored as EmployeeID)
+        // Non-manager: fetch only memos assigned to them (EmployeeID = acc_ID)
         const data = await apiRequest<unknown>(`/announcements/memos/employee/${recipientAccId}`)
         return extractList(data).map(mapAnnouncement)
       }
-      // Admin/manager: no server-side "get all memos" route — fetch by acc_ID of current user
-      const data = await apiRequest<unknown>('/announcements/memos/employee/all', {
-        portal: { suppressFailureLog: true },
-      }).catch(() => null)
+      // Admin/manager: fetch all memos via /memos/all
+      const data = await apiRequest<unknown>('/announcements/memos/all')
       return extractList(data).map(mapAnnouncement)
     }
 

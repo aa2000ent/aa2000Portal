@@ -168,7 +168,7 @@ export function roleNameToRoute(roleName: string): string {
   if (/\bgeneral[\s_-]*manager\b|^gm$/i.test(n)) return 'general-manager'
   if (/\bco[\s_-]*ceo\b|\bcoo\b|\bchief operating\b/i.test(n)) return 'co-ceo'
   if (/\bceo\b|\bchief executive\b|\bmanaging director\b/i.test(n)) return 'ceo'
-  if (/\btechnical\b|\bit\b|\btechnician\b/i.test(n)) return 'technical'
+  if (/\btechnical\b|\bit\b|\btechnician\b|\bchecker\b/i.test(n)) return 'technical'
   if (/\bengineering\b|\bengineer\b|\bdeveloper\b|\bsoftware\b/i.test(n)) return 'engineering'
   if (/\bfinancial\b/.test(n)) return 'financial'
   if (/\baccounting\b|\baccountant\b/.test(n)) return 'accounting'

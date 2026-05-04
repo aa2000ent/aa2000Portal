@@ -25,14 +25,12 @@ interface FileViewer {
 
 type DrillLevel = 'companies' | 'days' | 'files'
 
-function resolveProjectFileUrl(rawPath: string | null | undefined, application: string): string | null {
+function resolveProjectFileUrl(rawPath: string | null | undefined): string | null {
   const filePath = String(rawPath ?? '').trim()
   if (!filePath) return null
-  const filename = filePath.replace(/\\/g, '/').split('/').pop()
-  if (!filename) return null
   const base = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
   if (!base) return null
-  return `${base}/project-file/${encodeURIComponent(application)}/${encodeURIComponent(filename)}`
+  return `${base}/project/file/download?path=${encodeURIComponent(filePath)}`
 }
 
 export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCODE' }) => {
@@ -348,7 +346,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                 {/* File list */}
                 <div className="flex flex-col divide-y" style={{ borderColor: 'var(--aa-content-border)' }}>
                   {files.map((file: ProjectFile, idx: number) => {
-                    const fileUrl = resolveProjectFileUrl(file.FilePath, application)
+                    const fileUrl = resolveProjectFileUrl(file.FilePath)
                     // Use existsOnDisk from backend if available, otherwise fall back to URL resolution
                     const isOpenable = file.existsOnDisk !== undefined ? file.existsOnDisk : Boolean(fileUrl)
                     const displayName = file.customDownloadName || file.FileName

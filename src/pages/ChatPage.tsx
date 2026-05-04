@@ -1208,9 +1208,9 @@ export default function ChatPage() {
       // Backend contract: POST echo + io.emit use senderEmpID, receiverEmpID, message, timestamp (no legacy "sender" string).
       const receiverEmpId = Number(evt.receiverEmpID ?? evt.receiverEmpId ?? evt.employeeID ?? evt.employeeId)
       const senderEmpId = Number(evt.senderEmpID)
-      const timestamp = String(evt.timestamp ?? evt.createdAt ?? evt.date ?? '').trim()
+      const timestamp = String(evt.timestamp ?? evt.createdAt ?? evt.date ?? '').trim() || new Date().toISOString()
       const text = String(evt.message ?? evt.text ?? evt.content ?? '').trim()
-      if (!timestamp || !text) return
+      if (!text) return
       if (!(Number.isFinite(senderEmpId) && senderEmpId > 0) && !(Number.isFinite(receiverEmpId) && receiverEmpId > 0)) return
 
       const rawSender = String(evt.sender ?? '').trim() || (
@@ -1522,10 +1522,10 @@ export default function ChatPage() {
             portal: { suppressFailureLog: true },
           })
           const payload = res && typeof res === 'object' ? res.data : undefined
-          const serverTs = payload?.timestamp ? String(payload.timestamp).trim() : ''
+          const serverTs = payload?.timestamp ? String(payload.timestamp).trim() : new Date().toISOString()
           const serverText = String(payload?.message ?? text).trim()
           const serverSender = String(payload?.senderName ?? currentDisplayName).trim() || currentDisplayName
-          if (serverTs && selectedUser && conversationId) {
+          if (selectedUser && conversationId) {
             upsertMessages([
               {
                 id: buildMessageId(currentParticipantId, selectedUser, serverTs, serverText),
@@ -1538,6 +1538,21 @@ export default function ChatPage() {
             ])
           } else if (optimisticId) {
             setMessageStatus(optimisticId, 'delivered')
+          }
+          // Emit via socket so receiver gets the message immediately without waiting for their poll.
+          const sock = socketRef.current
+          if (sock?.connected && selectedEmployeeId) {
+            const msgPayload = {
+              senderEmpID: senderEmployeeId,
+              senderName: currentDisplayName,
+              receiverEmpID: selectedEmployeeId,
+              receiverName: selectedMeta.name,
+              message: serverText,
+              timestamp: serverTs,
+            }
+            sock.emit('send_message', msgPayload)
+            sock.emit('sendMessage', msgPayload)
+            sock.emit('new_message', msgPayload)
           }
         }
       } catch {

@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -19,9 +17,8 @@ import {
 import { useApprovals } from '../../contexts/ApprovalsContext'
 import { useEmployees } from '../../contexts/EmployeesContext'
 import { useApplications } from '../../contexts/ApplicationsContext'
-import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useTheme } from '../../contexts/ThemeContext'
-import { buildAdminDashboardSeries, buildPortalAppsAudiencePie } from '../../utils/dashboardAnalytics'
+import { apiRequest } from '../../api/client'
 import { fetchAllActiveEmployees, forceLogoutSession, type ActiveEmployeeResponse } from '../../api/session'
 import ActiveAnnouncementsCard from '../../components/ActiveAnnouncementsCard'
 import DashboardStories from '../../components/DashboardStories'
@@ -36,35 +33,30 @@ function useChartPalette() {
       axisLine: isDark ? 'rgba(184, 194, 204, 0.28)' : 'rgba(92, 101, 112, 0.28)',
       tooltip: isDark
         ? {
-            background: '#1c2128',
-            border: '1px solid rgba(236, 237, 238, 0.12)',
-            borderRadius: 10,
-            fontSize: 12,
-            padding: '12px 16px',
-            boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
-          }
+          background: '#1c2128',
+          border: '1px solid rgba(236, 237, 238, 0.12)',
+          borderRadius: 10,
+          fontSize: 12,
+          padding: '12px 16px',
+          boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
+        }
         : {
-            background: '#ffffff',
-            border: '1px solid #e2e6ec',
-            borderRadius: 10,
-            fontSize: 12,
-            padding: '12px 16px',
-            boxShadow: '0 4px 16px rgba(17, 24, 28, 0.08)',
-          },
+          background: '#ffffff',
+          border: '1px solid #e2e6ec',
+          borderRadius: 10,
+          fontSize: 12,
+          padding: '12px 16px',
+          boxShadow: '0 4px 16px rgba(17, 24, 28, 0.08)',
+        },
       tooltipLabel: isDark
         ? ({ color: '#ecedee', fontWeight: 600, marginBottom: 8, fontSize: 13 } as const)
         : ({ color: '#11181c', fontWeight: 600, marginBottom: 8, fontSize: 13 } as const),
       dotStroke: isDark ? '#1c2128' : '#ffffff',
       legendColor: isDark ? '#c5ccd4' : '#5c6570',
       barCursor: isDark ? 'rgba(92, 157, 237, 0.15)' : 'rgba(26, 77, 153, 0.12)',
-      weeklyCursor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(17, 24, 28, 0.04)',
+      barPrimary: isDark ? '#3b82f6' : 'var(--aa-blue)',
       lineUsers: isDark ? '#6eb0ff' : 'var(--aa-blue)',
       lineApps: isDark ? '#ffb74d' : 'var(--aa-cyan)',
-      barPrimary: isDark ? '#5c9ded' : 'var(--aa-blue)',
-      weeklyLogins: isDark ? '#8b9cff' : '#1565c0',
-      weeklyActions: isDark ? '#ffb74d' : '#c9a227',
-      growthStroke: isDark ? '#81c784' : '#2e7d32',
-      growthFillTop: isDark ? '#81c784' : '#2e7d32',
     }
   }, [theme])
 }
@@ -74,29 +66,89 @@ export default function AdminDashboard() {
   const { pendingCount } = useApprovals()
   const { totalCount: totalUsers } = useEmployees()
   const { apps } = useApplications()
-  const { entries } = useActivityLog()
 
-  const { activityData, monthlyAppsData, growthData, weeklyActivityData } = useMemo(
-    () => buildAdminDashboardSeries(entries, totalUsers),
-    [entries, totalUsers],
-  )
+  useEffect(() => {
+    const fetchProjects = async () => {
+      try {
+        const data = await apiRequest<any[]>('/project/get/projects')
+        setProjects(Array.isArray(data) ? data : [])
+      } catch (err) {
+        console.error('Failed to fetch projects:', err)
+      }
+    }
+    void fetchProjects()
+  }, [])
 
-  const appsAudienceData = useMemo(() => buildPortalAppsAudiencePie(apps), [apps])
-  const hasActivitySeries = useMemo(
-    () => activityData.some((r) => (r.users ?? 0) > 0 || (r.applications ?? 0) > 0),
-    [activityData],
-  )
-  const hasMonthlyApps = useMemo(() => monthlyAppsData.some((r) => (r.count ?? 0) > 0), [monthlyAppsData])
-  const hasGrowthSeries = useMemo(() => growthData.some((r) => (r.total ?? 0) > 0), [growthData])
-  const hasWeeklyActivity = useMemo(
-    () => weeklyActivityData.some((r) => (r.logins ?? 0) > 0 || (r.actions ?? 0) > 0),
-    [weeklyActivityData],
-  )
+  const [projects, setProjects] = useState<any[]>([])
   const [activeEmployees, setActiveEmployees] = useState<ActiveEmployeeResponse[]>([])
   const [isOnlineModalOpen, setIsOnlineModalOpen] = useState(false)
   const [isLoadingActiveEmployees, setIsLoadingActiveEmployees] = useState(false)
   const [activeEmployeesError, setActiveEmployeesError] = useState<string | null>(null)
   const [offlineSubmittingSessionId, setOfflineSubmittingSessionId] = useState<string | null>(null)
+  const [serverStats, setServerStats] = useState<{ origins: Record<string, number>, timeline: Record<string, number> } | null>(null)
+
+  const projectsByAppData = useMemo(() => {
+    const counts: Record<string, number> = {
+      QUOTATION: 0,
+      BOQ: 0,
+      ESTIMATION: 0,
+      TECHNCODE: 0,
+      RDIS: 0
+    }
+    projects.forEach(p => {
+      if (p.application && counts[p.application] !== undefined) {
+        counts[p.application]++
+      }
+    })
+    return Object.entries(counts).map(([name, count]) => ({ name, count }))
+  }, [projects])
+
+  const MAINTENANCE_APPS = useMemo(() => ['CRM', 'BOQ', 'KPI', 'Estimation App', 'ATO App'], [])
+
+  const serverOriginsData = useMemo(() => {
+    if (!serverStats?.origins) return []
+    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316']
+    return Object.entries(serverStats.origins)
+      .filter(([name]) => !MAINTENANCE_APPS.includes(name))
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value], i) => ({
+        name,
+        value,
+        color: colors[i % colors.length]
+      }))
+  }, [serverStats, MAINTENANCE_APPS])
+
+  const serverStatsSummary = useMemo(() => {
+    if (!serverStats?.origins) return []
+    const total = Object.values(serverStats.origins).reduce((a, b) => a + b, 0)
+
+    const active = Object.entries(serverStats.origins).map(([name, count]) => ({
+      name,
+      count,
+      percent: total > 0 ? (count / total) * 100 : 0,
+      status: MAINTENANCE_APPS.includes(name) ? 'Maintenance' : 'Active'
+    }))
+
+    const maintenance = MAINTENANCE_APPS
+      .filter(name => !serverStats.origins[name])
+      .map(name => ({
+        name,
+        count: 0,
+        percent: 0,
+        status: 'Maintenance'
+      }))
+
+    return [...active, ...maintenance].sort((a, b) => b.count - a.count)
+  }, [serverStats, MAINTENANCE_APPS])
+
+  const serverTimelineData = useMemo(() => {
+    if (!serverStats?.timeline) return []
+    return Object.entries(serverStats.timeline)
+      .map(([time, count]) => ({
+        time: time.split(':').slice(1).join(':'), // Show MM:SS
+        count
+      }))
+  }, [serverStats])
 
   const asRecord = (value: unknown): Record<string, unknown> =>
     value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
@@ -134,6 +186,15 @@ export default function AdminDashboard() {
     return [first, middle, last].filter(Boolean).join(' ') || 'Unknown employee'
   }
 
+  const resolveEmployeePhotoUrl = (employee: ActiveEmployeeResponse): string | null => {
+    const root = asRecord(employee)
+    const nestedEmployee = asRecord(root.Employee)
+    const raw = employee.photoUrl ?? employee.photo ?? nestedEmployee.photoUrl ?? nestedEmployee.photo
+    if (!raw) return null
+    const s = String(raw).trim()
+    return s ? s : null
+  }
+
   const loadActiveEmployees = async (options?: { quiet?: boolean }) => {
     if (!options?.quiet) {
       setIsLoadingActiveEmployees(true)
@@ -166,10 +227,20 @@ export default function AdminDashboard() {
   }, [isOnlineModalOpen])
 
   useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const data = await apiRequest<{ origins: Record<string, number>, timeline: Record<string, number> }>('/api/server-stats')
+        setServerStats(data)
+      } catch (err) {
+        // Silently fail for dashboard stats
+      }
+    }
+    void fetchStats()
     void loadActiveEmployees()
     const timer = window.setInterval(() => {
       void loadActiveEmployees({ quiet: true })
-    }, 20_000)
+      void fetchStats()
+    }, 10_000)
     return () => window.clearInterval(timer)
   }, [])
 
@@ -210,91 +281,102 @@ export default function AdminDashboard() {
         <DashboardStories />
         <header className="dashboard-page-header">
           <h1 className="dashboard-page-title">Dashboard</h1>
-          <p className="dashboard-page-subtitle">Overview and quick actions</p>
         </header>
         <section className="dashboard-stats" aria-label="Key metrics">
           {stats.map(({ label, value, icon }, i) => (
-              <div
-                key={label}
-                className={`dashboard-stat-card${icon === 'online' ? ' dashboard-stat-card--interactive' : ''}`}
-                style={{ animationDelay: `${i * 60}ms` }}
-                role={icon === 'online' ? 'button' : undefined}
-                tabIndex={icon === 'online' ? 0 : undefined}
-                onClick={icon === 'online' ? handleOnlineNowClick : undefined}
-                onKeyDown={
-                  icon === 'online'
-                    ? (event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault()
-                          void handleOnlineNowClick()
-                        }
-                      }
-                    : undefined
-                }
-                aria-label={icon === 'online' ? 'Open online employees list' : undefined}
-              >
-                <span className="dashboard-stat-value">
-                  {typeof value === 'number' ? value.toLocaleString() : value}
-                </span>
-                <span className="dashboard-stat-label">{label}</span>
-                <span className="dashboard-stat-icon" aria-hidden data-icon={icon}>
-                  {icon === 'users' && (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-                  )}
-                  {icon === 'apps' && (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /></svg>
-                  )}
-                  {icon === 'online' && (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" fill="currentColor" /></svg>
-                  )}
-                  {icon === 'pending' && (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>
-                  )}
-                </span>
-              </div>
+            <div
+              key={label}
+              className={`dashboard-stat-card${icon === 'online' ? ' dashboard-stat-card--interactive' : ''}`}
+              style={{ animationDelay: `${i * 60}ms` }}
+              role={icon === 'online' ? 'button' : undefined}
+              tabIndex={icon === 'online' ? 0 : undefined}
+              onClick={icon === 'online' ? handleOnlineNowClick : undefined}
+              onKeyDown={
+                icon === 'online'
+                  ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      void handleOnlineNowClick()
+                    }
+                  }
+                  : undefined
+              }
+              aria-label={icon === 'online' ? 'Open online employees list' : undefined}
+            >
+              <span className="dashboard-stat-value">
+                {typeof value === 'number' ? value.toLocaleString() : value}
+              </span>
+              <span className="dashboard-stat-label">{label}</span>
+              <span className="dashboard-stat-icon" aria-hidden data-icon={icon}>
+                {icon === 'users' && (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                )}
+                {icon === 'apps' && (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /></svg>
+                )}
+                {icon === 'online' && (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" fill="currentColor" /></svg>
+                )}
+                {icon === 'pending' && (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>
+                )}
+              </span>
+            </div>
           ))}
         </section>
 
         <div className="dashboard-graphs">
-          <section className="dashboard-graph-card" aria-label="Activity over time">
-            <h2 className="dashboard-graph-title">ACTIVITY LOGS</h2>
-            <p className="dashboard-graph-desc">Graph of your online activities</p>
+          <section className="dashboard-graph-card" aria-label="Projects by application">
+            <h2 className="dashboard-graph-title">PROJECT LOGS</h2>
+            <p className="dashboard-graph-desc">Distribution of projects across applications.</p>
             <div className="dashboard-graph-wrap">
-              {!hasActivitySeries ? (
-                <div className="dashboard-graph-empty">No activity trend data yet.</div>
+              {projects.length === 0 ? (
+                <div className="dashboard-graph-empty">No projects found.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={300} debounce={200}>
-                  <LineChart data={activityData} margin={{ top: 12, right: 16, left: 0, bottom: 32 }}>
+                  <BarChart data={projectsByAppData} margin={{ top: 12, right: 16, left: 0, bottom: 32 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
-                    <YAxis yAxisId="left" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={36} />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 10, fill: chart.axis, fontWeight: 500 }}
+                      axisLine={{ stroke: chart.axisLine }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={32}
+                    />
                     <Tooltip
                       contentStyle={{ ...chart.tooltip }}
-                      labelStyle={chart.tooltipLabel}
-                      itemStyle={{ fontSize: 12, padding: '2px 0', color: chart.legendColor }}
-                      cursor={{ stroke: chart.axisLine, strokeWidth: 1, strokeDasharray: '4 4' }}
+                      cursor={{ fill: chart.barCursor }}
                     />
-                    <Line yAxisId="left" type="monotone" dataKey="users" name="Users added" stroke={chart.lineUsers} strokeWidth={2.5} dot={{ fill: chart.lineUsers, r: 4, strokeWidth: 2, stroke: chart.dotStroke }} activeDot={{ r: 6, strokeWidth: 2, stroke: chart.dotStroke, fill: chart.lineUsers }} animationDuration={600} animationEasing="ease-out" />
-                    <Line yAxisId="right" type="monotone" dataKey="applications" name="Apps added" stroke={chart.lineApps} strokeWidth={2.5} dot={{ fill: chart.lineApps, r: 4, strokeWidth: 2, stroke: chart.dotStroke }} activeDot={{ r: 6, strokeWidth: 2, stroke: chart.dotStroke, fill: chart.lineApps }} animationDuration={600} animationEasing="ease-out" />
-                  </LineChart>
+                    <Bar
+                      dataKey="count"
+                      name="Projects"
+                      fill={chart.barPrimary}
+                      radius={[4, 4, 0, 0]}
+                      animationDuration={600}
+                    />
+                  </BarChart>
                 </ResponsiveContainer>
               )}
             </div>
           </section>
-          <section className="dashboard-graph-card" aria-label="Portal applications by visibility">
+          <section className="dashboard-graph-card" aria-label="Live application traffic stats">
             <h2 className="dashboard-graph-title">ONLINE APPLICATIONS</h2>
             <p className="dashboard-graph-desc">
-            Performance chart of leading applications.
+              Real-time request distribution by application.
             </p>
             <div className="dashboard-graph-wrap">
-              {apps.length === 0 ? (
-                <div className="dashboard-graph-empty">No portal applications loaded yet.</div>
+              {serverOriginsData.length === 0 ? (
+                <div className="dashboard-graph-empty">No traffic detected yet.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={300} debounce={200}>
                   <PieChart margin={{ bottom: 24 }}>
                     <Pie
-                      data={appsAudienceData}
+                      data={serverOriginsData}
                       cx="50%"
                       cy="45%"
                       innerRadius={56}
@@ -306,18 +388,21 @@ export default function AdminDashboard() {
                       animationEasing="ease-out"
                       cornerRadius={4}
                     >
-                      {appsAudienceData.map((entry, index) => (
+                      {serverOriginsData.map((entry, index) => (
                         <Cell key={`cell-${entry.name}-${index}`} fill={entry.color} stroke={chart.dotStroke} strokeWidth={2} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ ...chart.tooltip, padding: '10px 14px' }} />
+                    <Tooltip
+                      contentStyle={{ ...chart.tooltip, padding: '10px 14px' }}
+                      itemStyle={{ color: chart.legendColor }}
+                    />
                     <Legend
                       layout="horizontal"
                       align="center"
                       verticalAlign="bottom"
-                      wrapperStyle={{ fontSize: 12, paddingTop: 16, marginBottom: 0, color: chart.legendColor }}
+                      wrapperStyle={{ fontSize: 11, paddingTop: 16, color: chart.legendColor }}
                       iconType="circle"
-                      iconSize={8}
+                      iconSize={6}
                       formatter={(value: string) => (
                         <span style={{ color: chart.legendColor, fontWeight: 500, marginLeft: 2 }}>{value}</span>
                       )}
@@ -328,81 +413,111 @@ export default function AdminDashboard() {
             </div>
           </section>
 
-          <div className="dashboard-graphs-row">
-            <section className="dashboard-graph-card" aria-label="Applications per month">
-              <h2 className="dashboard-graph-title">Applications per month</h2>
-              <p className="dashboard-graph-desc">Applications added per month (activity log).</p>
-              <div className="dashboard-graph-wrap">
-                {!hasMonthlyApps ? (
-                  <div className="dashboard-graph-empty">No app additions recorded yet.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                    <BarChart data={monthlyAppsData} margin={{ top: 16, right: 16, left: 8, bottom: 32 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
-                      <Tooltip
-                        contentStyle={{ ...chart.tooltip }}
-                        cursor={{ fill: chart.barCursor }}
-                      />
-                      <Bar dataKey="count" name="Applications" fill={chart.barPrimary} radius={[4, 4, 0, 0]} animationDuration={500} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </section>
-            <section className="dashboard-graph-card" aria-label="User growth">
-              <h2 className="dashboard-graph-title">User growth</h2>
-              <p className="dashboard-graph-desc">Cumulative users; aligns with current headcount and logged user additions.</p>
-              <div className="dashboard-graph-wrap">
-                {!hasGrowthSeries ? (
-                  <div className="dashboard-graph-empty">No user-growth data available yet.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                    <AreaChart data={growthData} margin={{ top: 16, right: 16, left: 8, bottom: 32 }}>
-                      <defs>
-                        <linearGradient id="growthGradientBottom" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={chart.growthFillTop} stopOpacity={0.35} />
-                          <stop offset="100%" stopColor={chart.growthFillTop} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
-                      <Tooltip
-                        contentStyle={{ ...chart.tooltip }}
-                        cursor={{ stroke: chart.axisLine, strokeDasharray: '4 4' }}
-                      />
-                      <Area type="monotone" dataKey="total" name="Total users" stroke={chart.growthStroke} strokeWidth={2} fill="url(#growthGradientBottom)" animationDuration={500} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </section>
-            <section className="dashboard-graph-card" aria-label="Weekly activity">
-              <h2 className="dashboard-graph-title">Weekly activity</h2>
-              <p className="dashboard-graph-desc">Last 7 days: sign-ins vs other actions (page views excluded).</p>
-              <div className="dashboard-graph-wrap">
-                {!hasWeeklyActivity ? (
-                  <div className="dashboard-graph-empty">No weekly activity yet.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                    <BarChart data={weeklyActivityData} margin={{ top: 16, right: 16, left: 8, bottom: 32 }} barGap={8} barCategoryGap="12%">
-                      <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={{ stroke: chart.axisLine }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: chart.axis, fontWeight: 500 }} axisLine={false} tickLine={false} width={32} />
-                      <Tooltip
-                        contentStyle={{ ...chart.tooltip }}
-                        cursor={{ fill: chart.weeklyCursor }}
-                      />
-                      <Bar dataKey="logins" name="Logins" fill={chart.weeklyLogins} radius={[4, 4, 0, 0]} animationDuration={500} />
-                      <Bar dataKey="actions" name="Actions" fill={chart.weeklyActions} radius={[4, 4, 0, 0]} animationDuration={500} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </section>
-          </div>
+          <section className="dashboard-graph-card dashboard-graph-card--full" aria-label="Server request timeline">
+            <h2 className="dashboard-graph-title">LIVE TRAFFIC</h2>
+            <p className="dashboard-graph-desc">Total server requests per second (last 60s).</p>
+            <div className="dashboard-graph-wrap">
+              {serverTimelineData.length === 0 ? (
+                <div className="dashboard-graph-empty">Waiting for live data...</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={300} debounce={200}>
+                  <AreaChart data={serverTimelineData} margin={{ top: 12, right: 16, left: 0, bottom: 20 }}>
+                    <defs>
+                      <linearGradient id="trafficGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={chart.lineUsers} stopOpacity={0.3} />
+                        <stop offset="100%" stopColor={chart.lineUsers} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                    <XAxis
+                      dataKey="time"
+                      tick={{ fontSize: 10, fill: chart.axis }}
+                      axisLine={{ stroke: chart.axisLine }}
+                      tickLine={false}
+                      interval={9}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: chart.axis }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={24}
+                    />
+                    <Tooltip
+                      contentStyle={{ ...chart.tooltip }}
+                      labelStyle={chart.tooltipLabel}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="count"
+                      name="Requests"
+                      stroke={chart.lineUsers}
+                      strokeWidth={2}
+                      fill="url(#trafficGradient)"
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </section>
+
+
+
+          <section className="dashboard-graph-card dashboard-graph-card--full mt-6" aria-label="Live traffic breakdown table">
+            <h2 className="dashboard-graph-title">LIVE TRAFFIC BREAKDOWN</h2>
+            <p className="dashboard-graph-desc">Detailed request share and status by application.</p>
+            <div className="overflow-x-auto mt-4">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800">
+                    <th className="py-3 px-4 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Application</th>
+                    <th className="py-3 px-4 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Requests</th>
+                    <th className="py-3 px-4 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Share</th>
+                    <th className="py-3 px-4 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+                  {serverStatsSummary.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-10 text-center text-slate-400 italic">Waiting for traffic data...</td>
+                    </tr>
+                  ) : (
+                    serverStatsSummary.map((app) => (
+                      <tr key={app.name} className="group hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <span className={`font-semibold ${app.status === 'Maintenance' ? 'text-slate-400 line-through opacity-60' : 'text-[var(--aa-blue)] dark:text-blue-400'}`}>
+                            {app.name}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-xs">
+                          {app.count > 0 ? app.count.toLocaleString() : '-'}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-medium w-9">{app.percent.toFixed(1)}%</span>
+                            <div className="flex-1 max-w-[100px] h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all duration-500 ${app.status === 'Maintenance' ? 'bg-slate-300' : 'bg-blue-500'}`}
+                                style={{ width: `${app.percent}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${app.status === 'Maintenance' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'}`} />
+                            <span className={`text-[10px] font-bold uppercase tracking-tight ${app.status === 'Maintenance' ? 'text-amber-600' : 'text-emerald-600'}`}>
+                              {app.status === 'Maintenance' ? 'Under Maintenance' : 'Active'}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
         <ActiveAnnouncementsCard />
       </div>
@@ -438,25 +553,37 @@ export default function AdminDashboard() {
               <p className="confirm-dialog-message">No active employees found.</p>
             ) : (
               <ul className="online-employees-list">
-                {activeEmployees.map((employee, index) => {
-                  const fullName = resolveEmployeeFullName(employee)
-                  const sessionId = resolveSessionId(employee)
-                  const disabled = !sessionId || offlineSubmittingSessionId === sessionId
-                  return (
-                    <li key={`${fullName}-${sessionId ?? index}`} className="online-employees-list-item">
-                      <span>{fullName}</span>
-                      <button
-                        type="button"
-                        className="employees-btn employees-btn-secondary"
-                        onClick={() => void handleMarkEmployeeOffline(employee)}
-                        disabled={disabled}
-                        aria-label={`Set ${fullName} offline`}
-                      >
-                        Offline
-                      </button>
-                    </li>
-                  )
-                })}
+                  {activeEmployees.map((employee, index) => {
+                    const fullName = resolveEmployeeFullName(employee)
+                    const photoUrl = resolveEmployeePhotoUrl(employee)
+                    const sessionId = resolveSessionId(employee)
+                    const disabled = !sessionId || offlineSubmittingSessionId === sessionId
+                    return (
+                      <li key={`${fullName}-${sessionId ?? index}`} className="online-employees-list-item">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex-shrink-0 shadow-sm">
+                            {photoUrl ? (
+                              <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-900 uppercase">
+                                {fullName.charAt(0)}
+                              </div>
+                            )}
+                          </div>
+                          <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{fullName}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="employees-btn employees-btn-secondary !py-1.5 !px-3 !text-[11px] font-bold"
+                          onClick={() => void handleMarkEmployeeOffline(employee)}
+                          disabled={disabled}
+                          aria-label={`Set ${fullName} offline`}
+                        >
+                          Offline
+                        </button>
+                      </li>
+                    )
+                  })}
               </ul>
             )}
           </div>

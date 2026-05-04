@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import logoImg from '../assets/logo/logo.avif'
 import { useActivityLog } from '../contexts/ActivityLogContext'
 import { accountDisplayUsername, loginVerification, resolvePortalRouteFromAccount } from '../api/auth'
-import { getPortalHomeSegment, hasApiBase, isPortalSessionActive, setPortalHomeSegment } from '../api/client'
+import { apiRequest, getPortalHomeSegment, hasApiBase, isPortalSessionActive, setPortalHomeSegment } from '../api/client'
 import { setupPushNotifications } from '../utils/pushNotifications'
 import AuthThemeToggle from '../components/AuthThemeToggle'
 
@@ -16,6 +16,11 @@ export default function Login() {
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showClearSession, setShowClearSession] = useState(false)
+  const [showPinModal, setShowPinModal] = useState(false)
+  const [pin, setPin] = useState('')
+  const [isClearingSession, setIsClearingSession] = useState(false)
+  const [clearSessionSuccess, setClearSessionSuccess] = useState(false)
 
   const toFriendlyLoginError = (err: unknown): string => {
     const raw = err instanceof Error ? err.message : String(err ?? '')
@@ -26,6 +31,7 @@ export default function Login() {
       msg.includes('already has an active session') ||
       msg.includes('active_session_exists')
     ) {
+      setShowClearSession(true)
       return 'This account is already logged in on another device. Logout there first before signing in here.'
     }
     return raw || 'Sign in failed'
@@ -60,6 +66,8 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    setShowClearSession(false)
+    setClearSessionSuccess(false)
     setIsSubmitting(true)
     try {
       if (!hasApiBase()) {
@@ -77,6 +85,38 @@ export default function Login() {
       setError(toFriendlyLoginError(err))
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleVerifyPin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (pin.length !== 6) {
+      alert('Please enter a 6-digit PIN')
+      return
+    }
+    setIsClearingSession(true)
+    try {
+      const res = await apiRequest<{ message: string; cleared: boolean }>(
+        '/security/verify-pin-clearsession',
+        {
+          method: 'POST',
+          body: JSON.stringify({ username: username.trim(), pin })
+        }
+      )
+      if (res.cleared) {
+        setClearSessionSuccess(true)
+        setShowPinModal(false)
+        setShowClearSession(false)
+        setError('Session cleared! You can now sign in.')
+        setPin('')
+      } else {
+        alert(res.message || 'Failed to clear session')
+      }
+    } catch (err) {
+      console.error('[Login] PIN verification failed:', err)
+      alert(err instanceof Error ? err.message : 'PIN verification failed')
+    } finally {
+      setIsClearingSession(false)
     }
   }
 
@@ -151,8 +191,20 @@ export default function Login() {
           </div>
 
           {error && (
-            <div className="auth-alert--error" role="alert">
+            <div className={`auth-alert--${clearSessionSuccess ? 'success' : 'error'}`} role="alert">
               {error}
+              {showClearSession && (
+                <div className="mt-4 pt-3 border-t border-red-200/50">
+                  <button
+                    type="button"
+                    className="flex items-center justify-center gap-2 w-full py-2 px-4 rounded-lg bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-red-700 transition-all shadow-sm hover:shadow-md"
+                    onClick={() => setShowPinModal(true)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3-3.5 3.5z" /></svg>
+                    Clear my session
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -187,6 +239,85 @@ export default function Login() {
         </p>
         <p className="auth-text-muted mt-4 pt-3 text-center text-xs opacity-85">© 2025 AA2000 Security and Technology Solutions Inc.</p>
       </div>
+      {showPinModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[8px] z-[1000] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] w-full max-w-[360px] overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-400 ease-out">
+            <div className="h-1.5 w-full bg-[var(--aa-blue)]" />
+            
+            <div className="p-7">
+              <div className="flex justify-between items-start mb-5">
+                <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-[var(--aa-blue)]">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                </div>
+                <button 
+                  type="button" 
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                  onClick={() => { setShowPinModal(false); setPin(''); }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                </button>
+              </div>
+
+              <h2 className="text-xl font-bold text-slate-900 mb-2">Security Verification</h2>
+              <p className="text-[13px] leading-relaxed text-slate-500 mb-8">
+                To clear the existing session for <span className="font-semibold text-slate-800">{username}</span>, please enter your security PIN.
+              </p>
+              
+              <form onSubmit={handleVerifyPin}>
+                <div className="relative mb-8">
+                  <input
+                    type="text"
+                    pattern="\d*"
+                    maxLength={6}
+                    placeholder="••••••"
+                    className="w-full text-center text-3xl tracking-[0.75rem] font-bold py-4 border-2 border-slate-100 bg-slate-50 rounded-xl focus:border-[var(--aa-blue)] focus:bg-white focus:outline-none transition-all placeholder:text-slate-200 placeholder:tracking-normal"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                    required
+                    autoFocus
+                  />
+                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex gap-1.5">
+                    {[...Array(6)].map((_, i) => (
+                      <div 
+                        key={i} 
+                        className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${pin.length > i ? 'bg-[var(--aa-blue)]' : 'bg-slate-200'}`} 
+                      />
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="submit"
+                    className="w-full py-3.5 text-[15px] font-bold text-white bg-[var(--aa-blue)] hover:bg-[var(--aa-blue-dark)] rounded-xl shadow-md hover:shadow-lg transition-all active:scale-[0.98] disabled:opacity-70 disabled:pointer-events-none flex items-center justify-center gap-2"
+                    disabled={isClearingSession || pin.length !== 6}
+                  >
+                    {isClearingSession ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Verifying...
+                      </>
+                    ) : (
+                      'Confirm Identity'
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full py-3 text-sm font-semibold text-slate-500 hover:text-slate-700 bg-transparent rounded-xl transition-colors"
+                    onClick={() => {
+                      setShowPinModal(false)
+                      setPin('')
+                    }}
+                    disabled={isClearingSession}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -201,11 +201,56 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
   /** Scroll container for routed page content (nested inside dashboard-main). */
   const mainContentScrollRef = useRef<HTMLDivElement>(null)
 
+  const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
+  const roleLabel = ROLE_LABELS[path] ?? path
+  const signedUsername = String(getPortalUsername() ?? '').trim()
+  const unreadSidebarCount = useMemo(() => {
+    const conversationIds = Array.from(new Set(messages.map((m) => m.conversationId)))
+    const currentAliases = [roleLabel, signedUsername].filter(Boolean)
+    return conversationIds.reduce((sum, cid) => (
+      getUnreadCount(cid, currentAliases) > 0 ? sum + 1 : sum
+    ), 0)
+  }, [messages, getUnreadCount, roleLabel, signedUsername])
+
+  const lastUnreadCountRef = useRef(unreadSidebarCount)
+
+  useEffect(() => {
+    if (unreadSidebarCount > lastUnreadCountRef.current && unreadSidebarCount > 0) {
+      if (
+        'Notification' in window && 
+        Notification.permission === 'granted' && 
+        document.visibilityState !== 'visible'
+      ) {
+        try {
+          const n = new Notification('New Chat!', {
+            body: `You have ${unreadSidebarCount} unread message${unreadSidebarCount > 1 ? 's' : ''}`,
+            icon: '/logo.avif',
+            tag: 'chat-unread-sidebar',
+            renotify: true
+          } as any)
+          n.onclick = () => {
+            window.focus()
+            n.close()
+          }
+        } catch (err) {
+          console.error('Failed to show sidebar notification:', err)
+        }
+      }
+    }
+    lastUnreadCountRef.current = unreadSidebarCount
+  }, [unreadSidebarCount])
+
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
     setIsMobile(mq.matches)
     const fn = () => setIsMobile(mq.matches)
     mq.addEventListener('change', fn)
+    
+    // Request notification permission if not already set
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(console.error)
+    }
+    
     return () => mq.removeEventListener('change', fn)
   }, [])
 
@@ -252,16 +297,6 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
     return () => el.removeEventListener('transitionend', onEnd)
   }, [isTransitioning, isCollapsed])
 
-  const path = location.pathname.replace(/^\//, '').split('/')[0] || 'admin'
-  const roleLabel = ROLE_LABELS[path] ?? path
-  const signedUsername = String(getPortalUsername() ?? '').trim()
-  const unreadSidebarCount = useMemo(() => {
-    const conversationIds = Array.from(new Set(messages.map((m) => m.conversationId)))
-    const currentAliases = [roleLabel, signedUsername].filter(Boolean)
-    return conversationIds.reduce((sum, cid) => (
-      getUnreadCount(cid, currentAliases) > 0 ? sum + 1 : sum
-    ), 0)
-  }, [messages, getUnreadCount, roleLabel, signedUsername])
   const showCollapsed = !isMobile && isCollapsed
 
   useEffect(() => {

@@ -217,10 +217,10 @@ export default function DashboardStories() {
         (currentEmpId > 0 ? employees.find((emp) => Number(emp.id ?? 0) === currentEmpId) : undefined) ??
         (username
           ? employees.find((emp) => {
-              const email = String(emp.email ?? '').trim().toLowerCase()
-              const name = String(emp.name ?? '').trim().toLowerCase()
-              return email === username || name === username
-            })
+            const email = String(emp.email ?? '').trim().toLowerCase()
+            const name = String(emp.name ?? '').trim().toLowerCase()
+            return email === username || name === username
+          })
           : undefined)
       setCurrentUserPhotoUrl(me?.photoUrl)
       const nextEmp: Record<number, number> = {}
@@ -689,7 +689,6 @@ export default function DashboardStories() {
       <section className="dashboard-stories" aria-label="Team stories">
         <div className="dashboard-stories__head">
           <h2 className="dashboard-stories__title">Stories</h2>
-          <span className="dashboard-stories__hint">Latest stories</span>
         </div>
         {loading ? (
           <div className="dashboard-stories__rail">

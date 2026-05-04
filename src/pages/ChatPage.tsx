@@ -511,6 +511,35 @@ export default function ChatPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showEmojiPicker])
 
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(console.error)
+    }
+  }, [])
+
+  const showBrowserNotification = (sender: string, text: string) => {
+    if (
+      'Notification' in window &&
+      Notification.permission === 'granted' &&
+      document.visibilityState !== 'visible'
+    ) {
+      try {
+        const n = new Notification(`New message from ${sender}`, {
+          body: text,
+          icon: '/logo.avif',
+          tag: 'chat-notification',
+          renotify: true,
+        } as any)
+        n.onclick = () => {
+          window.focus()
+          n.close()
+        }
+      } catch (err) {
+        console.error('Failed to show notification:', err)
+      }
+    }
+  }
+
   const longPressTimer = useRef<any>(null)
   const [webhookUsers, setWebhookUsers] = useState<ChatUser[]>([])
   const [storyOwnerIds, setStoryOwnerIds] = useState<Set<string>>(new Set())
@@ -1353,6 +1382,7 @@ export default function ChatPage() {
       }
       if (!isOwnSocket) {
         markLatestOwnMessageSeen(conversationId, currentDisplayName)
+        showBrowserNotification(senderLabel, text)
       }
     }
 

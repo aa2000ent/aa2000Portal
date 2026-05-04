@@ -1106,7 +1106,7 @@ export default function ChatPage() {
     runSync()
 
     // Poll every 1500ms — fast enough for near-realtime, avoids flooding with large responses.
-    const pollMs = 1500
+    const pollMs = 1000
     timer = window.setInterval(runSync, pollMs)
 
     // Sync immediately when tab becomes visible or window regains focus.

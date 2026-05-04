@@ -323,7 +323,11 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
                 ...(isMemoPage
                   ? {
                       audience: memoAudience,
-                      recipientAccIds: memoAudience === 'ALL' ? allRecipientIds : selectedRecipientIds,
+                      // Always include creator so they can see their own memos via /memos/employee/:id
+                      recipientAccIds: [
+                        ...(memoAudience === 'ALL' ? allRecipientIds : selectedRecipientIds),
+                        ...(accId > 0 ? [accId] : []),
+                      ].filter((id, idx, arr) => arr.indexOf(id) === idx),
                     }
                   : {}),
               } as const

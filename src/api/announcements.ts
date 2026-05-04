@@ -175,14 +175,21 @@ export interface AnnouncementCreatePayload {
   Image?: string
   Status?: AnnouncementStatus
   type: AnnouncementType
+  employeeIds?: number[]
   recipientAccIds?: number[]
   audience?: 'ALL' | 'SELECTED'
 }
 
 export async function createAnnouncement(payload: AnnouncementCreatePayload): Promise<AnnouncementItem | null> {
+  const { recipientAccIds, audience, ...rest } = payload
+  const body = {
+    ...rest,
+    // Server expects `employeeIds`; use explicit field or fall back to recipientAccIds alias
+    employeeIds: rest.employeeIds ?? recipientAccIds,
+  }
   const data = await apiRequest<unknown>('/announcements/add/announcements', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   })
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null
   const d = data as Record<string, unknown>

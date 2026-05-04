@@ -136,18 +136,14 @@
   .call-popup-overlay {
     align-items: center;
     justify-content: center;
-    padding: 1rem;
-  }
-
-  /* Remove overlay padding when video call is active so the card can be truly edge-to-edge */
-  .call-popup-overlay:has(.call-popup-card--video) {
     padding: 0;
   }
 
   .call-popup-card {
     padding: 1.75rem 1.25rem 1.5rem;
-    width: 100%;
+    width: calc(100% - 2rem);
     max-width: 340px;
+    margin: 0 auto;
   }
 
   .call-popup-card--video {
@@ -177,6 +173,9 @@
     gap: 1.75rem;
     min-height: 100dvh;
     height: 100dvh;
+    width: 100vw;
+    max-width: 100vw;
+    margin: 0;
     background:
       radial-gradient(1200px 800px at 50% -10%, rgba(59, 130, 246, 0.25), transparent 60%),
       rgba(15, 23, 42, 0.98);

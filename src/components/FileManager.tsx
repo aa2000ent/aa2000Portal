@@ -27,35 +27,15 @@ interface FileViewer {
 type DrillLevel = 'companies' | 'days' | 'files'
 
 function resolveProjectFileUrl(rawPath: string | null | undefined): string | null {
-  const path = String(rawPath ?? '').trim()
-  if (!path) return null
-  if (/^https?:\/\//i.test(path) || path.startsWith('blob:') || path.startsWith('data:')) return path
-
-  if (/^[A-Za-z]:\\/.test(path)) {
-    const normalized = path.replace(/\\/g, '/')
-    const marker = 'FileStorage/'
-    const idx = normalized.indexOf(marker)
-    const relative = idx !== -1
-      ? normalized.slice(idx)
-      : (normalized.split('/').pop() ?? '')
-    if (!relative) return null
-    try {
-      const base = String(getBaseUrl() ?? '').replace(/\/$/, '')
-      return base ? `${base}/${relative}` : `/${relative}`
-    } catch {
-      return `/${relative}`
-    }
-  }
-
-  const normalized = path.replace(/\\/g, '/')
-  const relative = normalized.startsWith('/') ? normalized : `/${normalized}`
-
+  const filePath = String(rawPath ?? '').trim()
+  if (!filePath) return null
   try {
     const base = String(getBaseUrl() ?? '').replace(/\/$/, '')
-    if (base) return `${base}${relative}`
-  } catch {}
-
-  return relative
+    const endpoint = `${base}/project/file/download`
+    return `${endpoint}?path=${encodeURIComponent(filePath)}`
+  } catch {
+    return null
+  }
 }
 
 export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCODE' }) => {

@@ -216,9 +216,33 @@ export default function PortalProfile() {
 
     const reader = new FileReader()
     reader.onload = async () => {
-      const base64 = reader.result as string
+      const src = reader.result as string
       setPhotoUploading(true)
       try {
+        // Resize image to 200px max dimension using Canvas
+        const img = new Image()
+        const base64 = await new Promise<string>((resolve, reject) => {
+          img.onload = () => {
+            const maxDim = 200
+            const w = img.width || 1
+            const h = img.height || 1
+            const scale = Math.min(1, maxDim / Math.max(w, h))
+            const outW = Math.max(1, Math.round(w * scale))
+            const outH = Math.max(1, Math.round(h * scale))
+
+            const canvas = document.createElement('canvas')
+            canvas.width = outW
+            canvas.height = outH
+            const ctx = canvas.getContext('2d')
+            if (!ctx) { reject(new Error('No canvas context')); return }
+
+            ctx.drawImage(img, 0, 0, outW, outH)
+            resolve(canvas.toDataURL('image/jpeg', 0.8))
+          }
+          img.onerror = () => reject(new Error('Failed to load image'))
+          img.src = src
+        })
+
         const empId = getPortalEmpId()
         const storedAccId = getPortalAccountId()
         const accIdNum = Number(storedAccId ?? 0)
@@ -232,6 +256,9 @@ export default function PortalProfile() {
           const lname = names.length > 1 ? names[names.length - 1] : 'User'
           const mname = names.length > 2 ? names.slice(1, -1).join(' ') : ''
 
+          // Strip "data:image/jpeg;base64," prefix before sending to API
+          const rawBase64 = base64.split(',')[1]
+
           const result = await updateEmployee({
             id: me.id,
             fname,
@@ -239,7 +266,7 @@ export default function PortalProfile() {
             lname,
             email: me.email || email,
             roleName: me.role,
-            empImageBase64: base64,
+            empImageBase64: rawBase64,
             accId: me.accId,
           })
 

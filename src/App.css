@@ -4500,16 +4500,78 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   transition: background 0.15s, color 0.15s;
 }
 
-.messenger-composer-btn:hover {
+.messenger-composer-btn:hover,
+.messenger-composer-btn.active {
   background: var(--msg-bg-tertiary);
   color: var(--msg-text);
+}
+
+.messenger-emoji-picker {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 0;
+  width: 280px;
+  max-width: 85vw;
+  background: var(--msg-bg-secondary);
+  border: 1px solid var(--msg-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+  padding: 0.5rem;
+  animation: emoji-picker-in 0.2s ease-out;
+}
+
+@keyframes emoji-picker-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.messenger-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(32px, 1fr));
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.messenger-emoji-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.messenger-emoji-btn:hover {
+  background: var(--msg-bg-tertiary);
+  transform: scale(1.15);
+}
+
+.messenger-emoji-btn:active {
+  transform: scale(0.95);
+}
+
+/* Scrollbar for emoji grid */
+.messenger-emoji-grid::-webkit-scrollbar {
+  width: 4px;
+}
+.messenger-emoji-grid::-webkit-scrollbar-thumb {
+  background: var(--msg-border);
+  border-radius: 10px;
 }
 
 .messenger-composer-input {
   flex: 1;
   min-width: 0;
   padding: 0.625rem 1rem;
-  font-size: 0.9375rem;
+  font-size: 1rem;
   border: 1px solid var(--msg-border);
   border-radius: 1.25rem;
   background: var(--msg-bg-tertiary);
@@ -4707,6 +4769,10 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
     max-height: none;
     border: none;
     border-radius: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .messenger-list {
@@ -4734,11 +4800,17 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
     bottom: 0;
     z-index: 0;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
   }
 
   .messenger-mobile-thread .messenger-thread {
     position: relative;
     z-index: 2;
+    flex: 1;
+    height: 100%;
+    min-height: 0;
   }
 
   .messenger-thread-back {
@@ -4747,6 +4819,16 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
 
   .messenger-details {
     display: none;
+  }
+
+  .messenger-details.is-open {
+    display: flex;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    z-index: 100;
   }
 
   .messenger-list-header,
@@ -8978,3 +9060,84 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   justify-content: space-between;
   gap: 0.75rem;
 }
+
+/* Messenger Modal */
+.messenger-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+  backdrop-filter: blur(4px);
+  animation: fade-in 0.2s ease;
+}
+
+.messenger-modal-content {
+  background: var(--msg-bg-secondary);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 320px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  animation: modal-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.messenger-modal-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--msg-text);
+}
+
+.messenger-modal-text {
+  margin: 0 0 1.5rem;
+  font-size: 0.9375rem;
+  color: var(--msg-text-muted);
+  line-height: 1.4;
+}
+
+.messenger-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.messenger-modal-btn {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  border: none;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  background: var(--msg-bg-tertiary);
+  color: var(--msg-text);
+}
+
+.messenger-modal-btn:hover {
+  background: var(--msg-border);
+}
+
+.messenger-modal-btn--danger {
+  color: #ef4444;
+}
+
+.messenger-modal-btn--cancel {
+  margin-top: 0.25rem;
+  background: transparent;
+  color: var(--msg-text-muted);
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.9) translateY(20px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

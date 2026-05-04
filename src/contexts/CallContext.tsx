@@ -190,10 +190,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     const facingMode = facingModeRef.current
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      },
       video:
         type === 'video'
-          ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode }
+          ? {
+              width: { ideal: 1920, max: 1920 },
+              height: { ideal: 1080, max: 1080 },
+              frameRate: { ideal: 30, max: 60 },
+              facingMode,
+            }
           : false,
     })
     localStreamRef.current = stream
@@ -218,13 +228,27 @@ export function CallProvider({ children }: { children: ReactNode }) {
     try {
       const params = sender.getParameters()
       if (!params.encodings || params.encodings.length === 0) params.encodings = [{}]
-      // Favor low latency over quality. Keep bitrate modest so congested links don't buffer.
+      
+      const isVideo = sender.track?.kind === 'video'
+      
       for (const enc of params.encodings) {
-        if (typeof enc.maxBitrate !== 'number') enc.maxBitrate = 900_000 // ~0.9 Mbps
-        ;(enc as any).networkPriority ??= 'high'
-        ;(enc as any).priority ??= 'high'
+        if (isVideo) {
+          // Increase bitrate for high-definition video (approx 2.5 Mbps)
+          if (typeof enc.maxBitrate !== 'number' || enc.maxBitrate < 2500000) {
+            enc.maxBitrate = 2500000
+          }
+        } else {
+          // Audio bitrate
+          if (typeof enc.maxBitrate !== 'number' || enc.maxBitrate < 128000) {
+            enc.maxBitrate = 128000
+          }
+        }
+        ;(enc as any).networkPriority = 'high'
+        ;(enc as any).priority = 'high'
       }
-      ;(params as any).degradationPreference ??= 'maintain-framerate'
+      
+      // 'maintain-framerate' helps keep video smooth during bandwidth drops
+      ;(params as any).degradationPreference = 'maintain-framerate'
       await sender.setParameters(params)
     } catch {
       // Ignore if unsupported by browser.
@@ -244,7 +268,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const ensurePeerConnection = useCallback((targetEmpId: number): RTCPeerConnection => {
     if (peerConnectionRef.current) return peerConnectionRef.current
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+      ],
+      iceTransportPolicy: 'all',
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+    })
     pc.onicecandidate = (e) => {
       if (!e.candidate) return
       socketRef.current?.emit('call:ice-candidate', { targetId: targetEmpId, candidate: e.candidate })

@@ -6050,6 +6050,44 @@ html[data-theme="dark"] .chat-widget-trigger:focus-visible {
   flex: 0 0 auto;
 }
 
+/* ── Announcement / Memo / Meeting-Minutes cards ── */
+.ann-grid {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+.ann-card {
+  background: var(--aa-card-bg, var(--dash-card));
+  border: 1px solid var(--aa-content-border);
+  border-radius: 0.875rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.18s, transform 0.18s;
+}
+.ann-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.13); transform: translateY(-2px); }
+.ann-card-image { width: 100%; height: 160px; overflow: hidden; background: var(--aa-sidebar-bg, #1e2330); display: flex; align-items: center; justify-content: center; }
+.ann-card-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ann-card-image--empty { color: var(--aa-text-muted); }
+.ann-card-body { padding: 1rem 1rem 0.5rem; flex: 1; display: flex; flex-direction: column; gap: 0.35rem; }
+.ann-card-meta { display: flex; align-items: center; gap: 0.5rem; }
+.ann-card-status { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; padding: 0.2rem 0.55rem; border-radius: 999px; text-transform: uppercase; }
+.ann-card-status--active { background: rgba(34,197,94,0.15); color: #22c55e; }
+.ann-card-status--inactive { background: rgba(148,163,184,0.15); color: #94a3b8; }
+.ann-card-date { font-size: 0.75rem; color: var(--aa-text-muted); margin-left: auto; }
+.ann-card-title { font-size: 1rem; font-weight: 700; color: var(--aa-text-main); margin: 0; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ann-card-desc { font-size: 0.82rem; color: var(--aa-text-muted); margin: 0; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ann-card-footer { padding: 0.75rem 1rem; border-top: 1px solid var(--aa-content-border); display: flex; gap: 0.5rem; margin-top: auto; }
+.ann-card-btn { flex: 1; padding: 0.45rem 0.75rem; border-radius: 0.5rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.15s; }
+.ann-card-btn:hover { opacity: 0.85; }
+.ann-card-btn--edit { background: var(--aa-blue); color: #fff; }
+.ann-card-btn--delete { background: rgba(239,68,68,0.12); color: #ef4444; }
+.ann-card-btn--delete:hover { background: rgba(239,68,68,0.22); opacity: 1; }
+.ann-card-readonly { font-size: 0.8rem; color: var(--aa-text-muted); }
+
 /* ----- Applications page: card grid ----- */
 .app-grid-wrap {
   padding: 1.5rem 1.75rem;

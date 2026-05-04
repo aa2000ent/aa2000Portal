@@ -404,51 +404,47 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
           ) : filtered.length === 0 ? (
             <div className="employees-empty">No {title.toLowerCase()} found.</div>
           ) : (
-            <ul className="app-grid" aria-label={title}>
-              {paginated.map((item) => (
-                <li key={item.an_ID} className="app-card">
-                  <div className="app-card-header">
-                    <div className="app-card-title-group">
-                      <h3 className="app-card-name">{item.Title}</h3>
-                      <p className="app-card-domain">{item.Status}</p>
-                    </div>
-                  </div>
-                  <p className="app-card-desc">
-                    {(() => {
-                      if (item.type === 'MEETING_MINUTES') {
-                        try {
-                          const p = JSON.parse(item.Description)
-                          return p.objective || p.agenda || 'Meeting Minutes'
-                        } catch {
-                          return item.Description || '—'
-                        }
-                      }
-                      return item.Description || '—'
-                    })()}
-                  </p>
-                  {item.Image ? (
-                    <img
-                      src={item.Image}
-                      alt={item.Title}
-                      className="w-full h-[140px] object-cover rounded-lg border border-slate-200 mb-2"
-                    />
-                  ) : null}
-                  <div className="app-card-actions">
-                    {canManage ? (
-                      <>
-                        <button type="button" className="app-card-edit" onClick={() => { void openEdit(item) }}>
-                          Edit
-                        </button>
-                        <button type="button" className="app-card-delete" onClick={() => handleDelete(item)}>
-                          Delete
-                        </button>
-                      </>
+            <ul className="ann-grid" aria-label={title}>
+              {paginated.map((item) => {
+                const desc = (() => {
+                  if (item.type === 'MEETING_MINUTES') {
+                    try { const p = JSON.parse(item.Description); return p.objective || p.agenda || 'Meeting Minutes' } catch { return item.Description || '—' }
+                  }
+                  return item.Description || '—'
+                })()
+                const dateLabel = item.Date ? new Date(item.Date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+                return (
+                  <li key={item.an_ID} className="ann-card">
+                    {item.Image ? (
+                      <div className="ann-card-image">
+                        <img src={item.Image} alt={item.Title} />
+                      </div>
                     ) : (
-                      <span className="app-card-domain">View only</span>
+                      <div className="ann-card-image ann-card-image--empty">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                      </div>
                     )}
-                  </div>
-                </li>
-              ))}
+                    <div className="ann-card-body">
+                      <div className="ann-card-meta">
+                        <span className={`ann-card-status ${item.Status === 'ACTIVE' ? 'ann-card-status--active' : 'ann-card-status--inactive'}`}>{item.Status}</span>
+                        {dateLabel && <span className="ann-card-date">{dateLabel}</span>}
+                      </div>
+                      <h3 className="ann-card-title">{item.Title}</h3>
+                      <p className="ann-card-desc">{desc}</p>
+                    </div>
+                    <div className="ann-card-footer">
+                      {canManage ? (
+                        <>
+                          <button type="button" className="ann-card-btn ann-card-btn--edit" onClick={() => { void openEdit(item) }}>Edit</button>
+                          <button type="button" className="ann-card-btn ann-card-btn--delete" onClick={() => handleDelete(item)}>Delete</button>
+                        </>
+                      ) : (
+                        <span className="ann-card-readonly">View only</span>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           )}
 

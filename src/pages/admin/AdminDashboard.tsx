@@ -229,7 +229,10 @@ export default function AdminDashboard() {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const data = await apiRequest<{ origins: Record<string, number>, timeline: Record<string, number> }>('/api/server-stats')
+        const data = await apiRequest<{ origins: Record<string, number>, timeline: Record<string, number> }>(
+          '/api/server-stats',
+          { cache: 'no-store' }
+        )
         setServerStats(data)
       } catch (err) {
         // Silently fail for dashboard stats
@@ -240,7 +243,7 @@ export default function AdminDashboard() {
     const timer = window.setInterval(() => {
       void loadActiveEmployees({ quiet: true })
       void fetchStats()
-    }, 10_000)
+    }, 5_000)
     return () => window.clearInterval(timer)
   }, [])
 
@@ -414,7 +417,13 @@ export default function AdminDashboard() {
           </section>
 
           <section className="dashboard-graph-card dashboard-graph-card--full" aria-label="Server request timeline">
-            <h2 className="dashboard-graph-title">LIVE TRAFFIC</h2>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="dashboard-graph-title">LIVE TRAFFIC</h2>
+              <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider">Live</span>
+              </div>
+            </div>
             <p className="dashboard-graph-desc">Total server requests per second (last 60s).</p>
             <div className="dashboard-graph-wrap">
               {serverTimelineData.length === 0 ? (

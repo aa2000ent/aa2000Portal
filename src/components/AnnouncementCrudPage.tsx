@@ -400,33 +400,91 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
           </div>
 
           {loading ? (
-            <div className="employees-empty">Loading {title.toLowerCase()}...</div>
+            <div className="employees-empty py-20 flex flex-col items-center gap-4">
+              <div className="w-10 h-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+              <span className="text-slate-400 font-medium tracking-wide">Fetching {title.toLowerCase()}...</span>
+            </div>
           ) : filtered.length === 0 ? (
-            <div className="employees-empty">No {title.toLowerCase()} found.</div>
+            <div className="employees-empty py-20 flex flex-col items-center gap-4 grayscale opacity-60">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
+                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>
+              </svg>
+              <div className="text-center">
+                <p className="text-lg font-bold text-slate-300">No {title.toLowerCase()} found</p>
+                <p className="text-sm text-slate-500">We couldn't find any records matching your search.</p>
+              </div>
+            </div>
           ) : (
             <ul className="ann-grid" aria-label={title}>
               {paginated.map((item) => {
                 const desc = (() => {
                   if (item.type === 'MEETING_MINUTES') {
-                    try { const p = JSON.parse(item.Description); return p.objective || p.agenda || 'Meeting Minutes' } catch { return item.Description || '—' }
+                    try {
+                      const p = JSON.parse(item.Description)
+                      const parts: string[] = []
+                      if (p.objective) parts.push(`Objective: ${p.objective}`)
+                      if (p.location) parts.push(`Location: ${p.location}`)
+                      if (p.agenda) parts.push(`Agenda: ${p.agenda}`)
+                      return parts.join(' | ') || 'Meeting Minutes'
+                    } catch {
+                      return item.Description || '—'
+                    }
                   }
                   return item.Description || '—'
                 })()
-                const dateLabel = item.Date ? new Date(item.Date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+
+                const dateLabel = item.Date
+                  ? new Date(item.Date).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })
+                  : ''
+
+                const isNew = (() => {
+                  if (!item.Date) return false
+                  const postDate = new Date(item.Date).getTime()
+                  const now = Date.now()
+                  return now - postDate < 24 * 60 * 60 * 1000 // 24 hours
+                })()
+
                 return (
                   <li key={item.an_ID} className="ann-card">
-                    {item.Image ? (
-                      <div className="ann-card-image">
+                    <div className="ann-card-image">
+                      {isNew && <span className="ann-card-new-badge">New</span>}
+                      {item.Image ? (
                         <img src={item.Image} alt={item.Title} />
-                      </div>
-                    ) : (
-                      <div className="ann-card-image ann-card-image--empty">
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                      </div>
-                    )}
+                      ) : (
+                        <div className="ann-card-image--empty">
+                          <svg
+                            width="48"
+                            height="48"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            opacity=".4"
+                          >
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <line x1="16" y1="13" x2="8" y2="13" />
+                            <line x1="16" y1="17" x2="8" y2="17" />
+                            <polyline points="10 9 9 9 8 9" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
                     <div className="ann-card-body">
                       <div className="ann-card-meta">
-                        <span className={`ann-card-status ${item.Status === 'ACTIVE' ? 'ann-card-status--active' : 'ann-card-status--inactive'}`}>{item.Status}</span>
+                        <span
+                          className={`ann-card-status ${
+                            item.Status === 'ACTIVE'
+                              ? 'ann-card-status--active'
+                              : 'ann-card-status--inactive'
+                          }`}
+                        >
+                          {item.Status}
+                        </span>
                         {dateLabel && <span className="ann-card-date">{dateLabel}</span>}
                       </div>
                       <h3 className="ann-card-title">{item.Title}</h3>
@@ -435,11 +493,27 @@ export default function AnnouncementCrudPage({ type, title, subtitle }: Props) {
                     <div className="ann-card-footer">
                       {canManage ? (
                         <>
-                          <button type="button" className="ann-card-btn ann-card-btn--edit" onClick={() => { void openEdit(item) }}>Edit</button>
-                          <button type="button" className="ann-card-btn ann-card-btn--delete" onClick={() => handleDelete(item)}>Delete</button>
+                          <button
+                            type="button"
+                            className="ann-card-btn ann-card-btn--edit"
+                            onClick={() => {
+                              void openEdit(item)
+                            }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="ann-card-btn ann-card-btn--delete"
+                            onClick={() => handleDelete(item)}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                            Delete
+                          </button>
                         </>
                       ) : (
-                        <span className="ann-card-readonly">View only</span>
+                        <span className="ann-card-readonly">Read only view</span>
                       )}
                     </div>
                   </li>

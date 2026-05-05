@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
-import { Folder, FolderOpen, FileText, Loader2, AlertCircle, ExternalLink, Building2, X, Download, ChevronRight, ArrowLeft } from 'lucide-react'
-import { readSheet } from 'read-excel-file/browser'
+import { Folder, FolderOpen, FileText, Loader2, AlertCircle, ExternalLink, Building2, X, Download, ChevronRight, ArrowLeft, Search, Calendar, FilterX } from 'lucide-react'
+import { useSidebar } from '../contexts/SidebarContext'
+// import * as XLSX from 'xlsx' -- no longer needed for preview, using Office Viewer iframe instead
 import { fetchProjectFiles } from '../api/projects'
 import type { ProjectFileData, ProjectFile } from '../api/projectTypes'
 
@@ -12,7 +13,6 @@ interface SpreadsheetPreview {
   open: boolean
   fileName: string
   fileUrl: string
-  sheet: { headers: string[]; rows: string[][] } | null
   loading: boolean
   error: string | null
 }
@@ -32,7 +32,30 @@ function resolveProjectFileUrl(projId: number | string | undefined, fileName: st
   return `${base}/service/techncode/get/download-file/${encodeURIComponent(projId)}/${encodeURIComponent(fileName)}`
 }
 
+function normalizeDate(dateStr: string): string {
+  try {
+    // Handle formats like "MAY-05-2026" or ISO
+    const clean = dateStr.replace(/-/g, ' ')
+    const d = new Date(clean)
+    if (isNaN(d.getTime())) return ''
+    return d.toISOString().split('T')[0]
+  } catch {
+    return ''
+  }
+}
+
 export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCODE' }) => {
+  const { isOpen: isSidebarOpen, isCollapsed } = useSidebar()
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)')
+    setIsMobile(mq.matches)
+    const fn = () => setIsMobile(mq.matches)
+    mq.addEventListener('change', fn)
+    return () => mq.removeEventListener('change', fn)
+  }, [])
+
   const [data, setData] = useState<ProjectFileData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -42,8 +65,12 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
 
+  // Filters
+  const [searchTerm, setSearchTerm] = useState('')
+  const [dateFilter, setDateFilter] = useState('')
+
   const [spreadsheetPreview, setSpreadsheetPreview] = useState<SpreadsheetPreview>({
-    open: false, fileName: '', fileUrl: '', sheet: null, loading: false, error: null,
+    open: false, fileName: '', fileUrl: '', loading: false, error: null,
   })
   const [fileViewer, setFileViewer] = useState<FileViewer>({ open: false, fileName: '', fileUrl: '' })
 
@@ -60,27 +87,15 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
 
   async function openFile(fileUrl: string, fileName: string, filePath: string) {
     if (isSpreadsheetFile(fileName, filePath)) {
-      setSpreadsheetPreview({ open: true, fileName, fileUrl, sheet: null, loading: true, error: null })
-      try {
-        const response = await fetch(fileUrl, { credentials: 'include' })
-        if (!response.ok) throw new Error(`Unable to load file: ${response.status} ${response.statusText}`)
-        const buffer = await response.arrayBuffer()
-        const matrix = await readSheet(buffer)
-        if (!Array.isArray(matrix) || matrix.length === 0) throw new Error('Spreadsheet contains no rows')
-        const rowsAsStrings = matrix.map(row => Array.isArray(row) ? row.map(cell => String(cell ?? '')) : [])
-        const headers = rowsAsStrings[0] ?? []
-        const rows = rowsAsStrings.slice(1, 201)
-        setSpreadsheetPreview({ open: true, fileName, fileUrl, sheet: { headers, rows }, loading: false, error: null })
-      } catch (err) {
-        setSpreadsheetPreview({ open: true, fileName, fileUrl, sheet: null, loading: false, error: err instanceof Error ? err.message : 'Failed to load file' })
-      }
+      // Use Microsoft Office Online viewer for spreadsheets to preserve layout
+      setSpreadsheetPreview({ open: true, fileName, fileUrl, loading: false, error: null })
     } else {
       setFileViewer({ open: true, fileName, fileUrl })
     }
   }
 
   function closeSpreadsheetPreview() {
-    setSpreadsheetPreview({ open: false, fileName: '', fileUrl: '', sheet: null, loading: false, error: null })
+    setSpreadsheetPreview({ open: false, fileName: '', fileUrl: '', loading: false, error: null })
   }
 
   function closeFileViewer() {
@@ -148,92 +163,161 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
 
   // ── Breadcrumb ───────────────────────────────────────────────────────────────
   const Breadcrumb = () => (
-    <div className="flex items-center gap-1.5 mb-5 flex-wrap">
-      <button
-        onClick={goToCompanies}
-        className="text-xs font-semibold uppercase tracking-wider transition-colors bg-transparent border-0 p-0 cursor-pointer"
-        style={{ color: level === 'companies' ? 'var(--aa-content-text)' : '#60a5fa' }}
-      >
-        Companies
-      </button>
-      {selectedCompany && (
-        <>
-          <ChevronRight size={13} style={{ color: 'var(--aa-content-text-muted)' }} />
+    <div className="flex flex-col gap-4 mb-6">
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex-1 min-w-[200px] relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search files, companies, or dates..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white/50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            style={{ 
+              background: 'var(--aa-content-bg-elevated)', 
+              borderColor: 'var(--aa-content-border)',
+              color: 'var(--aa-content-text)'
+            }}
+          />
+        </div>
+        <div className="relative min-w-[160px]">
+          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white/50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            style={{ 
+              background: 'var(--aa-content-bg-elevated)', 
+              borderColor: 'var(--aa-content-border)',
+              color: 'var(--aa-content-text)'
+            }}
+          />
+        </div>
+        {(searchTerm || dateFilter) && (
           <button
-            onClick={() => { setLevel('days'); setSelectedDay(null) }}
-            className="text-xs font-semibold uppercase tracking-wider transition-colors truncate max-w-[200px] bg-transparent border-0 p-0 cursor-pointer"
-            style={{ color: level === 'days' ? 'var(--aa-content-text)' : '#60a5fa' }}
+            onClick={() => { setSearchTerm(''); setDateFilter('') }}
+            className="p-2 rounded-xl hover:bg-red-50 text-red-400 transition-colors"
+            title="Clear filters"
           >
-            {selectedCompany}
+            <FilterX size={20} />
           </button>
-        </>
-      )}
-      {selectedDay && (
-        <>
-          <ChevronRight size={13} style={{ color: 'var(--aa-content-text-muted)' }} />
-          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--aa-content-text)' }}>
-            {selectedDay}
-          </span>
-        </>
-      )}
+        )}
+      </div>
+
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <button
+          onClick={goToCompanies}
+          className="text-xs font-semibold uppercase tracking-wider transition-colors bg-transparent border-0 p-0 cursor-pointer"
+          style={{ color: level === 'companies' ? 'var(--aa-content-text)' : '#60a5fa' }}
+        >
+          Companies
+        </button>
+        {selectedCompany && (
+          <>
+            <ChevronRight size={13} style={{ color: 'var(--aa-content-text-muted)' }} />
+            <button
+              onClick={() => { setLevel('days'); setSelectedDay(null) }}
+              className="text-xs font-semibold uppercase tracking-wider transition-colors truncate max-w-[200px] bg-transparent border-0 p-0 cursor-pointer"
+              style={{ color: level === 'days' ? 'var(--aa-content-text)' : '#60a5fa' }}
+            >
+              {selectedCompany}
+            </button>
+          </>
+        )}
+        {selectedDay && (
+          <>
+            <ChevronRight size={13} style={{ color: 'var(--aa-content-text-muted)' }} />
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--aa-content-text)' }}>
+              {selectedDay}
+            </span>
+          </>
+        )}
+      </div>
     </div>
   )
 
   // ── Level 1: Companies ───────────────────────────────────────────────────────
   if (level === 'companies') {
+    const filteredCompanies = Object.entries(data).filter(([companyName, days]) => {
+      const matchesSearch = companyName.toLowerCase().includes(searchTerm.toLowerCase())
+      if (matchesSearch && !dateFilter) return true
+
+      // If no match on name or dateFilter is set, check nested days/files
+      return Object.entries(days).some(([day, categories]) => {
+        const matchesDate = !dateFilter || normalizeDate(day) === dateFilter
+        const matchesDaySearch = day.toLowerCase().includes(searchTerm.toLowerCase())
+        
+        if (matchesDate && (matchesDaySearch || matchesSearch)) return true
+        
+        // Check files
+        return Object.values(categories).some(files => 
+          files.some(f => f.FileName.toLowerCase().includes(searchTerm.toLowerCase()))
+        )
+      })
+    })
+
     return (
       <div className="w-full">
         <Breadcrumb />
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {Object.entries(data).map(([companyName, days]) => {
-            const milestoneCount = Object.keys(days).length
-            const totalFiles = Object.values(days).reduce((acc, cats) =>
-              acc + Object.values(cats).reduce((a, files) => a + files.length, 0), 0)
+        {filteredCompanies.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filteredCompanies.map(([companyName, days]) => {
+              const milestoneCount = Object.keys(days).length
+              const totalFiles = Object.values(days).reduce((acc, cats) =>
+                acc + Object.values(cats).reduce((a, files) => a + files.length, 0), 0)
 
-            return (
-              <button
-                key={companyName}
-                type="button"
-                onClick={() => goToDays(companyName)}
-                className="dashboard-card !p-5 flex items-center gap-4 text-left w-full group"
-                style={{ transition: 'all 0.2s ease', cursor: 'pointer' }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget
-                  el.style.borderColor = 'rgba(59,130,246,0.4)'
-                  el.style.background = 'rgba(59,130,246,0.06)'
-                  el.style.transform = 'translateY(-2px)'
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget
-                  el.style.borderColor = ''
-                  el.style.background = ''
-                  el.style.transform = 'translateY(0)'
-                }}
-              >
-                <div
-                  className="flex items-center justify-center w-12 h-12 rounded-xl flex-shrink-0"
-                  style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)', transition: 'all 0.2s ease' }}
+              return (
+                <button
+                  key={companyName}
+                  type="button"
+                  onClick={() => goToDays(companyName)}
+                  className="dashboard-card !p-5 flex items-center gap-4 text-left w-full group"
+                  style={{ transition: 'all 0.2s ease', cursor: 'pointer' }}
+                  onMouseEnter={e => {
+                    const el = e.currentTarget
+                    el.style.borderColor = 'rgba(59,130,246,0.4)'
+                    el.style.background = 'rgba(59,130,246,0.06)'
+                    el.style.transform = 'translateY(-2px)'
+                  }}
+                  onMouseLeave={e => {
+                    const el = e.currentTarget
+                    el.style.borderColor = ''
+                    el.style.background = ''
+                    el.style.transform = 'translateY(0)'
+                  }}
                 >
-                  <Building2 size={22} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-sm leading-snug truncate" style={{ color: 'var(--aa-content-text)' }}>
-                    {companyName}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)' }}>
-                      {milestoneCount} milestone{milestoneCount !== 1 ? 's' : ''}
-                    </span>
-                    <span className="text-[10px]" style={{ color: 'var(--aa-content-text-muted)' }}>
-                      {totalFiles} file{totalFiles !== 1 ? 's' : ''}
-                    </span>
+                  <div
+                    className="flex items-center justify-center w-12 h-12 rounded-xl flex-shrink-0"
+                    style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)', transition: 'all 0.2s ease' }}
+                  >
+                    <Building2 size={22} />
                   </div>
-                </div>
-                <ChevronRight size={16} style={{ color: 'var(--aa-content-text-muted)', flexShrink: 0 }} />
-              </button>
-            )
-          })}
-        </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm leading-snug truncate" style={{ color: 'var(--aa-content-text)' }}>
+                      {companyName}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)' }}>
+                        {milestoneCount} milestone{milestoneCount !== 1 ? 's' : ''}
+                      </span>
+                      <span className="text-[10px]" style={{ color: 'var(--aa-content-text-muted)' }}>
+                        {totalFiles} file{totalFiles !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} style={{ color: 'var(--aa-content-text-muted)', flexShrink: 0 }} />
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center p-12 text-center dashboard-card">
+            <Search size={40} className="text-slate-300 mb-3" />
+            <p className="text-sm font-medium" style={{ color: 'var(--aa-content-text)' }}>No companies found matching your filters</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--aa-content-text-muted)' }}>Try adjusting your search or date</p>
+          </div>
+        )}
       </div>
     )
   }
@@ -241,6 +325,18 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
   // ── Level 2: Days ────────────────────────────────────────────────────────────
   if (level === 'days' && selectedCompany) {
     const days = data[selectedCompany] ?? {}
+    const filteredDays = Object.entries(days).filter(([day, categories]) => {
+      const matchesDate = !dateFilter || normalizeDate(day) === dateFilter
+      const matchesSearch = day.toLowerCase().includes(searchTerm.toLowerCase())
+      
+      if (matchesDate && matchesSearch) return true
+      if (!matchesDate) return false
+
+      // Check files if date matches but search doesn't
+      return Object.values(categories).some(files => 
+        files.some(f => f.FileName.toLowerCase().includes(searchTerm.toLowerCase()))
+      )
+    })
 
     return (
       <div className="w-full">
@@ -253,56 +349,65 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
         >
           <ArrowLeft size={13} /> Back
         </button>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {Object.entries(days).map(([day, categories]) => {
-            const fileCount = Object.values(categories).reduce((a, files) => a + files.length, 0)
-            if (fileCount === 0) return null
-            const catCount = Object.values(categories).filter(f => f.length > 0).length
 
-            return (
-              <button
-                key={day}
-                type="button"
-                onClick={() => goToFiles(day)}
-                className="dashboard-card !p-5 flex items-center gap-4 text-left w-full"
-                style={{ transition: 'all 0.2s ease', cursor: 'pointer' }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget
-                  el.style.borderColor = 'rgba(59,130,246,0.4)'
-                  el.style.background = 'rgba(59,130,246,0.06)'
-                  el.style.transform = 'translateY(-2px)'
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget
-                  el.style.borderColor = ''
-                  el.style.background = ''
-                  el.style.transform = 'translateY(0)'
-                }}
-              >
-                <div
-                  className="flex items-center justify-center w-12 h-12 rounded-xl flex-shrink-0"
-                  style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa' }}
+        {filteredDays.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filteredDays.map(([day, categories]) => {
+              const fileCount = Object.values(categories).reduce((a, files) => a + files.length, 0)
+              if (fileCount === 0) return null
+              const catCount = Object.values(categories).filter(f => f.length > 0).length
+
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => goToFiles(day)}
+                  className="dashboard-card !p-5 flex items-center gap-4 text-left w-full"
+                  style={{ transition: 'all 0.2s ease', cursor: 'pointer' }}
+                  onMouseEnter={e => {
+                    const el = e.currentTarget
+                    el.style.borderColor = 'rgba(59,130,246,0.4)'
+                    el.style.background = 'rgba(59,130,246,0.06)'
+                    el.style.transform = 'translateY(-2px)'
+                  }}
+                  onMouseLeave={e => {
+                    const el = e.currentTarget
+                    el.style.borderColor = ''
+                    el.style.background = ''
+                    el.style.transform = 'translateY(0)'
+                  }}
                 >
-                  <FolderOpen size={22} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-sm uppercase tracking-wide" style={{ color: 'var(--aa-content-text)' }}>
-                    {day}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)' }}>
-                      {catCount} categor{catCount !== 1 ? 'ies' : 'y'}
-                    </span>
-                    <span className="text-[10px]" style={{ color: 'var(--aa-content-text-muted)' }}>
-                      {fileCount} file{fileCount !== 1 ? 's' : ''}
-                    </span>
+                  <div
+                    className="flex items-center justify-center w-12 h-12 rounded-xl flex-shrink-0"
+                    style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa' }}
+                  >
+                    <FolderOpen size={22} />
                   </div>
-                </div>
-                <ChevronRight size={16} style={{ color: 'var(--aa-content-text-muted)', flexShrink: 0 }} />
-              </button>
-            )
-          })}
-        </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm uppercase tracking-wide" style={{ color: 'var(--aa-content-text)' }}>
+                      {day}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)' }}>
+                        {catCount} categor{catCount !== 1 ? 'ies' : 'y'}
+                      </span>
+                      <span className="text-[10px]" style={{ color: 'var(--aa-content-text-muted)' }}>
+                        {fileCount} file{fileCount !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} style={{ color: 'var(--aa-content-text-muted)', flexShrink: 0 }} />
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center p-12 text-center dashboard-card">
+            <Search size={40} className="text-slate-300 mb-3" />
+            <p className="text-sm font-medium" style={{ color: 'var(--aa-content-text)' }}>No milestones found for this date/search</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--aa-content-text-muted)' }}>Try adjusting your filters or go back to companies</p>
+          </div>
+        )}
       </div>
     )
   }
@@ -310,6 +415,12 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
   // ── Level 3: Files ───────────────────────────────────────────────────────────
   if (level === 'files' && selectedCompany && selectedDay) {
     const categories = data[selectedCompany]?.[selectedDay] ?? {}
+    
+    // Filter categories that have files matching the search term
+    const filteredCategories = Object.entries(categories).map(([category, files]) => {
+      const filteredFiles = files.filter(f => f.FileName.toLowerCase().includes(searchTerm.toLowerCase()))
+      return [category, filteredFiles] as [string, ProjectFile[]]
+    }).filter(([_, files]) => files.length > 0)
 
     return (
       <div className="w-full">
@@ -323,80 +434,75 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
           <ArrowLeft size={13} /> Back
         </button>
 
-        <div className="flex flex-col gap-4">
-          {Object.entries(categories).map(([category, files]) => {
-            if (!files || files.length === 0) return null
-            return (
-              <div key={category} className="dashboard-card !p-0 overflow-hidden">
-                {/* Category header */}
-                <div
-                  className="flex items-center gap-3 px-5 py-3 border-b"
-                  style={{ borderColor: 'var(--aa-content-border)', background: 'var(--aa-content-bg-elevated)' }}
-                >
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: 'var(--aa-content-text-muted)' }}>
-                    {category.replace(/-/g, ' ')}
-                  </span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium ml-auto" style={{ background: 'var(--aa-content-bg)', color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)' }}>
-                    {files.length} file{files.length !== 1 ? 's' : ''}
-                  </span>
-                </div>
+        {filteredCategories.length > 0 ? (
+          <div className="flex flex-col gap-4">
+            {filteredCategories.map(([category, files]) => {
+              return (
+                <div key={category} className="dashboard-card !p-0 overflow-hidden">
+                  {/* Category header */}
+                  <div
+                    className="flex items-center gap-3 px-5 py-3 border-b"
+                    style={{ borderColor: 'var(--aa-content-border)', background: 'var(--aa-content-bg-elevated)' }}
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: 'var(--aa-content-text-muted)' }}>
+                      {category.replace(/-/g, ' ')}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium ml-auto" style={{ background: 'var(--aa-content-bg)', color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)' }}>
+                      {files.length} file{files.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
 
-                {/* File list */}
-                <div className="flex flex-col divide-y" style={{ borderColor: 'var(--aa-content-border)' }}>
-                  {files.map((file: ProjectFile, idx: number) => {
-                    const fileUrl = resolveProjectFileUrl(file.Proj_ID, file.FileName)
-                    // Use existsOnDisk from backend if available, otherwise fall back to URL resolution
-                    const isOpenable = file.existsOnDisk !== undefined ? file.existsOnDisk : Boolean(fileUrl)
-                    const displayName = file.customDownloadName || file.FileName
-                    const isDir = file.isDirectory ?? false
+                  {/* File list */}
+                  <div className="flex flex-col divide-y" style={{ borderColor: 'var(--aa-content-border)' }}>
+                    {files.map((file: ProjectFile, idx: number) => {
+                      const fileUrl = resolveProjectFileUrl(file.Proj_ID, file.FileName)
+                      const isOpenable = file.existsOnDisk !== undefined ? file.existsOnDisk : Boolean(fileUrl)
+                      const displayName = file.customDownloadName || file.FileName
+                      const isDir = file.isDirectory ?? false
 
-                    return isOpenable ? (
-                      <button
-                        key={`${file.FileName}-${idx}`}
-                        type="button"
-                        onClick={() => openFile(fileUrl!, displayName, file.FilePath ?? '')}
-                        className="flex items-center gap-4 px-5 py-3.5 text-left w-full border-0 cursor-pointer"
-                        style={{ background: 'transparent', transition: 'background 0.15s ease' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.06)' }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
-                      >
-                        <div
-                          className="flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0"
-                          style={{ background: isDir ? 'rgba(234,179,8,0.1)' : 'rgba(59,130,246,0.1)', color: isDir ? '#eab308' : '#60a5fa' }}
+                      return isOpenable ? (
+                        <button
+                          key={`${file.FileName}-${idx}`}
+                          type="button"
+                          onClick={() => openFile(fileUrl!, displayName, file.FilePath ?? '')}
+                          className="flex items-center gap-4 px-5 py-3.5 text-left w-full border-0 cursor-pointer"
+                          style={{ background: 'transparent', transition: 'background 0.15s ease' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.06)' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                         >
-                          {isDir ? <Folder size={15} /> : <FileText size={15} />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate" style={{ color: 'var(--aa-content-text)' }}>
-                            {displayName}
+                          <div
+                            className="flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0"
+                            style={{ background: isDir ? 'rgba(234,179,8,0.1)' : 'rgba(59,130,246,0.1)', color: isDir ? '#eab308' : '#60a5fa' }}
+                          >
+                            {isDir ? <Folder size={15} /> : <FileText size={15} />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate" style={{ color: 'var(--aa-content-text)' }}>
+                              {displayName}
+                            </p>
+                            {isDir && (
+                              <p className="text-[10px] mt-0.5" style={{ color: 'var(--aa-content-text-muted)' }}>Folder · downloads as ZIP</p>
+                            )}
+                          </div>
+                          <span className="text-[11px] uppercase tracking-[0.16em] flex-shrink-0" style={{ color: '#60a5fa' }}>
+                            {isDir ? 'Download' : 'Open'}
+                          </span>
+                        </button>
+                      ) : (
+                        <div
+                          key={`${file.FileName}-${idx}`}
+                          className="flex items-center gap-4 px-5 py-3.5"
+                        >
+                          <div
+                            className="flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0"
+                            style={{ background: 'rgba(148,163,184,0.1)', color: '#94a3b8' }}
+                          >
+                            <FileText size={15} />
+                          </div>
+                          <p className="text-sm font-medium flex-1 min-w-0 truncate" style={{ color: 'var(--aa-content-text-muted)' }}>
+                            {file.customDownloadName || file.FileName}
                           </p>
-                          {isDir && (
-                            <p className="text-[10px] mt-0.5" style={{ color: 'var(--aa-content-text-muted)' }}>Folder · downloads as ZIP</p>
-                          )}
-                        </div>
-                        <span className="text-[11px] uppercase tracking-[0.16em] flex-shrink-0" style={{ color: '#60a5fa' }}>
-                          {isDir ? 'Download' : 'Open'}
-                        </span>
-                      </button>
-                    ) : (
-                      <div
-                        key={`${file.FileName}-${idx}`}
-                        className="flex items-center gap-4 px-5 py-3.5"
-                      >
-                        <div
-                          className="flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0"
-                          style={{ background: 'rgba(148,163,184,0.1)', color: '#94a3b8' }}
-                        >
-                          <FileText size={15} />
-                        </div>
-                        <p className="text-sm font-medium flex-1 min-w-0 truncate" style={{ color: 'var(--aa-content-text-muted)' }}>
-                          {file.customDownloadName || file.FileName}
-                        </p>
-                        <span className="text-[11px] uppercase tracking-[0.16em] flex-shrink-0" style={{ color: 'var(--aa-content-text-muted)' }}>
-                          Unavailable
-                        </span>
-                      </div>
                     )
                   })}
                 </div>
@@ -408,14 +514,18 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
         {/* Excel / CSV viewer modal */}
         {spreadsheetPreview.open && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            className="fixed bottom-0 right-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 transition-[left] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+            style={{ 
+              top: 'var(--dashboard-header-h)',
+              left: !isMobile ? (isSidebarOpen ? (isCollapsed ? 76 : 240) : 0) : 0 
+            }}
             role="dialog"
             aria-modal="true"
             onClick={e => { if (e.target === e.currentTarget) closeSpreadsheetPreview() }}
           >
             <div
               className="w-full max-w-5xl flex flex-col rounded-2xl shadow-2xl overflow-hidden"
-              style={{ background: 'var(--aa-content-bg)', border: '1px solid var(--aa-content-border)', maxHeight: '90vh' }}
+              style={{ background: 'var(--aa-content-bg)', border: '1px solid var(--aa-content-border)', height: '90vh' }}
             >
               <div className="flex items-center gap-3 px-5 py-4 border-b flex-shrink-0" style={{ borderColor: 'var(--aa-content-border)' }}>
                 <div className="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0" style={{ background: 'rgba(34,197,94,0.12)', color: '#4ade80' }}>
@@ -424,7 +534,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold truncate" style={{ color: 'var(--aa-content-text)' }}>{spreadsheetPreview.fileName}</p>
                   <p className="text-[11px]" style={{ color: 'var(--aa-content-text-muted)' }}>
-                    {spreadsheetPreview.sheet ? `${spreadsheetPreview.sheet.rows.length} rows · ${spreadsheetPreview.sheet.headers.length} columns` : 'Spreadsheet viewer'}
+                    Spreadsheet viewer
                   </p>
                 </div>
                 <a
@@ -447,49 +557,18 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                 </button>
               </div>
 
-              <div className="flex-1 overflow-auto p-4" style={{ minHeight: 0 }}>
-                {spreadsheetPreview.loading ? (
-                  <div className="flex flex-col items-center justify-center h-48 gap-3">
-                    <Loader2 className="w-7 h-7 animate-spin text-blue-400" />
-                    <p className="text-sm" style={{ color: 'var(--aa-content-text-muted)' }}>Loading spreadsheet…</p>
-                  </div>
-                ) : spreadsheetPreview.error ? (
-                  <div className="flex flex-col items-center justify-center h-48 gap-3">
+              <div className="flex-1 overflow-hidden" style={{ minHeight: 0 }}>
+                {spreadsheetPreview.error ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-3 p-12" style={{ background: 'var(--aa-content-bg)' }}>
                     <AlertCircle className="w-7 h-7 text-red-400" />
                     <p className="text-sm text-red-400">{spreadsheetPreview.error}</p>
                   </div>
-                ) : spreadsheetPreview.sheet ? (
-                  <table className="min-w-full border-collapse text-[12px]" style={{ borderSpacing: 0 }}>
-                    <thead>
-                      <tr>
-                        <th className="sticky top-0 px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest select-none" style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)', minWidth: 40 }}>#</th>
-                        {spreadsheetPreview.sheet.headers.map((header, idx) => (
-                          <th key={`h-${idx}`} className="sticky top-0 whitespace-nowrap px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider" style={{ background: 'var(--aa-content-bg-elevated)', color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)', minWidth: 100 }}>
-                            {header || `Col ${idx + 1}`}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {spreadsheetPreview.sheet.rows.map((row, rowIndex) => (
-                        <tr
-                          key={`r-${rowIndex}`}
-                          style={{ background: rowIndex % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.06)' }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = rowIndex % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}
-                        >
-                          <td className="px-3 py-1.5 text-center text-[10px] select-none" style={{ color: 'var(--aa-content-text-muted)', border: '1px solid var(--aa-content-border)' }}>{rowIndex + 1}</td>
-                          {spreadsheetPreview.sheet?.headers.map((_, cellIndex) => (
-                            <td key={`c-${rowIndex}-${cellIndex}`} className="px-3 py-1.5 whitespace-nowrap" style={{ color: 'var(--aa-content-text)', border: '1px solid var(--aa-content-border)' }}>
-                              {row[cellIndex] ?? ''}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 ) : (
-                  <div className="flex items-center justify-center h-48 text-sm" style={{ color: 'var(--aa-content-text-muted)' }}>No data found.</div>
+                  <iframe
+                    src={`https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(spreadsheetPreview.fileUrl)}`}
+                    className="w-full h-full border-0 bg-white"
+                    title={spreadsheetPreview.fileName}
+                  />
                 )}
               </div>
             </div>
@@ -499,7 +578,11 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
         {/* Generic file viewer modal */}
         {fileViewer.open && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            className="fixed bottom-0 right-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 transition-[left] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+            style={{ 
+              top: 'var(--dashboard-header-h)',
+              left: !isMobile ? (isSidebarOpen ? (isCollapsed ? 76 : 240) : 0) : 0 
+            }}
             role="dialog"
             aria-modal="true"
             onClick={e => { if (e.target === e.currentTarget) closeFileViewer() }}

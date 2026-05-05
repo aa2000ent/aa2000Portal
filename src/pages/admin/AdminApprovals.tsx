@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { readSheet } from 'read-excel-file/browser' // Vite should now resolve this since we ran npm install
+import { useSidebar } from '../../contexts/SidebarContext'
+// import * as XLSX from 'xlsx' -- using iframe viewer for better layout preservation
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useApprovals, type ApprovalRequest, type ApprovalStatus } from '../../contexts/ApprovalsContext'
 import { useEmployees, DEFAULT_PASSWORD } from '../../contexts/EmployeesContext'
@@ -126,33 +127,9 @@ function decodeBase64ToArrayBuffer(b64: string): ArrayBuffer | null {
   }
 }
 
-async function parseSpreadsheetPreview(fileData: unknown): Promise<{ headers: string[]; rows: string[][] } | null> {
-  try {
-    let input: ArrayBuffer | null = null
-    if (typeof fileData === 'string') {
-      const s = fileData.trim()
-      if (!s) return null
-      if (s.startsWith('data:')) {
-        const comma = s.indexOf(',')
-        if (comma < 0) return null
-        input = decodeBase64ToArrayBuffer(s.slice(comma + 1))
-      } else {
-        input = decodeBase64ToArrayBuffer(s)
-      }
-    } else if (Array.isArray(fileData) && fileData.every((n) => Number.isFinite(n))) {
-      const u8 = new Uint8Array(fileData as number[])
-      input = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength)
-    }
-    if (!input) return null
-    const matrix = await readSheet(input)
-    if (!Array.isArray(matrix) || matrix.length === 0) return null
-    const rowsAsStrings = matrix.map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? '')) : []))
-    const headers = rowsAsStrings[0] ?? []
-    const rows = rowsAsStrings.slice(1, 101)
-    return { headers, rows }
-  } catch {
-    return null
-  }
+async function parseSpreadsheetPreview(fileData: unknown): Promise<boolean> {
+  // We no longer parse to HTML, just detect if it's a spreadsheet to use the Office Viewer
+  return true;
 }
 
 function asDataUrlFromUnknownFileData(value: unknown, mime: string): string | null {
@@ -188,6 +165,17 @@ function asDataUrlFromUnknownFileData(value: unknown, mime: string): string | nu
 type MainSection = 'signups' | 'leave'
 
 export default function AdminApprovals() {
+  const { isOpen: isSidebarOpen, isCollapsed } = useSidebar()
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)')
+    setIsMobile(mq.matches)
+    const fn = () => setIsMobile(mq.matches)
+    mq.addEventListener('change', fn)
+    return () => mq.removeEventListener('change', fn)
+  }, [])
+
   const location = useLocation()
   const { addEntry } = useActivityLog()
   const {
@@ -214,7 +202,7 @@ export default function AdminApprovals() {
     src: string | null
     mime: string
     fileName: string
-    sheet: { headers: string[]; rows: string[][] } | null
+    sheet: boolean | null
     error: string | null
   }>({ loading: false, src: null, mime: '', fileName: '', sheet: null, error: null })
   const [proofPreview, setProofPreview] = useState<{
@@ -222,7 +210,7 @@ export default function AdminApprovals() {
     src: string
     fileName: string
     mime: string
-    sheet: { headers: string[]; rows: string[][] } | null
+    sheet: boolean | null
   }>({ open: false, src: '', fileName: '', mime: '', sheet: null })
   const [confirm, setConfirm] = useState<{
     open: boolean
@@ -973,17 +961,19 @@ export default function AdminApprovals() {
                   ) : leaveDetailProof.src ? (
                     <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid var(--aa-content-border)' }}>
                       {leaveDetailProof.sheet ? (
-                        <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-                          <table className="proof-preview-sheet">
-                            <thead>
-                              <tr>{leaveDetailProof.sheet.headers.map((h, i) => <th key={i}>{h || `Col ${i + 1}`}</th>)}</tr>
-                            </thead>
-                            <tbody>
-                              {leaveDetailProof.sheet.rows.map((r, ri) => (
-                                <tr key={ri}>{leaveDetailProof.sheet!.headers.map((_, ci) => <td key={ci}>{r[ci] ?? ''}</td>)}</tr>
-                              ))}
-                            </tbody>
-                          </table>
+                        <div className="bg-white overflow-hidden" style={{ height: 350 }}>
+                          {leaveDetailProof.src && !leaveDetailProof.src.startsWith('data:') ? (
+                            <iframe
+                              src={`https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(leaveDetailProof.src)}`}
+                              className="w-full h-full border-0"
+                              title={leaveDetailProof.fileName}
+                            />
+                          ) : (
+                            <div className="p-8 text-center bg-gray-50">
+                              <p className="text-sm text-gray-500 mb-3">Actual Excel layout requires a public file URL. Please download to view.</p>
+                              <a href={leaveDetailProof.src!} download={leaveDetailProof.fileName} className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-semibold inline-block">Download Excel</a>
+                            </div>
+                          )}
                         </div>
                       ) : leaveDetailProof.mime.startsWith('image/') ? (
                         <img src={leaveDetailProof.src} alt="Proof" style={{ width: '100%', maxHeight: 420, objectFit: 'contain', display: 'block', background: 'var(--aa-field-bg)' }} />
@@ -1008,7 +998,16 @@ export default function AdminApprovals() {
       })()}
 
       {proofPreview.open && (
-        <div className="proof-preview-overlay" role="dialog" aria-modal="true" aria-label="Proof file preview">
+        <div 
+          className="proof-preview-overlay fixed bottom-0 right-0 z-[1000] flex items-center justify-center bg-black/70 backdrop-blur-sm transition-[left] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]" 
+          style={{ 
+            top: 'var(--dashboard-header-h)',
+            left: !isMobile ? (isSidebarOpen ? (isCollapsed ? 76 : 240) : 0) : 0 
+          }}
+          role="dialog" 
+          aria-modal="true" 
+          aria-label="Proof file preview"
+        >
           <div className="proof-preview-modal">
             <div className="proof-preview-header">
               <strong className="proof-preview-title" title={proofPreview.fileName || 'Proof file'}>
@@ -1024,31 +1023,19 @@ export default function AdminApprovals() {
             </div>
             <div className="proof-preview-body">
               {proofPreview.sheet ? (
-                <div className="proof-preview-sheet-wrap">
-                  {(() => {
-                    const sheet = proofPreview.sheet
-                    if (!sheet) return null
-                    return (
-                  <table className="proof-preview-sheet">
-                    <thead>
-                      <tr>
-                        {sheet.headers.map((h, i) => (
-                          <th key={`h-${i}`}>{h || `Column ${i + 1}`}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sheet.rows.map((row, ri) => (
-                        <tr key={`r-${ri}`}>
-                          {(sheet.headers.length > 0 ? sheet.headers : row).map((_, ci) => (
-                            <td key={`c-${ri}-${ci}`}>{row[ci] ?? ''}</td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                    )
-                  })()}
+                <div className="proof-preview-sheet-wrap bg-white overflow-hidden" style={{ height: '85vh' }}>
+                  {proofPreview.src && !proofPreview.src.startsWith('data:') ? (
+                    <iframe
+                      src={`https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(proofPreview.src)}`}
+                      className="w-full h-full border-0"
+                      title={proofPreview.fileName}
+                    />
+                  ) : (
+                    <div className="p-12 text-center">
+                      <p className="text-sm text-gray-500 mb-4">Actual Excel layout requires a public file URL. Since this is a local/private attachment, please download the file to view it in Excel.</p>
+                      <a href={proofPreview.src} download={proofPreview.fileName} className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-semibold">Download Excel File</a>
+                    </div>
+                  )}
                 </div>
               ) : proofPreview.mime.startsWith('image/') ? (
                 <img src={proofPreview.src} alt={proofPreview.fileName || 'Proof file'} className="proof-preview-image" />

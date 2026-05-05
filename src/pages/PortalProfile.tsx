@@ -65,9 +65,6 @@ export default function PortalProfile() {
     sessionAt: null,
   }))
 
-  const [empId, setEmpId] = useState(0)
-  const [empRole, setEmpRole] = useState('')
-  const [empAddressId, setEmpAddressId] = useState<number | undefined>()
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
@@ -137,9 +134,6 @@ export default function PortalProfile() {
               if (!cancelled && me) {
                 if (me.photoUrl) setProfilePhoto(me.photoUrl)
                 if (me.address) setAddress(me.address)
-                setEmpId(me.id)
-                if (me.role) setEmpRole(me.role)
-                if (me.addressId) setEmpAddressId(me.addressId)
               }
             } catch { /* optional */ }
           }
@@ -161,9 +155,6 @@ export default function PortalProfile() {
             if (me.address) setAddress(me.address)
             if (me.photoUrl) setProfilePhoto(me.photoUrl)
             if (me.role) setApiRoleName(me.role)
-            setEmpId(me.id)
-            setEmpRole(me.role || '')
-            if (me.addressId) setEmpAddressId(me.addressId)
             return
           }
         } catch { /* fall through */ }
@@ -181,38 +172,46 @@ export default function PortalProfile() {
 
   const handleSave = async () => {
     setSaveError('')
-    if (empId > 0) {
-      setSaving(true)
-      try {
-        const names = name.trim().split(' ')
-        const fname = names[0] || 'Employee'
-        const lname = names.length > 1 ? names[names.length - 1] : 'User'
-        const mname = names.length > 2 ? names.slice(1, -1).join(' ') : ''
-        const storedAccId = getPortalAccountId()
-        const accIdNum = Number(storedAccId ?? 0)
+    setSaving(true)
+    try {
+      const storedEmpId = getPortalEmpId()
+      const storedAccId = getPortalAccountId()
+      const accIdNum = Number(storedAccId ?? 0)
 
-        const result = await updateEmployee({
-          id: empId,
-          fname,
-          mname,
-          lname,
-          email: email.trim(),
-          contact: phone.trim(),
-          roleName: empRole,
-          accId: accIdNum > 0 ? accIdNum : undefined,
-          empAddressId: empAddressId,
-        })
+      const emps = await fetchEmployees()
+      const me = emps.find((x) => (storedEmpId && x.id === storedEmpId) || (accIdNum && x.accId === accIdNum))
 
-        if (!result) {
-          setSaveError('Failed to save. Please try again.')
-          return
-        }
-      } catch {
+      if (!me) {
+        setSaveError('Could not find your employee record. Please try again.')
+        return
+      }
+
+      const names = name.trim().split(' ')
+      const fname = names[0] || me.name.split(' ')[0] || 'Employee'
+      const lname = names.length > 1 ? names[names.length - 1] : (me.name.split(' ').slice(-1)[0] || 'User')
+      const mname = names.length > 2 ? names.slice(1, -1).join(' ') : ''
+
+      const result = await updateEmployee({
+        id: me.id,
+        fname,
+        mname,
+        lname,
+        email: email.trim() || me.email,
+        contact: phone.trim(),
+        roleName: me.role,
+        accId: accIdNum > 0 ? accIdNum : me.accId,
+        empAddressId: me.addressId,
+      })
+
+      if (!result) {
         setSaveError('Failed to save. Please try again.')
         return
-      } finally {
-        setSaving(false)
       }
+    } catch {
+      setSaveError('Failed to save. Please try again.')
+      return
+    } finally {
+      setSaving(false)
     }
     addEntry({ action: 'profile_updated', actor: roleLabel, target: name, details: 'Profile information updated' })
     setSaved(true)

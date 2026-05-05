@@ -3,6 +3,8 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, ty
 type SidebarContextValue = {
   isOpen: boolean
   setOpen: (open: boolean) => void
+  isCollapsed: boolean
+  setCollapsed: (collapsed: boolean) => void
   toggle: () => void
   scrollContainerRef: React.RefObject<HTMLElement | null>
   savedScrollTopRef: React.MutableRefObject<number | null>
@@ -17,6 +19,7 @@ function getInitialOpen(): boolean {
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
   const [isOpen, setOpen] = useState(getInitialOpen)
+  const [isCollapsed, setCollapsed] = useState(false)
   const scrollContainerRef = useRef<HTMLElement | null>(null)
   const savedScrollTopRef = useRef<number | null>(null)
 
@@ -38,7 +41,7 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <SidebarContext.Provider value={{ isOpen, setOpen, toggle, scrollContainerRef, savedScrollTopRef }}>
+    <SidebarContext.Provider value={{ isOpen, setOpen, isCollapsed, setCollapsed, toggle, scrollContainerRef, savedScrollTopRef }}>
       {children}
     </SidebarContext.Provider>
   )

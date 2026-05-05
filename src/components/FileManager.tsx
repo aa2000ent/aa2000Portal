@@ -503,8 +503,12 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                           <p className="text-sm font-medium flex-1 min-w-0 truncate" style={{ color: 'var(--aa-content-text-muted)' }}>
                             {file.customDownloadName || file.FileName}
                           </p>
-                    )
-                  })}
+                          <span className="text-[11px] uppercase tracking-[0.16em] flex-shrink-0" style={{ color: 'var(--aa-content-text-muted)' }}>
+                            Unavailable
+                          </span>
+                        </div>
+                      )
+                    })}
                 </div>
               </div>
             )

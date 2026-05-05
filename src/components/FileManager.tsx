@@ -514,8 +514,14 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
               )
             })}
           </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center p-12 text-center dashboard-card">
+            <Search size={40} className="text-slate-300 mb-3" />
+            <p className="text-sm font-medium" style={{ color: 'var(--aa-content-text)' }}>No files found matching your search</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--aa-content-text-muted)' }}>Try a different search term or go back to milestones</p>
+          </div>
+        )}
 
-        {/* Excel / CSV viewer modal */}
         {spreadsheetPreview.open && (
           <div
             className="fixed bottom-0 right-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 transition-[left] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"

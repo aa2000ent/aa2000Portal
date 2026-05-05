@@ -204,7 +204,6 @@ export default function SidebarLayout({ navItems }: SidebarLayoutProps) {
   const { isOpen: isSidebarOpen, setOpen: setSidebarOpen, scrollContainerRef, savedScrollTopRef, isCollapsed, setCollapsed } = useSidebar()
   const [isMobile, setIsMobile] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({})
-  const [isMobile, setIsMobile] = useState(false)
   const [isTransitioning, setTransitioning] = useState(false)
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false)
   const sidebarRef = useRef<HTMLElement>(null)

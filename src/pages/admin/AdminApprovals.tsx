@@ -116,18 +116,8 @@ function isInlinePreviewableMime(mime: string): boolean {
   return m.startsWith('image/') || m.includes('pdf') || m.startsWith('text/')
 }
 
-function decodeBase64ToArrayBuffer(b64: string): ArrayBuffer | null {
-  try {
-    const binary = atob(b64.replace(/\s/g, ''))
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
-    return bytes.buffer
-  } catch {
-    return null
-  }
-}
 
-async function parseSpreadsheetPreview(fileData: unknown): Promise<boolean> {
+async function parseSpreadsheetPreview(_fileData: unknown): Promise<boolean> {
   // We no longer parse to HTML, just detect if it's a spreadsheet to use the Office Viewer
   return true;
 }

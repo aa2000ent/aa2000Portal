@@ -173,8 +173,8 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white/50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-            style={{ 
-              background: 'var(--aa-content-bg-elevated)', 
+            style={{
+              background: 'var(--aa-content-bg-elevated)',
               borderColor: 'var(--aa-content-border)',
               color: 'var(--aa-content-text)'
             }}
@@ -187,8 +187,8 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white/50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-            style={{ 
-              background: 'var(--aa-content-bg-elevated)', 
+            style={{
+              background: 'var(--aa-content-bg-elevated)',
               borderColor: 'var(--aa-content-border)',
               color: 'var(--aa-content-text)'
             }}
@@ -247,11 +247,11 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
       return Object.entries(days).some(([day, categories]) => {
         const matchesDate = !dateFilter || normalizeDate(day) === dateFilter
         const matchesDaySearch = day.toLowerCase().includes(searchTerm.toLowerCase())
-        
+
         if (matchesDate && (matchesDaySearch || matchesSearch)) return true
-        
+
         // Check files
-        return Object.values(categories).some(files => 
+        return Object.values(categories).some(files =>
           files.some(f => f.FileName.toLowerCase().includes(searchTerm.toLowerCase()))
         )
       })
@@ -328,12 +328,12 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
     const filteredDays = Object.entries(days).filter(([day, categories]) => {
       const matchesDate = !dateFilter || normalizeDate(day) === dateFilter
       const matchesSearch = day.toLowerCase().includes(searchTerm.toLowerCase())
-      
+
       if (matchesDate && matchesSearch) return true
       if (!matchesDate) return false
 
       // Check files if date matches but search doesn't
-      return Object.values(categories).some(files => 
+      return Object.values(categories).some(files =>
         files.some(f => f.FileName.toLowerCase().includes(searchTerm.toLowerCase()))
       )
     })
@@ -415,7 +415,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
   // ── Level 3: Files ───────────────────────────────────────────────────────────
   if (level === 'files' && selectedCompany && selectedDay) {
     const categories = data[selectedCompany]?.[selectedDay] ?? {}
-    
+
     // Filter categories that have files matching the search term
     const filteredCategories = Object.entries(categories).map(([category, files]) => {
       const filteredFiles = files.filter(f => f.FileName.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -509,19 +509,19 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
                         </div>
                       )
                     })}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
 
         {/* Excel / CSV viewer modal */}
         {spreadsheetPreview.open && (
           <div
             className="fixed bottom-0 right-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 transition-[left] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-            style={{ 
+            style={{
               top: 'var(--dashboard-header-h)',
-              left: !isMobile ? (isSidebarOpen ? (isCollapsed ? 76 : 240) : 0) : 0 
+              left: !isMobile ? (isSidebarOpen ? (isCollapsed ? 76 : 240) : 0) : 0
             }}
             role="dialog"
             aria-modal="true"
@@ -583,9 +583,9 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
         {fileViewer.open && (
           <div
             className="fixed bottom-0 right-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 transition-[left] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-            style={{ 
+            style={{
               top: 'var(--dashboard-header-h)',
-              left: !isMobile ? (isSidebarOpen ? (isCollapsed ? 76 : 240) : 0) : 0 
+              left: !isMobile ? (isSidebarOpen ? (isCollapsed ? 76 : 240) : 0) : 0
             }}
             role="dialog"
             aria-modal="true"

@@ -2,9 +2,9 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, ty
 
 type SidebarContextValue = {
   isOpen: boolean
-  setOpen: (open: boolean) => void
+  setOpen: React.Dispatch<React.SetStateAction<boolean>>
   isCollapsed: boolean
-  setCollapsed: (collapsed: boolean) => void
+  setCollapsed: React.Dispatch<React.SetStateAction<boolean>>
   toggle: () => void
   scrollContainerRef: React.RefObject<HTMLElement | null>
   savedScrollTopRef: React.MutableRefObject<number | null>

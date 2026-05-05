@@ -131,18 +131,38 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
   }
 
   if (error) {
+    const is404 = error.includes('404')
+    
+    if (is404) {
+      // Treat 404 as "No Files Yet" instead of a failure
+      return (
+        <div className="dashboard-card flex flex-col items-center justify-center p-16 text-center">
+          <div className="p-4 rounded-full mb-4" style={{ background: 'var(--aa-content-bg-elevated)' }}>
+            <Folder className="w-10 h-10" style={{ color: 'var(--aa-content-text-muted)' }} />
+          </div>
+          <h3 className="font-bold text-lg mb-1" style={{ color: 'var(--aa-content-text)' }}>No Project Archive</h3>
+          <p className="text-sm" style={{ color: 'var(--aa-content-text-muted)' }}>
+            The file synchronization endpoint for <strong>{application}</strong> is not available yet.
+          </p>
+        </div>
+      )
+    }
+
     return (
-      <div className="dashboard-card p-6 flex items-start gap-4" style={{ borderColor: 'rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.06)' }}>
-        <div className="p-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.15)' }}>
-          <AlertCircle className="w-5 h-5 text-red-400" />
+      <div className="dashboard-card p-8 flex flex-col items-center text-center">
+        <div className="p-3 rounded-full mb-4" style={{ background: 'rgba(239,68,68,0.1)' }}>
+          <AlertCircle className="w-8 h-8 text-red-500" />
         </div>
-        <div className="flex-1">
-          <h3 className="font-bold mb-1 text-red-400">Retrieval Failed</h3>
-          <p className="text-sm mb-4" style={{ color: 'var(--aa-content-text-muted)' }}>{error}</p>
-          <button onClick={() => window.location.reload()} className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 transition-all active:scale-95">
-            Retry Connection
-          </button>
-        </div>
+        <h3 className="font-bold text-lg mb-2" style={{ color: 'var(--aa-content-text)' }}>Connection Issue</h3>
+        <p className="text-sm max-w-xs mx-auto mb-6" style={{ color: 'var(--aa-content-text-muted)' }}>
+          We encountered a problem while retrieving the project files. This might be a temporary server issue.
+        </p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="px-6 py-2.5 bg-blue-500 text-white rounded-xl text-sm font-bold hover:bg-blue-600 transition-all active:scale-95 shadow-lg shadow-blue-500/20"
+        >
+          Retry Connection
+        </button>
       </div>
     )
   }
@@ -153,9 +173,9 @@ export const FileManager: React.FC<FileManagerProps> = ({ application = 'TECHNCO
         <div className="p-4 rounded-full mb-4" style={{ background: 'var(--aa-content-bg-elevated)' }}>
           <Folder className="w-10 h-10" style={{ color: 'var(--aa-content-text-muted)' }} />
         </div>
-        <h3 className="font-bold text-lg mb-1" style={{ color: 'var(--aa-content-text)' }}>No Projects Found</h3>
+        <h3 className="font-bold text-lg mb-1" style={{ color: 'var(--aa-content-text)' }}>Archive Empty</h3>
         <p className="text-sm" style={{ color: 'var(--aa-content-text-muted)' }}>
-          No synchronized files for the <strong>{application}</strong> application.
+          There are no synchronized files for the <strong>{application}</strong> application at this time.
         </p>
       </div>
     )

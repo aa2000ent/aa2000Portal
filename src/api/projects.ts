@@ -99,12 +99,21 @@ function resolveDbApplications(segment: string): DbApplication[] {
 
 
 export async function fetchProjectFiles(application: string): Promise<ProjectFileData> {
-  const data = await apiRequest<ProjectFileResponse>(
-    `/project/get/project-file/${encodeURIComponent(application)}`
-  )
-  if (!data.success) {
-    throw new Error('Failed to fetch project files')
+  try {
+    const data = await apiRequest<ProjectFileResponse>(
+      `/project/get/project-file/${encodeURIComponent(application)}`
+    )
+    if (!data.success) {
+      return {}
+    }
+    return data.data || {}
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : ''
+    // If endpoint is not found (404), treat it as an empty archive rather than a crash
+    if (msg.includes('404')) {
+      return {}
+    }
+    throw error
   }
-  return data.data
 }
 

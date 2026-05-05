@@ -65,6 +65,12 @@ export default function PortalProfile() {
     sessionAt: null,
   }))
 
+  const [empId, setEmpId] = useState(0)
+  const [empRole, setEmpRole] = useState('')
+  const [empAddressId, setEmpAddressId] = useState<number | undefined>()
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+
   const [twoFAEnabled, setTwoFAEnabled] = useState(false)
   const [notifEmail, setNotifEmail] = useState(true)
   const [notifSecurity, setNotifSecurity] = useState(true)
@@ -131,6 +137,9 @@ export default function PortalProfile() {
               if (!cancelled && me) {
                 if (me.photoUrl) setProfilePhoto(me.photoUrl)
                 if (me.address) setAddress(me.address)
+                setEmpId(me.id)
+                if (me.role) setEmpRole(me.role)
+                if (me.addressId) setEmpAddressId(me.addressId)
               }
             } catch { /* optional */ }
           }
@@ -152,6 +161,9 @@ export default function PortalProfile() {
             if (me.address) setAddress(me.address)
             if (me.photoUrl) setProfilePhoto(me.photoUrl)
             if (me.role) setApiRoleName(me.role)
+            setEmpId(me.id)
+            setEmpRole(me.role || '')
+            if (me.addressId) setEmpAddressId(me.addressId)
             return
           }
         } catch { /* fall through */ }
@@ -167,7 +179,41 @@ export default function PortalProfile() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    setSaveError('')
+    if (empId > 0) {
+      setSaving(true)
+      try {
+        const names = name.trim().split(' ')
+        const fname = names[0] || 'Employee'
+        const lname = names.length > 1 ? names[names.length - 1] : 'User'
+        const mname = names.length > 2 ? names.slice(1, -1).join(' ') : ''
+        const storedAccId = getPortalAccountId()
+        const accIdNum = Number(storedAccId ?? 0)
+
+        const result = await updateEmployee({
+          id: empId,
+          fname,
+          mname,
+          lname,
+          email: email.trim(),
+          contact: phone.trim(),
+          roleName: empRole,
+          accId: accIdNum > 0 ? accIdNum : undefined,
+          empAddressId: empAddressId,
+        })
+
+        if (!result) {
+          setSaveError('Failed to save. Please try again.')
+          return
+        }
+      } catch {
+        setSaveError('Failed to save. Please try again.')
+        return
+      } finally {
+        setSaving(false)
+      }
+    }
     addEntry({ action: 'profile_updated', actor: roleLabel, target: name, details: 'Profile information updated' })
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
@@ -394,9 +440,10 @@ export default function PortalProfile() {
                 <input id="portal-profile-address" type="text" className="modal-input" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, province..." />
               </div>
               <div className="profile-actions">
-                <button type="button" className={`employees-btn employees-btn-primary profile-save-btn ${saved ? 'profile-save-btn--saved' : ''}`} onClick={handleSave}>
-                  {saved ? (<><span className="profile-save-icon"><IconCheck /></span>Saved</>) : 'Save changes'}
+                <button type="button" className={`employees-btn employees-btn-primary profile-save-btn ${saved ? 'profile-save-btn--saved' : ''}`} onClick={handleSave} disabled={saving}>
+                  {saving ? 'Saving…' : saved ? (<><span className="profile-save-icon"><IconCheck /></span>Saved</>) : 'Save changes'}
                 </button>
+                {saveError && <p style={{ color: 'var(--color-error, #f87171)', marginTop: '0.5rem', fontSize: '0.875rem' }}>{saveError}</p>}
               </div>
             </div>
           </section>

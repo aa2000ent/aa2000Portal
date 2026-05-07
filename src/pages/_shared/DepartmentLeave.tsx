@@ -21,7 +21,7 @@ const PORTAL_LEAVE_SEGMENTS = new Set([
 
 /** Values are sent as `title` to the file-leave API exactly as stored. */
 const LEAVE_TYPES = [
-  { value: 'SEEK LEAVE', label: 'SEEK LEAVE' },
+  { value: 'SICK LEAVE', label: 'SICK LEAVE' },
   { value: 'VACATION LEAVE', label: 'VACATION LEAVE' },
   { value: 'EMERGENCY LEAVE', label: 'EMERGENCY LEAVE' },
 ]

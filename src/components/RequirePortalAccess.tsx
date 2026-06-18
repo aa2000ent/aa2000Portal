@@ -31,13 +31,13 @@ export default function RequirePortalAccess() {
     let active = true
     async function verify() {
       try {
-        const data = await fetchSessionByToken(token)
+        const data = await fetchSessionByToken(token!)
         if (!data || !data.account) {
           throw new Error('Invalid session')
         }
         
         // Resolve the true route from the verified database account details
-        const route = await resolvePortalRouteFromAccount(data.account)
+        const route = await resolvePortalRouteFromAccount(data.account as any)
         if (active) {
           verifiedHomeSegment = route
           setPortalHomeSegment(route) // Sync with fallback

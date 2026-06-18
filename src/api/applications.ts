@@ -332,7 +332,6 @@ async function tryFetchAt(path: string): Promise<App[] | null> {
   }
 }
 
-let _cachedAppFetchPath: string | null = null
 
 export async function fetchApplications(): Promise<App[]> {
   const path = isConfiguredForExternalApi() ? '/application/all/applications' : '/api/applications'

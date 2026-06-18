@@ -31,14 +31,6 @@ export type ActiveEmployeeResponse = {
   [key: string]: unknown
 }
 
-const DEFAULT_SESSION_PATH_PREFIXES = [
-  '/session',
-  '/security/session',
-  '/security/login/session',
-  '/api/session',
-  '/api/security/session',
-]
-
 let preferredSessionPrefix: string | null = null
 const _failedSessionPrefixes = new Set<string>()
 

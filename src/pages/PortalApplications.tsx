@@ -16,17 +16,27 @@ export default function PortalApplications() {
   const { apps, setApps } = useApplications()
   const { addEntry } = useActivityLog()
   const [search, setSearch] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
 
   const roleLabel = useMemo(() => roleLabelsForPortalPath(location.pathname)[0] ?? 'Portal', [location.pathname])
 
   useEffect(() => {
-    if (!hasApiBase()) return
+    if (!hasApiBase()) {
+      setIsLoading(false)
+      return
+    }
     let cancelled = false
+    setIsLoading(true)
     fetchApplications()
       .then((list) => {
-        if (!cancelled) setApps(list)
+        if (!cancelled) {
+          setApps(list)
+          setIsLoading(false)
+        }
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setIsLoading(false)
+      })
     return () => {
       cancelled = true
     }
@@ -80,7 +90,12 @@ export default function PortalApplications() {
           </div>
 
           <div className="app-grid-wrap">
-            {filtered.length === 0 ? (
+            {isLoading ? (
+              <div className="app-grid-empty" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '3rem 1rem' }}>
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[var(--aa-blue)]" style={{ borderColor: 'rgba(var(--aa-blue-rgb), 0.1)', borderTopColor: 'var(--aa-blue)' }} />
+                <span className="text-sm text-slate-400 font-medium animate-pulse">Loading applications...</span>
+              </div>
+            ) : filtered.length === 0 ? (
               <div className="app-grid-empty">
                 {apps.some((a) => appIsVisibleToViewer(a, location.pathname))
                   ? 'No apps match your search.'

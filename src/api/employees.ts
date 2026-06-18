@@ -2,6 +2,7 @@ import { apiRequest, getPortalAccountId, hasApiBase } from './client'
 import type { CustomerAddressPayload } from './customers'
 import type { RoleOption } from './roles'
 import type { Employee } from '../contexts/EmployeesContext'
+import { isConfiguredForExternalApi } from './config'
 
 /** Same shape as customer location payload (lat/lon + structured address for Address row + FK on backend). */
 export type { CustomerAddressPayload as EmployeeAddressPayload } from './customers'
@@ -373,22 +374,12 @@ let _cachedFallbackAddressId: number | undefined
 function orderedEmployeeListPaths(): string[] {
   const env = String(import.meta.env.VITE_EMPLOYEES_GET_PATH ?? '').trim()
   const fromEnv = env ? (env.startsWith('/') ? env : `/${env}`) : ''
-  const defaults = [
-    '/employees',
-    '/employees/get/employees',
-    '/get/employees',
-    '/employee/employees',
-    '/employees/list',
-    '/employees/all',
-    '/employees/getEmployees',
-    '/employees/get-emps',
-  ]
-  const out: string[] = []
-  if (fromEnv) out.push(fromEnv)
-  for (const p of defaults) {
-    if (p !== fromEnv && !out.includes(p)) out.push(p)
+  if (fromEnv) return [fromEnv]
+
+  if (isConfiguredForExternalApi()) {
+    return ['/employees/get/employees']
   }
-  return out
+  return ['/api/employees', '/employees']
 }
 
 /** Normalize common Express / Sequelize JSON envelopes to an employee row array. */

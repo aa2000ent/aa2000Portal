@@ -332,34 +332,11 @@ async function tryFetchAt(path: string): Promise<App[] | null> {
   }
 }
 
-let _cachedAppFetchPath: string | null = null
 
 export async function fetchApplications(): Promise<App[]> {
-  const externalPaths = ['/application/all/applications', '/all/applications', '/applications']
-  const localPaths = ['/api/applications']
-
-  // Fast path: reuse the endpoint that worked last time
-  if (_cachedAppFetchPath) {
-    const apps = await tryFetchAt(_cachedAppFetchPath)
-    if (apps) return apps
-    _cachedAppFetchPath = null
-  }
-
-  const paths = isConfiguredForExternalApi() ? externalPaths : localPaths
-
-  // Fire all paths in parallel — first success wins
-  try {
-    return await Promise.any(
-      paths.map(async (p) => {
-        const apps = await tryFetchAt(p)
-        if (!apps) throw new Error('no data')
-        _cachedAppFetchPath = p
-        return apps
-      }),
-    )
-  } catch {
-    return []
-  }
+  const path = isConfiguredForExternalApi() ? '/application/all/applications' : '/api/applications'
+  const apps = await tryFetchAt(path)
+  return apps ?? []
 }
 
 export type CreateApplicationInput = {

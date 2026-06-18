@@ -1,5 +1,6 @@
 import { apiRequest } from './client'
 import type { SessionLookupAccount } from '../utils/sessionLookupFields'
+import { isConfiguredForExternalApi } from './config'
 
 /**
  * Matches Express `GET /session/:sessionToken` where `sessionToken` === `Session.s_name`
@@ -54,8 +55,12 @@ function configuredSessionPrefixes(): string[] {
     .split(',')
     .map((x) => normalizePrefix(x))
     .filter(Boolean)
-  const merged = [...fromEnv, ...DEFAULT_SESSION_PATH_PREFIXES.map(normalizePrefix)]
-  return [...new Set(merged)]
+  if (fromEnv.length > 0) return fromEnv
+
+  if (isConfiguredForExternalApi()) {
+    return ['/security/session']
+  }
+  return ['/api/session', '/session']
 }
 
 function encodeToken(sessionToken: string): string {

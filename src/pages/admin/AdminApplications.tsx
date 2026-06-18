@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { hasApiBase } from '../../api/client'
 import { useRoles } from '../../contexts/RolesContext'
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useApplications, type App } from '../../contexts/ApplicationsContext'
@@ -79,6 +80,19 @@ export default function AdminApplications() {
   useEffect(() => {
     setCurrentPage(1)
   }, [search, departmentFilter])
+
+  useEffect(() => {
+    if (!hasApiBase()) return
+    let cancelled = false
+    fetchApplications()
+      .then((list) => {
+        if (!cancelled) setApps(list)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [setApps])
 
   const allNewDeptsSelected = roles.length > 0 && roles.every((r) => newApp.visibleTo.includes(r))
   const someNewDeptsSelected = newApp.visibleTo.length > 0 && !allNewDeptsSelected

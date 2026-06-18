@@ -61,8 +61,7 @@ function parseRoleList(data: unknown, useNormalize: boolean): RoleOption[] {
 let _cachedRoleFetchPath: string | null = null
 
 export async function fetchRoles(): Promise<RoleOption[]> {
-  const externalPaths = ['/roles/get/roles', '/roles']
-  const localPaths = ['/roles']
+  const path = isConfiguredForExternalApi() ? '/roles/get/roles' : '/roles'
 
   // Fast path: reuse the endpoint that worked last time
   if (_cachedRoleFetchPath) {
@@ -75,26 +74,17 @@ export async function fetchRoles(): Promise<RoleOption[]> {
     }
   }
 
-  const paths = isConfiguredForExternalApi() ? externalPaths : localPaths
-
-  // Fire all paths in parallel — first success wins
   try {
-    return await Promise.any(
-      paths.map(async (p) => {
-        try {
-          const data = await apiRequest<unknown>(p, { portal: { suppressFailureLog: true } })
-          const list = parseRoleList(data, p === '/roles/get/roles')
-          if (!list.length) throw new Error('empty')
-          _cachedRoleFetchPath = p
-          return list
-        } catch (err) {
-          throw err
-        }
-      }),
-    )
+    const data = await apiRequest<unknown>(path, { portal: { suppressFailureLog: true } })
+    const list = parseRoleList(data, path === '/roles/get/roles')
+    if (list.length) {
+      _cachedRoleFetchPath = path
+      return list
+    }
   } catch {
-    return []
+    // Ignore error
   }
+  return []
 }
 
 /** Resolve one role by id when the bulk `/roles` list misses a row (common with large DBs). */

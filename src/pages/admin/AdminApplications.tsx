@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { hasApiBase } from '../../api/client'
 import { useRoles } from '../../contexts/RolesContext'
 import { useActivityLog } from '../../contexts/ActivityLogContext'
 import { useApplications, type App } from '../../contexts/ApplicationsContext'
@@ -25,6 +26,7 @@ export default function AdminApplications() {
   const { addEntry } = useActivityLog()
   const { apps, setApps } = useApplications()
   const [search, setSearch] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
   const [departmentFilter, setDepartmentFilter] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [perPage, setPerPage] = useState(10)
@@ -79,6 +81,28 @@ export default function AdminApplications() {
   useEffect(() => {
     setCurrentPage(1)
   }, [search, departmentFilter])
+
+  useEffect(() => {
+    if (!hasApiBase()) {
+      setIsLoading(false)
+      return
+    }
+    let cancelled = false
+    setIsLoading(true)
+    fetchApplications()
+      .then((list) => {
+        if (!cancelled) {
+          setApps(list)
+          setIsLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [setApps])
 
   const allNewDeptsSelected = roles.length > 0 && roles.every((r) => newApp.visibleTo.includes(r))
   const someNewDeptsSelected = newApp.visibleTo.length > 0 && !allNewDeptsSelected
@@ -327,7 +351,12 @@ export default function AdminApplications() {
           </div>
 
           <div className="app-grid-wrap">
-            {filtered.length === 0 ? (
+            {isLoading ? (
+              <div className="app-grid-empty" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', padding: '3rem 1rem' }}>
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[var(--aa-blue)]" style={{ borderColor: 'rgba(var(--aa-blue-rgb), 0.1)', borderTopColor: 'var(--aa-blue)' }} />
+                <span className="text-sm text-slate-400 font-medium animate-pulse">Loading applications...</span>
+              </div>
+            ) : filtered.length === 0 ? (
               <div className="app-grid-empty">No apps match your search or filters.</div>
             ) : (
               <ul className="app-grid" aria-label="Application list">

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useRef, useEffect, useCallback, us
 import { io, type Socket } from 'socket.io-client'
 import callerRingtoneSrc from '../assets/ringtone/caller.mp3'
 import receiverRingtoneSrc from '../assets/ringtone/reciever.mp3'
-import { getPortalAccountId, getPortalEmpId, getPortalUsername, isPortalSessionActive } from '../api/client'
+import { getPortalAccountId, getPortalEmpId, getPortalUsername, getSessionId, isPortalSessionActive } from '../api/client'
 import { fetchEmployees } from '../api/employees'
 import { getBaseUrl } from '../api/config'
 import { cancelCallNotification } from '../utils/pushNotifications'
@@ -451,6 +451,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const socket = io(buildSocketBaseUrl(), {
         transports: ['polling', 'websocket'],
         withCredentials: true,
+        // Backend requires a valid session token on the socket handshake and
+        // derives the employee identity from it (no client-supplied employeeID).
+        auth: { token: getSessionId() ?? '' },
         timeout: 4000,
         reconnection: true,
         reconnectionAttempts: 50,

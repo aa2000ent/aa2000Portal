@@ -1,16 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <script>
-      (function () {
-        try {
-          var t = localStorage.getItem('aa-portal-theme');
-          document.documentElement.setAttribute('data-theme', t === 'light' || t === 'dark' ? t : 'dark');
-        } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'dark');
-        }
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
     <meta charset="UTF-8" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

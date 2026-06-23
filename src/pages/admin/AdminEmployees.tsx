@@ -545,6 +545,20 @@ export default function AdminEmployees() {
       updated = null
     }
 
+    // A password change must be confirmed by the server. If it wasn't, do NOT pretend it
+    // worked — the new credentials would not be saved and the user couldn't log in.
+    if (passwordForApi !== undefined && !updated) {
+      setConfirm({
+        open: true,
+        title: 'Credentials not saved',
+        message: `The server did not confirm the password change for ${name}, so their login was NOT updated. This usually means a permission issue (you need an Admin / General Manager / Super Admin role) or the employee has no linked account. Please try again.`,
+        confirmLabel: 'OK',
+        variant: 'danger',
+        onConfirm: () => setConfirm((c) => ({ ...c, open: false })),
+      })
+      return
+    }
+
     if (!updated && (empImageBase64 !== undefined && empImageBase64 !== null)) {
       console.error(
         '[Portal] updateEmployee returned null (image provided). base64_len=',
